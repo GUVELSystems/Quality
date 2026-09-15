@@ -1,18 +1,13 @@
 # GUVEL Quality — Phase 1.1
 
-Foundation, Design System & Navigation.
+Design System & Navigation polished starter.
 
-## Included
-- Responsive GUVEL Quality interface.
-- Brand-aligned top navigation.
-- Dashboard with quality KPI cards.
-- Audit, actions and risks views.
-- Reusable visual patterns and empty states.
-- Mobile navigation.
-- ES/EN selector placeholder.
+- Independent project
+- GUVEL official colors: #0cc0df and #ff3131
+- Dark industrial interface
+- Responsive navigation
+- Dashboard without “Nueva auditoría” button
+- Dashboard module cards: LPA, Producto, Proceso, Sistema, Auditorías internas, Notificaciones de Cliente, Riesgos y oportunidades
+- No backend connection yet
 
-## Run
-Open `index.html` in a browser. No build step is required.
-
-## Next
-Phase 1.2 — Authentication & Roles, followed by Supabase schema and configurable checklist engine.
+Open `index.html` in a browser.

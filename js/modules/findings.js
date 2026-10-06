@@ -95,7 +95,7 @@ function drawerHTML(f) {
     <div class="section-title"><span>Acciones (${acts.filter((a) => ["completada", "verificada"].includes(a.status)).length}/${acts.length})</span>
       ${db.can.write ? `<button class="btn sm" data-action="a-new" data-finding="${f.id}">${icon("plus")} Agregar</button>` : ""}</div>
     ${acts.length ? acts.map((a) => { const d = dueText(a.due_date); const late = d.overdue && !["completada", "verificada"].includes(a.status);
-      return `<div class="item-row"><div><div><span class="mono" style="color:var(--g-cyan)">${esc(a.code)}</span> ${badge(ACTION_TYPE, a.action_type)} ${badge(ACTION_STATUS, a.status)}</div>
+      return `<div class="item-row"><div><div><span class="mono code-ink">${esc(a.code)}</span> ${badge(ACTION_TYPE, a.action_type)} ${badge(ACTION_STATUS, a.status)}</div>
         <div style="margin-top:6px">${esc(a.description)}</div>
         <div class="meta">${esc(db.profileName(a.owner_id))} · <span class="${late ? "overdue" : ""}">${d.text}</span></div></div>
         ${db.can.write ? `<div style="display:flex;gap:6px">${a.status !== "verificada" ? `<button class="btn sm" data-action="a-next" data-id="${a.id}" title="Avanzar estado">${icon("chevR")}</button>` : ""}<button class="btn sm icon" data-action="a-edit" data-id="${a.id}" aria-label="Editar">${icon("edit")}</button></div>` : ""}</div>`; }).join("")

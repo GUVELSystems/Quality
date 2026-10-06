@@ -100,8 +100,8 @@ export default {
     const list = filtered();
     root.innerHTML = `
     <div class="stack">
-      <div class="grid cols-4">
-        <div class="kpi"><label>Abiertas</label><strong>${open.length}</strong><small>En seguimiento</small></div>
+      <div class="kpi-strip">
+        <div class="kpi" data-tone="info"><label>Abiertas</label><strong>${open.length}</strong><small>En seguimiento</small></div>
         <div class="kpi" data-tone="${late.length ? "danger" : "ok"}"><label>Respuesta vencida</label><strong>${late.length}</strong><small>Fuera del tiempo comprometido</small></div>
         <div class="kpi" data-tone="warn"><label>Críticas abiertas</label><strong>${open.filter((n) => n.severity === "critico").length}</strong><small>Severidad crítica</small></div>
         <div class="kpi" data-tone="ok"><label>Cerradas</label><strong>${all.length - open.length}</strong><small>Total histórico</small></div>

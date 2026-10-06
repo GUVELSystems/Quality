@@ -29,7 +29,7 @@ grant select, insert, update, delete on public.attachments to authenticated;
 
 drop policy if exists attachments_select on public.attachments;
 create policy attachments_select on public.attachments
-  for select to authenticated using (true);
+  for select to authenticated using (public.is_member());
 
 drop policy if exists attachments_insert on public.attachments;
 create policy attachments_insert on public.attachments
@@ -80,7 +80,7 @@ on conflict (id) do update
 
 drop policy if exists evidence_select on storage.objects;
 create policy evidence_select on storage.objects
-  for select to authenticated using (bucket_id = 'evidence');
+  for select to authenticated using (bucket_id = 'evidence' and public.is_member());
 
 drop policy if exists evidence_insert on storage.objects;
 create policy evidence_insert on storage.objects

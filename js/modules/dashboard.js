@@ -54,9 +54,13 @@ export default {
       ...db.rows("actions").map((r) => ({ at: r.updated_at || r.created_at, text: `Acción ${r.code} · ${r.description}`, to: `findings/${r.finding_id}` })),
     ].filter((x) => x.at).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6);
 
+    const mine = db.rows("audits").filter((a) => a.assigned_to === db.state.profile.id && ["programada", "en_proceso"].includes(a.status)).sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date));
+    const minePanel = mine.length ? `<div class="panel"><div class="panel-head"><h2>Mis auditorías pendientes</h2><small>${mine.length} asignada(s) a ti</small></div><div class="table-wrap"><table class="table"><tbody>
+      ${mine.slice(0, 5).map((a) => { const p = db.get("audit_plans", a.plan_id); return `<tr><td><a href="#/audits/${a.id}" class="code">${esc(a.code)}</a><span class="sub">${esc(p?.audit_type || "")}${a.level ? " · Nivel " + a.level : ""}</span></td><td>${esc(p?.name || "")}</td><td>${fmtDate(a.scheduled_date)}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="end"><a class="btn sm primary" href="#/audits/${a.id}">Realizar</a></td></tr>`; }).join("")}</tbody></table></div></div>` : "";
     root.innerHTML = `
     <div class="stack">
-      <div class="grid cols-4">
+      ${minePanel}
+      <div class="kpi-strip">
         ${kpi("Hallazgos abiertos", openF.length, `${critF.length} crítico(s)`, { href: "#/findings", tone: critF.length ? "danger" : "" })}
         ${kpi("Hallazgos vencidos", overdueF.length, "Fecha compromiso superada", { href: "#/findings", tone: overdueF.length ? "danger" : "ok" })}
         ${kpi("Cumplimiento de auditorías", compliance + "%", `${doneAud.length} de ${monthAud.length} del mes`, { href: "#/audits", tone: compliance >= 90 ? "ok" : compliance >= 70 ? "warn" : "danger" })}

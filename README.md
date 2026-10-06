@@ -4,14 +4,14 @@
 
 Portal de gestión de calidad de **GUVEL · Smarter Industrial Systems**: auditorías, hallazgos, acciones, notificaciones de cliente, riesgos y oportunidades en un solo lugar.
 
-Aplicación web estática (HTML + CSS + JavaScript ES modules, **sin build**) con **Supabase** como backend (Auth + PostgreSQL + RLS). Se publica tal cual en GitHub Pages.
+Aplicación web estática (HTML + CSS + JavaScript ES modules, **sin build**) con **Supabase** como backend (Auth + PostgreSQL + RLS + Edge Functions) y **Resend** para correos. Se publica tal cual en GitHub Pages. Comparte el sistema de diseño de **GUVEL Operational**.
 
 ## Módulos
 
 | Módulo | Qué hace |
 |---|---|
 | **Dashboard** | KPIs (hallazgos abiertos/vencidos, cumplimiento de auditorías, notificaciones, acciones vencidas, riesgos altos), gráficas, vencimientos críticos y actividad reciente. |
-| **Auditorías** | Planes (LPA, Producto, Proceso, Sistema, Interna) con frecuencia semanal/quincenal/mensual/custom, **calendario mensual**, generación automática de auditorías, asignación, nivel LPA, límite de entrega y **ejecución de checklist** con resultado (%) y **hallazgos generados automáticamente** por cada punto que no cumple. |
+| **Auditorías** | **Asistente de plan** (tipo → frecuencia → fecha de inicio): el calendario se genera solo con la duración de la frecuencia (semanal 7 días, quincenal 15, mensual 1 mes, personalizado). Sábados y domingos aparecen en **naranja tenue** (inhábiles) y se habilitan solos al asignar a alguien. **Asignación rápida** por días y rotación de auditores, **exportación a PDF** del plan y **«Terminar y Enviar»**: cada persona recibe por correo el plan (PDF adjunto) y una notificación por auditoría con enlace directo para realizarla. Ejecución de checklist con resultado (%) y **hallazgos generados automáticamente** por cada punto que no cumple. |
 | **Evidencias** | Fotos y documentos (imágenes, PDF, Office, TXT, CSV) en **hallazgos**, **notificaciones de cliente** y **auditorías** (generales y **por pregunta del checklist**). Las fotos se comprimen automáticamente antes de subir; archivos en bucket privado con URLs firmadas temporales. |
 | **Hallazgos** | Flujo *Abierto → En análisis → En acción → Verificación → Cerrado*, severidad, origen, responsable, fecha compromiso, causa raíz, acciones vinculadas, exportación CSV. |
 | **Acciones** | Contención / correctiva / preventiva, con seguimiento y filtros (vencidas, solo mías). |
@@ -34,23 +34,17 @@ python3 -m http.server 8000
 
 ## Conectar Supabase (producción)
 
-1. Crea un proyecto en [supabase.com](https://supabase.com).
-2. En **SQL Editor** ejecuta, **en este orden**:
-   1. `supabase/01_schema.sql` – tablas, códigos automáticos, triggers, bitácora.
-   2. `supabase/02_policies.sql` – seguridad por roles (RLS).
-   3. `supabase/03_seed.sql` – catálogos y 3 formatos base (LPA, Producto, Proceso).
-   4. `supabase/04_attachments.sql` – evidencias: tabla `attachments`, bucket privado `evidence` (10 MB/archivo) y sus políticas.
-3. En **Authentication → Users → Add user** crea tu usuario. **El primer usuario queda como administrador**; los siguientes inician como *Consulta* y el admin les asigna rol en *Configuración → Usuarios*.
-4. En **Project Settings → API** copia *Project URL* y la clave **anon public** y pégalas en `js/config.js`:
-   ```js
-   export const CONFIG = {
-     SUPABASE_URL: "https://xxxx.supabase.co",
-     SUPABASE_ANON_KEY: "eyJ...",   // anon/public. NUNCA la service_role
-   };
-   ```
-5. (Recomendado) En **Authentication → URL Configuration** agrega la URL donde publiques el sitio.
+Guía completa paso a paso (Auth, SMTP, Resend, Edge Functions, checklist de pruebas y solución de problemas): **[`docs/SETUP_SUPABASE.md`](docs/SETUP_SUPABASE.md)**.
 
-> La clave *anon* es pública por diseño: la seguridad real la dan las políticas RLS de `02_policies.sql`. Nunca subas la clave `service_role` al repositorio.
+Resumen:
+
+1. Crea un proyecto en [supabase.com](https://supabase.com) y ejecuta en el **SQL Editor**, en orden: `supabase/01_schema.sql` → `02_policies.sql` → `03_seed.sql` → `04_attachments.sql` → `05_audit_notifications.sql`.
+2. **Auth**: desactiva el registro libre («Allow new users to sign up»), define *Site URL* y *Redirect URLs* con la URL del portal.
+3. Crea tu usuario en *Authentication → Users*. **El primer usuario es administrador**; a los demás los invitas desde el portal (*Configuración → Usuarios → Invitar usuario*).
+4. Despliega las Edge Functions (`invite-user`, `notify-audit-plan`) y carga los secretos `RESEND_API_KEY`, `FROM_EMAIL`, `SITE_URL`.
+5. Pega la URL y la clave **anon** en `js/config.js`.
+
+> La clave *anon* es pública por diseño: la seguridad real la dan las políticas RLS. Nunca subas la `service_role`. Los usuarios sin perfil activo no ven ningún dato.
 
 ### Roles
 
@@ -94,19 +88,25 @@ En GitHub: **Settings → Pages → Source: GitHub Actions**. El workflow `.gith
 │   ├── router.js            router por hash (#/findings/…)
 │   ├── db.js                capa de datos (Supabase o demo, misma API)
 │   ├── seed.js              datos del modo demo
+│   ├── pdf.js               exportación del plan a PDF
+│   ├── vendor/              supabase-js, jsPDF, autotable (sin CDN)
 │   ├── ui.js · utils.js · icons.js · constants.js
 │   └── modules/             un archivo por módulo
-├── supabase/                01_schema · 02_policies · 03_seed · 04_attachments (SQL)
-├── docs/DESIGN.md           guía de diseño
+├── supabase/
+│   ├── 01…05_*.sql          esquema, seguridad, catálogos, adjuntos, notificaciones
+│   └── functions/           Edge Functions: invite-user · notify-audit-plan (+ plantillas de correo)
+├── docs/
+│   ├── SETUP_SUPABASE.md    guía de configuración completa
+│   └── DESIGN.md            guía de diseño
 └── .github/workflows/       despliegue a GitHub Pages
 ```
 
 ## Diseño
 
-El lenguaje visual sale del logotipo GUVEL: **navy `#0f1b2d`**, **cian `#0cc0df`** y **hielo `#eaf2f8`**, con la geometría isométrica a 30° (esquinas biseladas, patrón de líneas, indicadores en forma de rombo). Todo vive en `css/tokens.css`; ver [`docs/DESIGN.md`](docs/DESIGN.md).
+Usa los mismos tokens que **GUVEL Operational** (design system v3): navy `#0F1B2D`, cian `#0CC0DF`, hielo `#EAF2F8`, tipografía Manrope, barra superior navy con subrayado cian, paneles blancos con esquina biselada y marcadores hexagonales de estado. Tema **claro/oscuro** (sigue al sistema y se puede cambiar con el botón de la barra). Todo vive en `css/tokens.css`; ver [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## Hoja de ruta sugerida
 
-- Notificaciones por correo de vencimientos (Edge Function + cron).
+- Recordatorios automáticos por correo de auditorías próximas/vencidas (cron de Supabase).
 - Reporte 8D / PDF por notificación de cliente.
 - Tablero de indicadores por área/línea y Pareto de defectos.

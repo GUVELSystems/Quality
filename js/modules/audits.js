@@ -1,17 +1,27 @@
 import * as db from "../db.js";
-import { esc, today, isoDate, parseDate, addDays, fmtDate, fmtDateTime, toLocalInput, fromLocalInput, MONTHS_LONG } from "../utils.js";
+import { esc, today, addDays, fmtDate, fmtDateTime, toLocalInput, fromLocalInput, periodEnd, eachDay, isWeekend, mondayOf, parseDate, DOW_SHORT, rangeText } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead, rerender, navigate } from "../router.js";
-import { on, onChange, onInput, badge, empty, openForm, confirmDialog, toast } from "../ui.js";
-import { AUDIT_TYPES, FREQUENCIES, AUDIT_STATUS, SEVERITY, SEVERITY_SLA_DAYS } from "../constants.js";
+import { on, onChange, onInput, badge, pill, empty, openForm, openDialog, confirmDialog, toast } from "../ui.js";
+import { AUDIT_TYPES, AUDIT_STATUS, SEVERITY, SEVERITY_SLA_DAYS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts } from "./shared.js";
 
-const DOW = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 let tab = "plans";
 const F = { q: "", status: "", mine: "" };
-const cal = { planId: null, y: 0, m: 0 };
+let currentPlanId = null;
 let draft = null; // { auditId, answers: { itemId: {result, comment, finding_id} } }
+
+const PLAN_STATUS = { borrador: ["Borrador", "warn"], enviado: ["Enviado", "ok"] };
+const TYPE_INFO = {
+  LPA: "Auditoría en capas del proceso",
+  Producto: "Verificación de producto terminado",
+  Proceso: "Método y parámetros de proceso",
+  Sistema: "Sistema de gestión (ISO / IATF)",
+  Interna: "Auditoría interna general",
+};
+const FREQ_INFO = [["Semanal", "Semanal", "7 días"], ["Quincenal", "Quincenal", "15 días"], ["Mensual", "Mensual", "1 mes"], ["Custom", "Personalizado", "Tú eliges"]];
+const MAX_CUSTOM_DAYS = 92;
 
 /** Estado efectivo: una auditoría pendiente fuera de plazo se muestra como vencida */
 export function auditStatus(a) {
@@ -23,99 +33,219 @@ export function auditStatus(a) {
 }
 const itemsOf = (formId) => db.rows("form_items").filter((i) => i.form_id === formId).sort((a, b) => a.position - b.position);
 const firstName = (id) => (db.get("profiles", id)?.full_name || "Sin asignar").split(" ")[0];
+const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
+const planName = (p) => p.name || `${p.audit_type} · ${rangeText(p.start_date, p.end_date)}`;
+const isPending = (a) => a.assigned_to && a.status !== "cancelada" && (!a.notified_at || a.notified_to !== a.assigned_to);
 
-/* ------------------------- Generación de calendario ------------------ */
-function slotDates(plan) {
-  const out = [], { start_date: s, end_date: e, frequency } = plan;
-  if (frequency === "Semanal" || frequency === "Quincenal") {
-    for (let d = s; d <= e; d = addDays(d, frequency === "Semanal" ? 7 : 14)) out.push(d);
-  } else if (frequency === "Mensual") {
-    const base = parseDate(s);
-    for (let i = 0; i < 60; i++) {
-      const lastDay = new Date(base.getFullYear(), base.getMonth() + i + 1, 0).getDate();
-      const d = isoDate(new Date(base.getFullYear(), base.getMonth() + i, Math.min(base.getDate(), lastDay)));
-      if (d > e) break;
-      out.push(d);
+/* ===================================================================== */
+/*  Asistente: crear plan                                                 */
+/* ===================================================================== */
+function miniCal(start, end) {
+  if (!start || !end || end < start) return "";
+  const cells = ["L", "M", "M", "J", "V", "S", "D"].map((d) => `<span class="hdr">${d}</span>`);
+  for (let m = mondayOf(start); m <= end; m = addDays(m, 7)) {
+    for (const d of eachDay(m, addDays(m, 6))) {
+      const inR = d >= start && d <= end;
+      cells.push(`<span class="${!inR ? "out" : isWeekend(d) ? "off" : ""}">${inR ? parseDate(d).getDate() : ""}</span>`);
     }
   }
-  return out;
-}
-async function generateAudits(plan) {
-  const existing = new Set(db.rows("audits").filter((a) => a.plan_id === plan.id).map((a) => a.scheduled_date));
-  const form = db.rows("forms").find((f) => f.audit_type === plan.audit_type && f.active);
-  const dates = slotDates(plan).filter((d) => !existing.has(d)).slice(0, 200);
-  for (const d of dates) {
-    await db.insert("audits", { plan_id: plan.id, scheduled_date: d, form_id: form?.id || null, level: plan.audit_type === "LPA" ? 1 : null, due_at: new Date(d + "T17:00:00").toISOString(), status: "programada" });
-  }
-  return dates.length;
+  return `<div class="mini-cal">${cells.join("")}</div>`;
 }
 
-/* ------------------------------ Formularios -------------------------- */
-function planForm() {
-  const start = today();
-  openForm({
-    eyebrow: "Nuevo plan", title: "Crear plan de auditoría", submitLabel: "Generar calendario",
-    values: { audit_type: "LPA", frequency: "Semanal", start_date: start, end_date: addDays(start, 30), generate: true },
-    fields: [
-      { name: "audit_type", label: "Tipo de auditoría", type: "select", required: true, options: AUDIT_TYPES.map((t) => [t, t]) },
-      { name: "frequency", label: "Frecuencia", type: "select", required: true, options: FREQUENCIES.map((t) => [t, t]) },
-      { name: "start_date", label: "Fecha inicial", type: "date", required: true },
-      { name: "end_date", label: "Fecha final", type: "date", required: true },
-      { name: "notes", label: "Notas del plan", type: "textarea", span2: true },
-      { name: "generate", label: "Generar automáticamente las auditorías según la frecuencia (Custom = manual)", type: "checkbox", span2: true },
-    ],
-    onSubmit: async (v) => {
-      if (v.end_date < v.start_date) throw new Error("La fecha final no puede ser anterior a la inicial.");
-      const { generate, ...data } = v;
-      const plan = await db.insert("audit_plans", data);
-      const n = generate ? await generateAudits(plan) : 0;
-      toast(`${plan.code} creado${n ? ` con ${n} auditoría(s)` : ""}`, "ok");
-      navigate(`audits/plan/${plan.id}`);
-    },
+function planWizard() {
+  const w = { type: "LPA", frequency: "Mensual", start: today(), end: addDays(today(), 13) };
+  const body = `
+    <div class="wiz-step"><div class="wiz-label"><i>1</i>¿Qué tipo de auditoría es?</div>
+      <div class="opt-cards" id="w-types">${AUDIT_TYPES.map((t) => `<button type="button" class="opt-card" data-type="${t}"><b>${t}</b><small>${TYPE_INFO[t]}</small></button>`).join("")}</div></div>
+    <div class="wiz-step"><div class="wiz-label"><i>2</i>¿Cada cuánto? <span class="muted" style="font-weight:400">El calendario se arma solo, con la duración de la frecuencia.</span></div>
+      <div class="freq-seg" id="w-freq">${FREQ_INFO.map(([v, l, s]) => `<button type="button" data-freq="${v}"><b>${l}</b><small>${s}</small></button>`).join("")}</div></div>
+    <div class="wiz-step"><div class="wiz-label"><i>3</i>¿Desde qué día inicia?</div>
+      <div class="form-grid"><label class="field"><span>Fecha de inicio</span><input class="input" type="date" id="w-start" value="${w.start}"></label>
+      <label class="field" id="w-end-wrap" hidden><span>Fecha final</span><input class="input" type="date" id="w-end" value="${w.end}"></label></div>
+      <div class="period-box" id="w-preview" style="margin-top:14px"></div></div>
+    <div class="wiz-step" style="margin-bottom:0"><div class="wiz-label"><i>4</i>Detalles <span class="muted" style="font-weight:400">(opcionales)</span></div>
+      <div class="form-grid"><label class="field span-2"><span>Nombre del plan</span><input class="input" id="w-name" maxlength="80" placeholder=""></label>
+      <label class="field span-2"><span>Notas</span><textarea class="textarea" id="w-notes" style="min-height:60px" placeholder="Línea, turno, alcance…"></textarea></label></div></div>
+    <div class="alert hidden" id="w-err" style="margin-top:14px"></div>`;
+  const dlg = openDialog({
+    eyebrow: "Nuevo plan", title: "Crear plan de auditoría", size: "wide", body,
+    footer: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="w-ok">${icon("calendar")} Crear plan y abrir calendario</button>`,
+  });
+  const $ = (s) => dlg.el.querySelector(s);
+  const endOf = () => (w.frequency === "Custom" ? w.end : periodEnd(w.frequency, w.start));
+  const paint = () => {
+    $("#w-types").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.type === w.type)));
+    $("#w-freq").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.freq === w.frequency)));
+    $("#w-end-wrap").hidden = w.frequency !== "Custom";
+    const end = endOf(), box = $("#w-preview");
+    if (!w.start || !end || end < w.start) { box.innerHTML = `<div><div class="big">Elige las fechas</div><div class="sub">La fecha final debe ser igual o posterior a la inicial.</div></div>`; return; }
+    const days = eachDay(w.start, end), off = days.filter(isWeekend).length;
+    box.innerHTML = `<div><div class="big">${fmtDate(w.start)} → ${fmtDate(end)}</div>
+      <div class="sub">${days.length} días · ${days.length - off} hábiles · <b>${off} inhábiles (sáb y dom, en naranja)</b>. Si asignas a alguien en fin de semana, ese día se habilita.</div></div>${miniCal(w.start, end)}`;
+    $("#w-name").placeholder = `${w.type} · ${fmtDate(w.start)} al ${fmtDate(end)}`;
+  };
+  $("#w-types").addEventListener("click", (e) => { const b = e.target.closest("[data-type]"); if (b) { w.type = b.dataset.type; paint(); } });
+  $("#w-freq").addEventListener("click", (e) => { const b = e.target.closest("[data-freq]"); if (b) { w.frequency = b.dataset.freq; paint(); } });
+  $("#w-start").addEventListener("input", (e) => { w.start = e.target.value; if (w.end < w.start) w.end = addDays(w.start, 13), ($("#w-end").value = w.end); paint(); });
+  $("#w-end").addEventListener("input", (e) => { w.end = e.target.value; paint(); });
+  paint();
+  $("#w-ok").addEventListener("click", async (e) => {
+    const err = $("#w-err"), end = endOf();
+    const fail = (m) => { err.textContent = m; err.classList.remove("hidden"); };
+    if (!w.start) return fail("Elige la fecha de inicio.");
+    if (!end || end < w.start) return fail("La fecha final debe ser igual o posterior a la inicial.");
+    if (eachDay(w.start, end).length > MAX_CUSTOM_DAYS) return fail(`El periodo no puede exceder ${MAX_CUSTOM_DAYS} días.`);
+    e.target.disabled = true;
+    try {
+      const plan = await db.insert("audit_plans", { name: $("#w-name").value.trim() || `${w.type} · ${fmtDate(w.start)} al ${fmtDate(end)}`, audit_type: w.type, frequency: w.frequency, start_date: w.start, end_date: end, notes: $("#w-notes").value.trim(), status: "borrador" });
+      dlg.close(); toast(`${plan.code} creado. Asigna a tu equipo en el calendario.`, "ok"); navigate(`audits/plan/${plan.id}`);
+    } catch (ex) { fail(ex.message); e.target.disabled = false; }
   });
 }
 
+/* ===================================================================== */
+/*  Formularios: auditoría individual, edición del plan, asignación rápida */
+/* ===================================================================== */
 function scheduleForm(audit, plan, date) {
   const type = plan?.audit_type;
   openForm({
-    eyebrow: audit ? audit.code : `Auditoría programada${plan ? " · " + plan.code : ""}`,
-    title: audit ? "Editar programación" : "Agregar auditoría",
-    submitLabel: audit ? "Guardar" : "Programar auditoría",
+    eyebrow: audit ? audit.code : `${plan?.code || "Plan"} · ${fmtDate(date)}`,
+    title: audit ? "Editar auditoría" : "Asignar auditoría", submitLabel: audit ? "Guardar" : "Asignar",
+    intro: audit ? `<p style="margin-bottom:14px"><a class="btn sm" href="#/audits/${audit.id}" data-close>${icon("audit")} Abrir checklist de la auditoría</a></p>` : "",
     values: audit ? { ...audit, due_at: toLocalInput(audit.due_at) } : { scheduled_date: date, due_at: `${date}T17:00`, level: 1, form_id: db.rows("forms").find((f) => f.audit_type === type && f.active)?.id },
     fields: [
-      { name: "scheduled_date", label: "Fecha programada", type: "date", required: true },
-      { name: "assigned_to", label: "Asignado a", type: "select", options: userOpts() },
-      ...(type === "LPA" ? [{ name: "level", label: "Nivel de auditoría (LPA)", type: "select", options: [1, 2, 3, 4, 5].map((n) => [n, `Nivel ${n}`]), parse: (v) => (v ? Number(v) : null) }] : []),
+      { name: "scheduled_date", label: "Fecha", type: "date", required: true },
+      { name: "assigned_to", label: "Asignado a", type: "select", options: staff().map((p) => [p.id, p.full_name]) },
+      ...(type === "LPA" ? [{ name: "level", label: "Nivel (LPA)", type: "select", options: [1, 2, 3, 4, 5].map((n) => [n, `Nivel ${n}`]), parse: (v) => (v ? Number(v) : null) }] : []),
       { name: "form_id", label: "Formato / checklist", type: "select", options: db.rows("forms").filter((f) => f.active && (!type || f.audit_type === type)).map((f) => [f.id, `${f.code} · ${f.name}`]) },
-      { name: "due_at", label: "Tiempo límite de entrega", type: "datetime" },
+      { name: "due_at", label: "Límite de entrega", type: "datetime" },
       ...(audit ? [{ name: "status", label: "Estado", type: "select", required: true, options: ["programada", "en_proceso", "completada", "cancelada"].map((s) => [s, AUDIT_STATUS[s][0]]) }] : []),
       { name: "notes", label: "Notas", type: "textarea", span2: true },
     ],
     onSubmit: async (v) => {
+      if (plan && (v.scheduled_date < plan.start_date || v.scheduled_date > plan.end_date)) throw new Error(`La fecha debe estar dentro del plan (${rangeText(plan.start_date, plan.end_date)}).`);
       const data = { ...v, due_at: fromLocalInput(v.due_at) };
       if (audit) await db.update("audits", audit.id, data);
-      else { const r = await db.insert("audits", { ...data, plan_id: plan.id, status: "programada" }); toast(`${r.code} programada`, "ok"); }
+      else { const r = await db.insert("audits", { ...data, plan_id: plan.id, status: "programada" }); toast(`${r.code} asignada`, "ok"); }
       await rerender();
     },
     onDelete: audit && db.can.manage ? async () => { const pid = audit.plan_id; await db.remove("audits", audit.id); toast("Auditoría eliminada"); navigate(pid ? `audits/plan/${pid}` : "audits"); } : null,
   });
 }
 
-/* --------------------------------- Vistas ---------------------------- */
+function editPlan(plan) {
+  openForm({
+    eyebrow: plan.code, title: "Editar plan", values: plan, submitLabel: "Guardar",
+    fields: [{ name: "name", label: "Nombre del plan", required: true, span2: true }, { name: "notes", label: "Notas", type: "textarea", span2: true }],
+    onSubmit: async (v) => { await db.update("audit_plans", plan.id, v); toast("Plan actualizado", "ok"); await rerender(); },
+    onDelete: db.can.manage ? async () => { await db.remove("audit_plans", plan.id); toast("Plan eliminado"); navigate("audits"); } : null,
+  });
+}
+
+function bulkAssign(plan) {
+  const days = eachDay(plan.start_date, plan.end_date);
+  const forms = db.rows("forms").filter((f) => f.active && f.audit_type === plan.audit_type);
+  const people = staff();
+  const st = { wd: new Set([1, 2, 3, 4, 5]), people: new Set(), skip: true };
+  const WD = [[1, "Lun"], [2, "Mar"], [3, "Mié"], [4, "Jue"], [5, "Vie"], [6, "Sáb"], [0, "Dom"]];
+  const dlg = openDialog({
+    eyebrow: plan.code, title: "Asignación rápida", size: "wide",
+    body: `<p class="muted" style="margin-bottom:16px">Crea varias auditorías de una vez: elige los días, las personas (se turnan en orden) y el formato.</p>
+      <div class="wiz-step"><div class="wiz-label"><i>1</i>Días de la semana</div><div class="chips" id="b-days">${WD.map(([n, l]) => `<button type="button" class="chip ${n === 0 || n === 6 ? "off" : ""}" data-wd="${n}" aria-pressed="${st.wd.has(n)}">${l}</button>`).join("")}</div>
+        <small class="muted" style="display:block;margin-top:6px">Sáb y Dom son inhábiles; si los eliges, esos días quedan habilitados.</small></div>
+      <div class="wiz-step"><div class="wiz-label"><i>2</i>Auditores <span class="muted" style="font-weight:400">(se turnan en orden)</span></div>
+        <div class="pick-list" id="b-people">${people.map((p) => `<label><input type="checkbox" value="${p.id}">${esc(p.full_name)}<small>${esc(p.area || "")}</small></label>`).join("") || '<div class="muted" style="padding:12px">No hay usuarios con rol de auditor.</div>'}</div></div>
+      <div class="wiz-step"><div class="wiz-label"><i>3</i>Formato y límite</div><div class="form-grid">
+        <label class="field span-2"><span>Formato / checklist</span><select class="select" id="b-form">${forms.map((f) => `<option value="${f.id}">${esc(f.code)} · ${esc(f.name)}</option>`).join("")}</select></label>
+        ${plan.audit_type === "LPA" ? `<label class="field"><span>Nivel (LPA)</span><select class="select" id="b-level">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}">Nivel ${n}</option>`).join("")}</select></label>` : ""}
+        <label class="field"><span>Hora límite de entrega</span><input class="input" type="time" id="b-time" value="17:00"></label>
+        <label class="check span-2"><input type="checkbox" id="b-skip" checked> Omitir días que ya tienen una auditoría</label></div></div>
+      <div class="note" id="b-sum"></div><div class="alert hidden" id="b-err" style="margin-top:12px"></div>`,
+    footer: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="b-ok">${icon("wand")} Crear auditorías</button>`,
+  });
+  const $ = (s) => dlg.el.querySelector(s);
+  const targets = () => {
+    const taken = new Set(db.rows("audits").filter((a) => a.plan_id === plan.id && a.status !== "cancelada").map((a) => a.scheduled_date));
+    return days.filter((d) => st.wd.has(parseDate(d).getDay()) && !($("#b-skip").checked && taken.has(d)));
+  };
+  const sum = () => { const n = targets().length; $("#b-sum").innerHTML = n ? `Se crearán <b>${n}</b> auditoría(s)${st.people.size ? ` repartidas entre <b>${st.people.size}</b> persona(s)` : ", <b>sin asignar</b> (elige al menos un auditor para asignarlas)"}.` : "No hay días que cumplan con la selección."; };
+  $("#b-days").addEventListener("click", (e) => { const b = e.target.closest("[data-wd]"); if (!b) return; const n = Number(b.dataset.wd); st.wd.has(n) ? st.wd.delete(n) : st.wd.add(n); b.setAttribute("aria-pressed", String(st.wd.has(n))); sum(); });
+  $("#b-people").addEventListener("change", (e) => { e.target.checked ? st.people.add(e.target.value) : st.people.delete(e.target.value); sum(); });
+  $("#b-skip").addEventListener("change", sum);
+  sum();
+  $("#b-ok").addEventListener("click", async (e) => {
+    const list = targets(), who = people.filter((p) => st.people.has(p.id)).map((p) => p.id);
+    if (!list.length) { $("#b-err").textContent = "No hay días para crear."; $("#b-err").classList.remove("hidden"); return; }
+    e.target.disabled = true;
+    try {
+      for (const [i, d] of list.entries()) {
+        await db.insert("audits", { plan_id: plan.id, scheduled_date: d, assigned_to: who.length ? who[i % who.length] : null, form_id: $("#b-form").value || null, level: $("#b-level") ? Number($("#b-level").value) : null, due_at: new Date(`${d}T${$("#b-time").value || "17:00"}:00`).toISOString(), status: "programada" });
+      }
+      dlg.close(); toast(`${list.length} auditoría(s) creadas`, "ok"); await rerender();
+    } catch (ex) { $("#b-err").textContent = ex.message; $("#b-err").classList.remove("hidden"); e.target.disabled = false; }
+  });
+}
+
+/* ===================================================================== */
+/*  Terminar y enviar                                                     */
+/* ===================================================================== */
+async function sendPlan(plan) {
+  const unassigned = db.rows("audits").filter((a) => a.plan_id === plan.id && a.status !== "cancelada" && !a.assigned_to).length;
+  let all = false, rec = db.planRecipients(plan.id);
+  if (!rec.length) {
+    const any = db.planRecipients(plan.id, { all: true });
+    if (!any.length) { toast("Asigna al menos una auditoría a una persona antes de enviar.", "danger"); return; }
+    if (!(await confirmDialog({ title: "Todo ya fue notificado", message: "No hay cambios pendientes. ¿Quieres reenviar el plan y las notificaciones a todos?", confirmLabel: "Reenviar a todos" }))) return;
+    all = true; rec = any;
+  }
+  const total = rec.reduce((n, r) => n + r.audits.length, 0);
+  const dlg = openDialog({
+    eyebrow: plan.code, title: plan.status === "enviado" ? "Reenviar notificaciones" : "Terminar y enviar", size: "wide",
+    body: `<p style="margin-bottom:14px">Se enviarán <b>${rec.length} correo(s) con el plan</b> y <b>${total} notificación(es) individuales</b>. Cada persona recibe el plan (PDF adjunto) y un aviso por cada auditoría asignada, con un enlace directo para realizarla.</p>
+      ${db.state.demo ? `<div class="note warn" style="margin-bottom:14px"><b>Modo demo:</b> no se envían correos reales; el plan se marcará como enviado y se descargará el PDF.</div>` : ""}
+      ${unassigned ? `<div class="note warn" style="margin-bottom:14px"><b>${unassigned} auditoría(s) sin asignar</b> no se notificarán.</div>` : ""}
+      <div style="border:1px solid var(--line-soft)">${rec.map((r) => `<div class="recipient"><div><b>${esc(r.profile.full_name)}</b><div class="muted" style="font-size:13px">${esc(r.profile.email || "sin correo")}</div></div><div style="text-align:right"><b>${r.audits.length}</b> <span class="muted">auditoría(s)</span><div class="muted" style="font-size:12.5px">${r.audits.slice(0, 4).map((a) => fmtDate(a.scheduled_date).slice(0, -5)).join(" · ")}${r.audits.length > 4 ? "…" : ""}</div></div></div>`).join("")}</div>
+      <div class="alert hidden" id="s-err" style="margin-top:14px"></div>`,
+    footer: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="s-ok">${icon("send")} Enviar ahora</button>`,
+  });
+  dlg.el.querySelector("#s-ok").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button"), err = dlg.el.querySelector("#s-err");
+    btn.disabled = true; btn.textContent = "Enviando…"; err.classList.add("hidden");
+    try {
+      const { buildPlanPDF } = await import("../pdf.js");
+      const { doc, filename } = await buildPlanPDF(plan.id);
+      const res = await db.notifyPlan(plan.id, { pdfBase64: db.state.demo ? null : doc.output("datauristring").split(",")[1], all });
+      doc.save(filename);
+      dlg.close();
+      const failed = res.failed?.length || 0;
+      toast(db.state.demo ? `Plan marcado como enviado (demo) · PDF descargado` : `Enviado: ${res.sent_plan} plan(es) y ${res.sent_audits} notificación(es)${failed ? ` · ${failed} con error` : ""} · PDF descargado`, failed ? "danger" : "ok");
+      if (failed) openDialog({ eyebrow: "Envío", title: "Algunos correos no se enviaron", body: `<div>${res.failed.map((f) => `<div class="item-row"><div><b>${esc(f.email || "")}</b><div class="meta">${esc(f.kind)} · ${esc(f.error)}</div></div></div>`).join("")}</div>`, footer: `<button class="btn" data-close>Cerrar</button>` });
+      await rerender();
+    } catch (ex) {
+      const m = /not found|404|Failed to send a request/i.test(ex.message) ? "La función de correo no está disponible. Revisa que esté desplegada (docs/SETUP_SUPABASE.md)." : ex.message;
+      err.textContent = m; err.classList.remove("hidden"); btn.disabled = false; btn.innerHTML = `${icon("send")} Reintentar`;
+    }
+  });
+}
+
+/* ===================================================================== */
+/*  Vistas                                                                */
+/* ===================================================================== */
 function listView(root) {
   setHead({
-    eyebrow: "Gestión de calidad", title: "Auditorías", subtitle: "Planifica, programa y controla tus auditorías: LPA, producto, proceso, sistema e internas.",
-    actions: db.can.manage ? `<button class="btn primary" data-action="au-plan-new">${icon("plus")} Crear plan de auditoría</button>` : "",
+    eyebrow: "Gestión de calidad", title: "Auditorías", subtitle: "Crea planes por periodo, asigna a tu equipo y envía las notificaciones para que realicen cada auditoría.",
+    actions: db.can.write ? `<button class="btn primary" data-action="au-plan-new">${icon("plus")} Crear plan de auditoría</button>` : "",
   });
   const plans = db.rows("audit_plans").sort((a, b) => b.start_date.localeCompare(a.start_date));
   const all = db.rows("audits");
   let body;
   if (tab === "plans") {
-    body = plans.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Plan</th><th>Tipo</th><th>Frecuencia</th><th>Periodo</th><th style="min-width:180px">Avance</th><th></th></tr></thead><tbody>
-      ${plans.map((p) => { const au = all.filter((a) => a.plan_id === p.id && a.status !== "cancelada"), done = au.filter((a) => a.status === "completada").length, pct = au.length ? Math.round((done / au.length) * 100) : 0;
-        return `<tr data-action="au-plan-open" data-id="${p.id}"><td class="code">${esc(p.code)}</td><td><span class="title">${esc(p.audit_type)}</span>${p.notes ? `<span class="sub">${esc(p.notes)}</span>` : ""}</td><td>${esc(p.frequency)}</td><td>${fmtDate(p.start_date)} → ${fmtDate(p.end_date)}</td>
-        <td><div class="progress"><i style="width:${pct}%"></i></div><span class="sub mono">${done}/${au.length} · ${pct}%</span></td><td class="end"><a class="btn sm" href="#/audits/plan/${p.id}">${icon("calendar")} Abrir calendario</a></td></tr>`; }).join("")}
-      </tbody></table></div>` : empty("No hay planes de auditoría", "Comienza creando tu primer plan para generar el calendario.", "calendar");
+    body = plans.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Plan</th><th>Tipo</th><th>Periodo</th><th style="min-width:170px">Avance</th><th>Envío</th><th></th></tr></thead><tbody>
+      ${plans.map((p) => { const au = all.filter((a) => a.plan_id === p.id && a.status !== "cancelada"), done = au.filter((a) => a.status === "completada").length, pct = au.length ? Math.round((done / au.length) * 100) : 0, st = p.status || "borrador";
+        return `<tr data-action="au-plan-open" data-id="${p.id}"><td><span class="title">${esc(planName(p))}</span><span class="sub mono">${esc(p.code)}</span></td><td>${esc(p.audit_type)}<span class="sub">${p.frequency === "Custom" ? "Personalizado" : esc(p.frequency)}</span></td><td>${rangeText(p.start_date, p.end_date)}</td>
+        <td><div class="progress"><i style="width:${pct}%"></i></div><span class="sub mono">${done}/${au.length} realizadas · ${pct}%</span></td><td>${badge(PLAN_STATUS, st)}${p.sent_at ? `<span class="sub">${fmtDate(p.sent_at.slice(0, 10))}</span>` : ""}</td>
+        <td class="end"><a class="btn sm" href="#/audits/plan/${p.id}">${icon("calendar")} Calendario</a> <button class="btn sm icon" data-action="au-export" data-id="${p.id}" title="Exportar PDF" aria-label="Exportar PDF">${icon("download")}</button></td></tr>`; }).join("")}
+      </tbody></table></div>` : empty("Aún no hay planes", "Crea tu primer plan: elige tipo, frecuencia y fecha de inicio; el calendario se genera solo.", "calendar");
   } else {
     const q = F.q.toLowerCase();
     const list = all.filter((a) => (!F.status || auditStatus(a) === F.status) && (!F.mine || a.assigned_to === db.state.profile.id) && (!q || a.code.toLowerCase().includes(q)))
@@ -127,35 +257,46 @@ function listView(root) {
       ${list.map((a) => { const p = db.get("audit_plans", a.plan_id), f = db.get("forms", a.form_id); return `<tr data-action="au-open" data-id="${a.id}"><td class="code">${esc(a.code)}</td><td>${esc(p?.audit_type || "—")}${a.level ? ` · N${a.level}` : ""}<span class="sub">${esc(p?.code || "")}</span></td><td>${fmtDate(a.scheduled_date)}</td><td>${esc(db.profileName(a.assigned_to))}</td><td class="mono">${esc(f?.code || "—")}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="num mono">${a.score != null ? Number(a.score).toFixed(0) + "%" : "—"}</td></tr>`; }).join("")}
       </tbody></table></div>` : empty("Sin auditorías", "No hay auditorías con los filtros actuales.", "audit")}`;
   }
-  root.innerHTML = `<div class="panel"><div style="padding:0 20px;padding-top:6px"><div class="tabs" style="margin:0;border:0"><button class="tab ${tab === "plans" ? "active" : ""}" data-action="au-tab" data-tab="plans">Planes (${plans.length})</button><button class="tab ${tab === "audits" ? "active" : ""}" data-action="au-tab" data-tab="audits">Todas las auditorías (${all.length})</button></div></div><div style="border-top:1px solid var(--line-soft)">${body}</div></div>`;
+  root.innerHTML = `<div class="panel"><div style="padding:6px 20px 0"><div class="tabs" style="margin:0;border:0"><button class="tab ${tab === "plans" ? "active" : ""}" data-action="au-tab" data-tab="plans">Planes (${plans.length})</button><button class="tab ${tab === "audits" ? "active" : ""}" data-action="au-tab" data-tab="audits">Todas las auditorías (${all.length})</button></div></div><div style="border-top:1px solid var(--line-soft)">${body}</div></div>`;
 }
 
 function calendarView(root, planId) {
   const plan = db.get("audit_plans", planId);
   if (!plan) { root.innerHTML = `<div class="panel">${empty("Plan no encontrado", "Es posible que haya sido eliminado.")}</div>`; setHead({ title: "Auditorías" }); return; }
-  if (cal.planId !== planId) {
-    const t = new Date(), s = parseDate(plan.start_date), e = parseDate(plan.end_date);
-    const ref = t < s ? s : t > e ? e : t;
-    Object.assign(cal, { planId, y: ref.getFullYear(), m: ref.getMonth() });
-  }
+  currentPlanId = planId;
+  const audits = db.rows("audits").filter((a) => a.plan_id === plan.id && a.status !== "cancelada");
+  const byDay = new Map();
+  audits.forEach((a) => byDay.set(a.scheduled_date, [...(byDay.get(a.scheduled_date) || []), a]));
+  const days = eachDay(plan.start_date, plan.end_date), hab = days.filter((d) => !isWeekend(d)).length;
+  const pending = audits.filter(isPending).length, unassigned = audits.filter((a) => !a.assigned_to).length;
+  const sent = plan.status === "enviado";
   setHead({
-    eyebrow: `${plan.code} · ${plan.audit_type} · ${plan.frequency}`, title: "Calendario de auditorías",
-    subtitle: `Periodo ${fmtDate(plan.start_date)} → ${fmtDate(plan.end_date)}${plan.notes ? " · " + plan.notes : ""}`,
-    actions: `<a class="btn" href="#/audits">${icon("chevL")} Planes</a>${db.can.write && plan.frequency !== "Custom" ? `<button class="btn" data-action="au-generate" data-id="${plan.id}">Completar calendario</button>` : ""}${db.can.manage ? `<button class="btn danger" data-action="au-plan-del" data-id="${plan.id}">${icon("trash")}</button>` : ""}`,
+    eyebrow: `${plan.code} · ${plan.audit_type} · ${plan.frequency === "Custom" ? "Personalizado" : plan.frequency}`, title: planName(plan),
+    subtitle: `${rangeText(plan.start_date, plan.end_date)} · ${days.length} días (${hab} hábiles, ${days.length - hab} inhábiles)`,
+    actions: `<a class="btn" href="#/audits">${icon("chevL")} Planes</a>${db.can.write ? `<button class="btn" data-action="au-plan-edit" data-id="${plan.id}">${icon("edit")} Editar</button><button class="btn" data-action="au-bulk" data-id="${plan.id}">${icon("wand")} Asignación rápida</button>` : ""}<button class="btn" data-action="au-export" data-id="${plan.id}">${icon("download")} Exportar PDF</button>${db.can.write ? `<button class="btn primary" data-action="au-send" data-id="${plan.id}">${icon("send")} ${sent ? "Reenviar" : "Terminar y Enviar"}</button>` : ""}`,
   });
-  const audits = db.rows("audits").filter((a) => a.plan_id === plan.id);
-  const first = new Date(cal.y, cal.m, 1), offset = (first.getDay() + 6) % 7;
-  const cells = Array.from({ length: Math.ceil((offset + new Date(cal.y, cal.m + 1, 0).getDate()) / 7) * 7 }, (_, i) => new Date(cal.y, cal.m, 1 - offset + i, 12));
-  const t = today();
-  root.innerHTML = `<div class="panel">
-    <div class="panel-head"><div class="cal-nav"><button class="btn icon" data-action="au-month" data-d="-1" aria-label="Mes anterior">${icon("chevL")}</button><strong>${MONTHS_LONG[cal.m]} ${cal.y}</strong><button class="btn icon" data-action="au-month" data-d="1" aria-label="Mes siguiente">${icon("chevR")}</button><button class="btn sm ghost" data-action="au-month" data-d="0">Hoy</button></div>
-      <small>${audits.length} auditoría(s) en el plan</small></div>
-    <div class="calendar-scroll" style="overflow-x:auto"><div class="calendar">${DOW.map((d) => `<div class="cal-dow">${d}</div>`).join("")}
-    ${cells.map((d) => { const key = isoDate(d), inMonth = d.getMonth() === cal.m, inRange = key >= plan.start_date && key <= plan.end_date;
-      return `<div class="day ${inMonth ? "" : "out"} ${key === t ? "today" : ""}"><span class="day-num">${d.getDate()}</span>
-      ${audits.filter((a) => a.scheduled_date === key).map((a) => `<button class="slot" data-action="au-open" data-id="${a.id}" data-status="${auditStatus(a)}"><b>${esc(a.code)}${a.level ? " · N" + a.level : ""}</b><small>${esc(firstName(a.assigned_to))}</small></button>`).join("")}
-      ${db.can.write && inRange ? `<button class="add-day" data-action="au-add" data-date="${key}">＋ Agregar</button>` : ""}</div>`; }).join("")}
-    </div></div></div>`;
+  const t = today(), weeks = [];
+  for (let m = mondayOf(plan.start_date); m <= plan.end_date; m = addDays(m, 7)) weeks.push(eachDay(m, addDays(m, 6)));
+  const cell = (d) => {
+    const inR = d >= plan.start_date && d <= plan.end_date, list = byDay.get(d) || [], off = inR && isWeekend(d) && !list.length;
+    const dd = parseDate(d), showMon = inR && (dd.getDate() === 1 || d === plan.start_date);
+    if (!inR) return `<div class="day out"><div class="day-top"><span class="day-num" style="color:var(--text-3)">${dd.getDate()}</span></div></div>`;
+    return `<div class="day ${off ? "weekend" : ""} ${d === t ? "today" : ""}"><div class="day-top"><span class="day-num">${dd.getDate()}${showMon ? ` <span class="day-mon">${fmtDate(d).split(" ")[1]}</span>` : ""}</span>${off ? '<span class="day-off">Inhábil</span>' : ""}</div>
+      ${list.map((a) => { const un = !a.assigned_to; return `<button class="slot ${un ? "unassigned" : ""}" data-action="au-slot" data-id="${a.id}" data-status="${auditStatus(a)}"><b><span>${esc(a.code)}${a.level ? " · N" + a.level : ""}</span>${a.notified_at && a.notified_to === a.assigned_to ? icon("mail") : ""}</b><small>${un ? "Sin asignar" : esc(firstName(a.assigned_to))}</small></button>`; }).join("")}
+      ${db.can.write ? `<button class="add-day" data-action="au-add" data-date="${d}">＋ ${off ? "Habilitar y asignar" : "Asignar"}</button>` : ""}</div>`;
+  };
+  root.innerHTML = `<div class="stack">
+    <div class="kpi-strip">
+      <div class="kpi" data-tone="info"><label>Auditorías en el plan</label><strong>${audits.length}</strong><small>${audits.filter((a) => a.status === "completada").length} realizadas</small></div>
+      <div class="kpi" data-tone="${unassigned ? "warn" : "ok"}"><label>Sin asignar</label><strong>${unassigned}</strong><small>${unassigned ? "No se notificarán" : "Todas con responsable"}</small></div>
+      <div class="kpi" data-tone="info"><label>Auditores</label><strong>${new Set(audits.map((a) => a.assigned_to).filter(Boolean)).size}</strong><small>personas asignadas</small></div>
+      <div class="kpi" data-tone="${sent && !pending ? "ok" : "warn"}"><label>Envío</label><strong>${sent ? "Enviado" : "Borrador"}</strong><small>${pending ? `${pending} auditoría(s) por notificar` : sent ? fmtDate(plan.sent_at?.slice(0, 10)) : "Aún no se envía"}</small></div>
+    </div>
+    <div class="panel"><div class="panel-head"><div class="legend-row"><span><i class="as"></i>Asignada</span><span><i class="un"></i>Sin asignar</span><span><i class="wk"></i>Inhábil (sin asignación)</span><span>${icon("mail").replace("<svg", '<svg style="width:13px;height:13px"')} Notificada</span></div><small>Clic en un día para asignar · clic en una auditoría para editarla</small></div>
+    <div class="panel-body cal-scroll"><div class="cal"><div class="cal-grid">
+      ${DOW_SHORT.slice(1).concat(DOW_SHORT[0]).map((n, i) => `<div class="cal-dow ${i >= 5 ? "off" : ""}">${n}</div>`).join("")}
+      ${weeks.map((w) => w.map(cell).join("")).join("")}
+    </div></div></div></div></div>`;
 }
 
 /* ---------------------------- Ejecución ------------------------------ */
@@ -223,35 +364,33 @@ async function saveAnswers(audit) {
 
 hooks.audit = () => rerender();
 
+
 /* -------------------------------- Módulo ----------------------------- */
 export default {
   id: "audits", label: "Auditorías", icon: "audit",
   render(root, params) {
     if (params[0] === "plan" && params[1]) return calendarView(root, params[1]);
     if (params[0]) return auditView(root, params[0]);
-    cal.planId = null;
+    currentPlanId = null;
     return listView(root);
   },
 };
 
 /* -------------------------------- Eventos ---------------------------- */
-on("au-plan-new", planForm);
+const curPlan = () => db.get("audit_plans", currentPlanId);
+on("au-plan-new", planWizard);
 on("au-plan-open", (el) => navigate(`audits/plan/${el.dataset.id}`));
 on("au-tab", (el) => { tab = el.dataset.tab; rerender(); });
 on("au-open", (el) => navigate(`audits/${el.dataset.id}`));
-on("au-add", (el) => scheduleForm(null, db.get("audit_plans", cal.planId), el.dataset.date));
+on("au-add", (el) => scheduleForm(null, curPlan(), el.dataset.date));
+on("au-slot", (el) => { const a = db.get("audits", el.dataset.id); db.can.write ? scheduleForm(a, curPlan()) : navigate(`audits/${a.id}`); });
 on("au-edit", (el) => { const a = db.get("audits", el.dataset.id); scheduleForm(a, db.get("audit_plans", a.plan_id)); });
-on("au-month", (el) => {
-  const d = Number(el.dataset.d);
-  if (d === 0) { const n = new Date(); cal.y = n.getFullYear(); cal.m = n.getMonth(); }
-  else { const n = new Date(cal.y, cal.m + d, 1); cal.y = n.getFullYear(); cal.m = n.getMonth(); }
-  rerender();
-});
-on("au-generate", async (el) => { const n = await generateAudits(db.get("audit_plans", el.dataset.id)); toast(n ? `${n} auditoría(s) agregadas` : "El calendario ya está completo", n ? "ok" : "info"); rerender(); });
-on("au-plan-del", async (el) => {
-  if (await confirmDialog({ title: "¿Eliminar plan?", message: "Se eliminarán también sus auditorías y respuestas. Los hallazgos generados se conservan.", confirmLabel: "Eliminar", danger: true })) {
-    try { await db.remove("audit_plans", el.dataset.id); toast("Plan eliminado"); navigate("audits"); } catch (e) { toast(e.message, "danger"); }
-  }
+on("au-plan-edit", (el) => editPlan(db.get("audit_plans", el.dataset.id)));
+on("au-bulk", (el) => bulkAssign(db.get("audit_plans", el.dataset.id)));
+on("au-send", (el) => sendPlan(db.get("audit_plans", el.dataset.id)));
+on("au-export", async (el) => {
+  try { toast("Generando PDF…"); const { downloadPlanPDF } = await import("../pdf.js"); await downloadPlanPDF(el.dataset.id); toast("PDF descargado", "ok"); }
+  catch (e) { toast(e.message, "danger"); }
 });
 on("au-reopen", async (el) => { await db.update("audits", el.dataset.id, { status: "en_proceso", completed_at: null }); toast("Auditoría reabierta"); rerender(); });
 onChange("au-filter", (el) => { F[el.dataset.key] = el.value; rerender(); });

@@ -1,50 +1,65 @@
 /* =====================================================================
-   GUVEL · Design tokens
-   Fuente única de verdad del lenguaje visual. Derivados del logotipo:
-   navy #0f1b2d · cian #0cc0df · hielo #eaf2f8
-   Para alinear con GUVEL Operational basta con ajustar este archivo.
+   GUVEL Quality · Design tokens
+   Alineado con GUVEL Operational (design system v3.0):
+   Navy #0F1B2D · Cyan #0CC0DF · Ice #EAF2F8.
+   Principio: superficies neutras; el color solo comunica estado.
+   Tema claro por defecto, oscuro por preferencia del sistema o manual.
    ===================================================================== */
 :root {
-  /* Marca */
-  --g-cyan: #0cc0df;
-  --g-cyan-600: #0aa6c1;
-  --g-cyan-300: #6fdcf0;
-  --g-cyan-soft: rgba(12, 192, 223, .12);
-  --g-ice: #eaf2f8;
+  --navy: #0F1B2D; --navy-2: #16243A; --navy-3: #1E3050; --cyan: #0CC0DF; --ice: #EAF2F8;
 
-  /* Superficies (de más profundo a más elevado) */
-  --bg-0: #0a1422;
-  --bg-1: #0f1b2d;      /* fondo del logotipo */
-  --bg-2: #14243a;
-  --bg-3: #1a2d47;
-  --line: #243a57;
-  --line-soft: #1c3049;
+  --bg: #EAF2F8; --surface: #FFFFFF; --surface-2: #F4F8FB; --surface-3: #E4ECF3;
+  --ink: #0F1B2D; --text-2: #52647A; --text-3: #7A8A9C;
+  --line: #C9D6E2; --line-soft: #DDE6EE;
 
-  /* Texto */
-  --text: #eaf2f8;
-  --text-2: #b3c3d4;
-  --muted: #7f96ad;
+  --flow: #0CC0DF; --flow-ink: #067A8E; --flow-soft: rgba(12,192,223,.13);
+  --watch: #E9A21F; --watch-ink: #8A5A00; --watch-soft: rgba(233,162,31,.15);
+  --stop: #E83B3B; --stop-ink: #C42525; --stop-soft: rgba(232,59,59,.11);
+  --ok: #1B9E77; --ok-ink: #0F6E52; --ok-soft: rgba(27,158,119,.13);   /* único añadido a la paleta: cierre / cumple */
+  --idle: #B7C5D3;
 
-  /* Semánticos */
-  --danger: #ff4d5e;
-  --warn: #ffb020;
-  --ok: #2dd4a0;
-  --info: var(--g-cyan);
+  --serif: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --sans: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --fig: "Manrope", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
 
-  /* Tipografía */
-  --font-ui: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
-  --font-display: "Barlow Condensed", "Inter", "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 3px; --h-control: 38px; --chamfer: 16px; --chamfer-h: 9px;
+  --hex: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--flow);
+  --shadow-float: 0 18px 48px rgba(15,27,45,.28), 0 2px 8px rgba(15,27,45,.14);
+  --weekend: rgba(233,162,31,.16);    /* día inhábil sin asignación */
+  --weekend-line: rgba(233,162,31,.38);
+  color-scheme: light;
 
-  /* Geometría */
-  --chamfer: 10px;
-  --radius: 4px;
-  --sidebar-w: 252px;
-  --topbar-h: 64px;
-
-  --shadow-1: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 8px 24px rgba(3, 9, 18, .35);
-  --shadow-pop: 0 24px 60px rgba(2, 8, 16, .65);
-
-  /* Patrón isométrico (líneas a 30°, eco del logotipo) */
-  --iso: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='32'%3E%3Cpath d='M0 16 28 0l28 16M0 32 28 16l28 16' fill='none' stroke='%230cc0df' stroke-opacity='.07' stroke-width='1'/%3E%3C/svg%3E");
+  /* Alias de compatibilidad con módulos anteriores */
+  --g-cyan: var(--flow); --danger: var(--stop); --warn: var(--watch);
+  --muted: var(--text-3); --bg-1: var(--surface-2); --bg-2: var(--surface); --bg-3: var(--surface-3);
+  --text: var(--ink); --g-ice: var(--ice); --g-cyan-soft: var(--flow-soft);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1B2D; --surface: #16243A; --surface-2: #1B2B44; --surface-3: #22354F;
+    --ink: #EAF2F8; --text-2: #8FA3B8; --text-3: #6D8199;
+    --line: #2A3C57; --line-soft: #223350;
+    --flow-ink: #5ED8EE; --flow-soft: rgba(12,192,223,.16);
+    --watch: #F2B33D; --watch-ink: #F6C766; --watch-soft: rgba(242,179,61,.16);
+    --stop: #FF5A5A; --stop-ink: #FF8585; --stop-soft: rgba(255,90,90,.15);
+    --ok: #3CC79C; --ok-ink: #6FDDB9; --ok-soft: rgba(60,199,156,.16);
+    --idle: #3B4F6B;
+    --weekend: rgba(242,179,61,.13); --weekend-line: rgba(242,179,61,.35);
+    --shadow-float: 0 18px 48px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1B2D; --surface: #16243A; --surface-2: #1B2B44; --surface-3: #22354F;
+  --ink: #EAF2F8; --text-2: #8FA3B8; --text-3: #6D8199;
+  --line: #2A3C57; --line-soft: #223350;
+  --flow-ink: #5ED8EE; --flow-soft: rgba(12,192,223,.16);
+  --watch: #F2B33D; --watch-ink: #F6C766; --watch-soft: rgba(242,179,61,.16);
+  --stop: #FF5A5A; --stop-ink: #FF8585; --stop-soft: rgba(255,90,90,.15);
+  --ok: #3CC79C; --ok-ink: #6FDDB9; --ok-soft: rgba(60,199,156,.16);
+  --idle: #3B4F6B;
+  --weekend: rgba(242,179,61,.13); --weekend-line: rgba(242,179,61,.35);
+  --shadow-float: 0 18px 48px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.35);
+  color-scheme: dark;
 }

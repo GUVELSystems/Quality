@@ -1,10 +1,9 @@
 /* GUVEL Quality · punto de entrada */
-import { CONFIG } from "./config.js";
 import * as db from "./db.js";
 import { esc, initials, today } from "./utils.js";
 import { icon } from "./icons.js";
 import { on, onInput, toast, confirmDialog } from "./ui.js";
-import { register, getModules, renderRoute, onAfterRender, navigate } from "./router.js";
+import { register, getModules, renderRoute, onAfterRender } from "./router.js";
 import { ROLES } from "./constants.js";
 
 import dashboard from "./modules/dashboard.js";
@@ -19,101 +18,134 @@ import "./modules/attachments.js";
 [dashboard, audits, findings, actions, notifications, risks, opportunities, clients, classifications, forms, users].forEach(register);
 
 const app = document.getElementById("app");
-const GROUPS = [
-  ["Operación", ["dashboard"]],
-  ["Gestión de calidad", ["audits", "findings", "actions", "notifications"]],
-  ["Riesgos y mejora", ["risks", "opportunities"]],
-  ["Configuración", ["clients", "classifications", "forms", "users"]],
-];
+const MAIN_NAV = ["dashboard", "audits", "findings", "actions", "notifications", "risks", "opportunities"];
+const CONFIG_NAV = ["clients", "classifications", "forms", "users"];
+let appShown = false;
 
-/* ------------------------------- Login ------------------------------- */
-function showLogin(error = "") {
-  app.innerHTML = `
-  <div class="login">
-    <section class="login-hero">
-      <img src="assets/guvel-logo.png" alt="GUVEL">
-      <div>
-        <h1>GUVEL<em>Quality</em></h1>
-        <p>Plataforma para gestionar auditorías, hallazgos, acciones y notificaciones de cliente en un solo lugar.</p>
-        <ul><li>Auditorías y LPA con checklists configurables</li><li>Hallazgos con seguimiento hasta el cierre</li><li>Notificaciones de cliente con control de respuesta</li><li>Riesgos, oportunidades y tablero de indicadores</li></ul>
-      </div>
-      <small>Smarter Industrial Systems</small>
-    </section>
-    <section class="login-panel">
-      <form class="login-card" id="loginForm" novalidate>
-        <div><span class="eyebrow">Acceso</span><h2>Iniciar sesión</h2></div>
-        ${error ? `<div class="alert" role="alert">${esc(error)}</div>` : ""}
-        ${db.state.demo
-          ? `<div class="note"><b>Modo demo.</b> Aún no se ha configurado Supabase; los datos de ejemplo se guardan solo en este navegador.</div>
-             <button class="btn primary" type="submit">Entrar al modo demo</button>`
-          : `<label class="field"><span>Correo</span><input class="input" type="email" name="email" autocomplete="username" required></label>
-             <label class="field"><span>Contraseña</span><input class="input" type="password" name="password" autocomplete="current-password" required></label>
-             <button class="btn primary" type="submit">Entrar</button>`}
-      </form>
-    </section>
-  </div>`;
+/* ------------------------------- Tema -------------------------------- */
+const systemDark = () => matchMedia("(prefers-color-scheme: dark)").matches;
+const currentTheme = () => document.documentElement.dataset.theme || (systemDark() ? "dark" : "light");
+(() => { const t = localStorage.getItem("guvel-theme"); if (t) document.documentElement.dataset.theme = t; })();
+on("theme", (el) => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next; localStorage.setItem("guvel-theme", next);
+  el.innerHTML = icon(next === "dark" ? "sun" : "moon");
+});
+
+/* ------------------------------ Pantallas de acceso ------------------ */
+const authBrand = `<div class="auth-brand"><img src="assets/guvel-logo.png" alt=""><strong>GUVEL</strong><small>Smarter industrial systems</small></div>`;
+const msg = (m, err) => (m ? `<div class="auth-msg ${err ? "error" : ""}" role="${err ? "alert" : "status"}">${esc(m)}</div>` : "");
+
+function showLogin(error = "", info = "") {
+  appShown = false;
+  app.innerHTML = `<div class="auth-screen"><div class="auth-card">${authBrand}
+    <span class="eyebrow">Quality</span><h1>Iniciar sesión</h1>${msg(error, true)}${msg(info, false)}
+    <form class="auth-form" id="loginForm" novalidate>
+      ${db.state.demo
+        ? `<div class="auth-msg"><b>Modo demo.</b> Aún no se ha configurado Supabase; los datos de ejemplo se guardan solo en este navegador.</div><button class="btn primary" type="submit">Entrar al modo demo</button>`
+        : `<label>Correo<input class="input" type="email" name="email" autocomplete="username" required></label>
+           <label>Contraseña<input class="input" type="password" name="password" autocomplete="current-password" required></label>
+           <button class="btn primary" type="submit">Entrar</button>
+           <button class="auth-link" type="button" id="forgot">¿Olvidaste tu contraseña?</button>`}
+    </form><div class="auth-foot">Acceso solo por invitación · GUVEL Quality</div></div></div>`;
   document.getElementById("loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const f = e.target, btn = f.querySelector("button");
+    const f = e.target, btn = f.querySelector("button[type=submit]");
     btn.disabled = true;
     try { await db.signIn(f.email?.value.trim(), f.password?.value); await start(); }
     catch (ex) { showLogin(ex.message); }
+  });
+  document.getElementById("forgot")?.addEventListener("click", () => showForgot(document.querySelector("[name=email]")?.value));
+}
+
+function showForgot(email = "") {
+  app.innerHTML = `<div class="auth-screen"><div class="auth-card">${authBrand}
+    <span class="eyebrow">Quality</span><h1>Recuperar acceso</h1><p class="auth-lead">Te enviaremos un enlace para crear una nueva contraseña.</p>
+    <form class="auth-form" id="forgotForm" novalidate>
+      <label>Correo<input class="input" type="email" name="email" value="${esc(email)}" autocomplete="username" required></label>
+      <button class="btn primary" type="submit">Enviar enlace</button>
+      <button class="auth-link" type="button" id="back">Volver</button></form></div></div>`;
+  document.getElementById("back").onclick = () => showLogin();
+  document.getElementById("forgotForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const em = e.target.email.value.trim();
+    if (!em) return;
+    try { await db.resetPassword(em); showLogin("", "Si el correo está registrado, recibirás un enlace en unos minutos."); }
+    catch (ex) { showLogin(ex.message); }
+  });
+}
+
+/** Tras abrir un enlace de invitación o recuperación */
+function showSetPassword(invite = true, error = "") {
+  appShown = false;
+  app.innerHTML = `<div class="auth-screen"><div class="auth-card">${authBrand}
+    <span class="eyebrow">${invite ? "Bienvenido" : "Recuperación"}</span><h1>Crea tu contraseña</h1>
+    <p class="auth-lead">Mínimo 8 caracteres. La usarás junto con tu correo para entrar.</p>${msg(error, true)}
+    <form class="auth-form" id="pwForm" novalidate>
+      <label>Nueva contraseña<input class="input" type="password" name="p1" autocomplete="new-password" minlength="8" required></label>
+      <label>Confirmar contraseña<input class="input" type="password" name="p2" autocomplete="new-password" minlength="8" required></label>
+      <button class="btn primary" type="submit">Guardar y entrar</button></form></div></div>`;
+  document.getElementById("pwForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const { p1, p2 } = e.target;
+    if (p1.value.length < 8) return showSetPassword(invite, "La contraseña debe tener al menos 8 caracteres.");
+    if (p1.value !== p2.value) return showSetPassword(invite, "Las contraseñas no coinciden.");
+    try { await db.setPassword(p1.value); await start(); } catch (ex) { showSetPassword(invite, ex.message); }
   });
 }
 
 /* -------------------------------- Shell ------------------------------ */
 function shell() {
-  const p = db.state.profile;
-  const mods = getModules();
+  const p = db.state.profile, mods = getModules(), mod = (id) => mods.find((m) => m.id === id);
+  const link = (id, extra = "") => `<a class="nav-item" href="#/${id}" data-route="${id}">${mod(id).label}${extra}</a>`;
   app.innerHTML = `
-  <div class="app">
-    <aside class="sidebar" id="sidebar">
-      <div class="brand"><img src="assets/guvel-logo.png" alt=""><div class="brand-text"><strong>GUVEL <em>Quality</em></strong><small>Smarter Industrial Systems</small></div></div>
-      <nav class="nav" aria-label="Principal">
-        ${GROUPS.map(([label, ids]) => `<div class="nav-group"><div class="nav-label">${label}</div>${ids.map((id) => {
-          const m = mods.find((x) => x.id === id);
-          return `<a class="nav-item" href="#/${m.id}" data-route="${m.id}">${icon(m.icon)}<span>${m.label}</span><span class="nav-count hidden" data-count="${m.id}"></span></a>`;
-        }).join("")}</div>`).join("")}
-      </nav>
-      <div class="sidebar-foot"><span>v1.0 · ${db.state.demo ? "Modo demo" : "Conectado"}</span>${db.state.demo ? `<a href="#" data-action="reset-demo">Restablecer</a>` : ""}</div>
-    </aside>
-    <div class="workspace">
-      <header class="topbar">
-        <button class="menu-btn" data-action="menu" aria-label="Abrir menú">${icon("menu")}</button>
-        <span class="crumbs">GUVEL / Quality / <b id="crumbTitle"></b></span>
-        <span class="topbar-spacer"></span>
-        <div class="search" style="position:relative">${icon("search")}<input id="gsearch" type="search" placeholder="Buscar hallazgo, auditoría, folio…" data-input="gsearch" autocomplete="off"><div id="sresults"></div></div>
-        ${db.state.demo ? "" : `<button class="btn ghost icon" data-action="reload" title="Actualizar datos" aria-label="Actualizar datos">${icon("refresh")}</button>`}
-        <div class="user-chip"><div class="avatar">${esc(initials(p.full_name))}</div><div class="user-meta"><strong>${esc(p.full_name)}</strong><small>${esc(ROLES[p.role])}</small></div></div>
-        <button class="btn ghost icon" data-action="logout" title="Cerrar sesión" aria-label="Cerrar sesión">${icon("logout")}</button>
-      </header>
-      <main><div class="page-head" id="pageHead"></div><section id="view"></section></main>
+  <header class="topbar">
+    <a class="brand" href="#/dashboard"><img src="assets/guvel-logo.png" alt=""><span class="brand-word"><strong>GUVEL</strong><small>Smarter industrial systems</small></span><span class="brand-product">Quality</span></a>
+    <nav class="top-nav" aria-label="Principal">
+      ${MAIN_NAV.map((id) => link(id, ["findings", "actions", "notifications"].includes(id) ? `<span class="nav-count hidden" data-count="${id}"></span>` : "")).join("")}
+      <div class="nav-more"><button class="nav-item" data-action="nav-more" id="navMoreBtn" aria-haspopup="true">Configuración ${icon("more")}</button></div>
+    </nav>
+    <div class="nav-menu hidden" id="navMenu">${CONFIG_NAV.map((id) => `<a href="#/${id}" data-route="${id}">${mod(id).label}</a>`).join("")}</div>
+    <div class="top-actions">
+      <label class="search">${icon("search")}<input id="gsearch" type="search" placeholder="Buscar folio o título…" data-input="gsearch" autocomplete="off" aria-label="Búsqueda global"><div id="sresults"></div></label>
+      <button class="top-btn" data-action="theme" title="Cambiar tema" aria-label="Cambiar tema">${icon(currentTheme() === "dark" ? "sun" : "moon")}</button>
+      ${db.state.demo ? "" : `<button class="top-btn" data-action="reload" title="Actualizar datos" aria-label="Actualizar datos">${icon("refresh")}</button>`}
+      <div class="user-chip"><div class="user-meta"><strong>${esc(p.full_name)}</strong><small>${esc(ROLES[p.role])}${db.state.demo ? " · demo" : ""}</small></div><div class="avatar">${esc(initials(p.full_name))}</div></div>
+      ${db.state.demo ? `<button class="top-btn" data-action="reset-demo" title="Restablecer datos demo" aria-label="Restablecer datos demo">${icon("wand")}</button>` : ""}
+      <button class="top-btn" data-action="logout" title="Cerrar sesión" aria-label="Cerrar sesión">${icon("logout")}</button>
     </div>
-  </div>`;
+  </header>
+  <main class="content"><div class="page-head" id="pageHead"></div><section id="view"></section></main>`;
+  appShown = true;
 }
 
-function updateCounts() {
+on("nav-more", (el) => {
+  const m = document.getElementById("navMenu"), r = el.getBoundingClientRect();
+  m.style.top = r.bottom + "px"; m.style.left = Math.min(r.left, innerWidth - 230) + "px";
+  m.classList.toggle("hidden");
+});
+document.addEventListener("click", (e) => { if (!e.target.closest("#navMenu, #navMoreBtn")) document.getElementById("navMenu")?.classList.add("hidden"); });
+
+function updateNav() {
   const t = today();
-  const set = (id, n, alert) => {
-    const el = document.querySelector(`[data-count="${id}"]`);
-    if (!el) return;
-    el.textContent = n; el.classList.toggle("hidden", !n); el.classList.toggle("hot", !!alert);
-  };
+  const set = (id, n, hot) => { const el = document.querySelector(`[data-count="${id}"]`); if (!el) return; el.textContent = n; el.classList.toggle("hidden", !n); el.classList.toggle("hot", !!hot); };
   set("findings", db.rows("findings").filter((f) => f.status !== "cerrado").length);
   set("actions", db.rows("actions").filter((a) => !["completada", "verificada"].includes(a.status) && a.due_date && a.due_date < t).length, true);
   set("notifications", db.rows("customer_notifications").filter((n) => n.status !== "cerrada").length);
+  const route = location.hash.replace(/^#\//, "").split("/")[0] || "dashboard";
+  document.getElementById("navMoreBtn")?.classList.toggle("active", CONFIG_NAV.includes(route));
+  document.querySelectorAll("#navMenu a").forEach((a) => a.classList.toggle("active", a.dataset.route === route));
 }
-onAfterRender(updateCounts);
+onAfterRender(updateNav);
 
 /* --------------------------- Búsqueda global ------------------------- */
 onInput("gsearch", (el) => {
-  const q = el.value.trim().toLowerCase();
-  const box = document.getElementById("sresults");
+  const q = el.value.trim().toLowerCase(), box = document.getElementById("sresults");
   if (q.length < 2) { box.innerHTML = ""; return; }
   const hit = (...v) => v.some((x) => String(x || "").toLowerCase().includes(q));
   const res = [
     ...db.rows("findings").filter((r) => hit(r.code, r.title)).map((r) => ({ t: "Hallazgo", c: r.code, l: r.title, to: `findings/${r.id}` })),
-    ...db.rows("audits").filter((r) => hit(r.code)).map((r) => ({ t: "Auditoría", c: r.code, l: db.get("audit_plans", r.plan_id)?.code || "", to: `audits/${r.id}` })),
+    ...db.rows("audits").filter((r) => hit(r.code)).map((r) => ({ t: "Auditoría", c: r.code, l: db.get("audit_plans", r.plan_id)?.name || "", to: `audits/${r.id}` })),
     ...db.rows("customer_notifications").filter((r) => hit(r.code, r.subject, r.part_number)).map((r) => ({ t: "Cliente", c: r.code, l: r.subject, to: `notifications/${r.id}` })),
     ...db.rows("actions").filter((r) => hit(r.code, r.description)).map((r) => ({ t: "Acción", c: r.code, l: r.description, to: `findings/${r.finding_id}` })),
   ].slice(0, 8);
@@ -123,27 +155,21 @@ on("close-search", () => { document.getElementById("sresults").innerHTML = ""; d
 document.addEventListener("click", (e) => { if (!e.target.closest(".search")) { const b = document.getElementById("sresults"); if (b) b.innerHTML = ""; } });
 
 /* ------------------------------ Acciones ----------------------------- */
-on("menu", () => {
-  document.getElementById("sidebar").classList.add("open");
-  const s = document.createElement("div"); s.id = "scrim"; s.className = "scrim";
-  s.onclick = () => { document.getElementById("sidebar").classList.remove("open"); s.remove(); };
-  document.body.append(s);
-});
 on("logout", async () => { await db.signOut(); location.hash = ""; showLogin(); });
 on("reload", async () => { await db.loadAll(); await renderRoute(false); toast("Datos actualizados", "ok"); });
-on("reset-demo", async (_el, e) => {
-  e.preventDefault();
+on("reset-demo", async () => {
   if (await confirmDialog({ title: "Restablecer demo", message: "Se borrarán los cambios y volverán los datos de ejemplo.", confirmLabel: "Restablecer", danger: true })) {
     db.resetDemo(); await db.loadAll(); await renderRoute(false); toast("Datos de ejemplo restaurados", "ok");
   }
 });
 
 /* -------------------------------- Inicio ----------------------------- */
+let hashListener = false;
 async function start() {
   try {
     await db.loadAll();
     shell();
-    window.addEventListener("hashchange", () => renderRoute());
+    if (!hashListener) { window.addEventListener("hashchange", () => appShown && renderRoute()); hashListener = true; }
     await renderRoute();
   } catch (e) {
     console.error(e);
@@ -156,7 +182,14 @@ async function start() {
   app.innerHTML = `<div class="loading"><img src="assets/guvel-logo.png" alt="Cargando"></div>`;
   try {
     const signed = await db.init();
-    signed ? await start() : showLogin();
+    db.onAuthEvent((ev) => {
+      if (ev === "SIGNED_OUT" && appShown) showLogin("Tu sesión terminó. Vuelve a iniciar sesión.");
+      if (ev === "PASSWORD_RECOVERY") showSetPassword(false);
+    });
+    if (db.state.authError) showLogin(db.state.authError);
+    else if (signed && db.state.authIntent) showSetPassword(db.state.authIntent === "invite" || db.state.authIntent === "signup");
+    else if (signed) await start();
+    else showLogin();
   } catch (e) {
     console.error(e);
     showLogin("No se pudo conectar con Supabase: " + e.message);

@@ -1,8 +1,9 @@
 import * as db from "../db.js";
 import { esc, today, fmtDate, initials, dueText } from "../utils.js";
-import { badge, pill, userCell, bars } from "../ui.js";
+import { badge, pill, userCell, bars, on, openForm, toast } from "../ui.js";
 import { RISK_STATUS, OPP_STATUS, EFFORT, ROLES, CATALOG_KINDS } from "../constants.js";
 import { makeCrud } from "./crud.js";
+import { rerender } from "../router.js";
 import { userOpts, catNameOpts, mapOpts } from "./shared.js";
 
 const yesNo = (v) => (v ? pill("Activo", "ok") : pill("Inactivo", "neutral"));
@@ -122,13 +123,29 @@ export const classifications = makeCrud({
 });
 
 /* -------------------------------- Usuarios --------------------------- */
+const inviteForm = () => openForm({
+  eyebrow: "Nuevo acceso", title: "Invitar usuario", submitLabel: db.state.demo ? "Agregar" : "Enviar invitación", values: { role: "auditor" },
+  intro: `<div class="note" style="margin-bottom:14px">${db.state.demo ? "Modo demo: el usuario se agrega localmente, sin correo." : "La persona recibirá un correo para crear su contraseña y entrar. El rol queda asignado desde ahora."}</div>`,
+  fields: [
+    { name: "email", label: "Correo", type: "email", required: true, span2: true },
+    { name: "full_name", label: "Nombre completo", required: true, span2: true },
+    { name: "role", label: "Rol", type: "select", required: true, options: Object.entries(ROLES) },
+    { name: "area", label: "Área" },
+  ],
+  onSubmit: async (v) => { await db.inviteUser(v); toast(db.state.demo ? "Usuario agregado" : `Invitación enviada a ${v.email}`, "ok"); await rerender(); },
+});
+on("user-reset", async (el) => {
+  try { await db.resetPassword(el.dataset.email); toast(`Enlace de acceso enviado a ${el.dataset.email}`, "ok"); } catch (e) { toast(e.message, "danger"); }
+});
+
 export const users = makeCrud({
   id: "users", label: "Usuarios", icon: "users", eyebrow: "Configuración", singular: "usuario",
-  title: "Usuarios", subtitle: "Roles y responsables. Los usuarios se crean en Supabase Auth y aquí se les asigna rol.",
-  table: "profiles", newLabel: "", canCreate: false, canWrite: () => db.can.admin, canRemove: false,
+  title: "Usuarios", subtitle: "Invita a tu equipo y asigna su rol. Solo las personas invitadas pueden entrar.",
+  table: "profiles", newLabel: "Invitar usuario", onCreate: inviteForm, canWrite: () => db.can.admin, canRemove: false,
   search: (r) => `${r.full_name} ${r.email} ${r.area || ""}`, sort: (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
   filters: [{ key: "role", label: "Todos los roles", options: Object.entries(ROLES), test: (r, v) => r.role === v }],
-  intro: `<div class="note"><b>Alta de usuarios:</b> Supabase → Authentication → Users → Add user. El perfil se crea automáticamente (el primer usuario es administrador; los demás inician como “Consulta”). Luego asigna el rol aquí.</div>`,
+  intro: `<div class="note"><b>Cómo funciona:</b> al invitar, la persona recibe un correo con un enlace para crear su contraseña. Los usuarios desactivados no pueden ver ningún dato. Para dar de baja a alguien, desmarca «Usuario activo».</div>`,
+  editIntro: (r) => (db.state.demo || !r.email ? "" : `<p style="margin-bottom:14px"><button type="button" class="btn sm" data-action="user-reset" data-email="${esc(r.email)}">${"Enviar enlace de acceso"}</button> <small class="muted">Útil si perdió su contraseña o su invitación venció.</small></p>`),
   fields: () => [
     { name: "full_name", label: "Nombre completo", required: true, span2: true },
     { name: "role", label: "Rol", type: "select", required: true, options: Object.entries(ROLES) },

@@ -81,17 +81,28 @@ returns boolean language sql stable security definer set search_path = public as
   select coalesce(public.app_role() = 'admin', false)
 $$;
 
--- Al registrarse un usuario se crea su perfil.
--- El PRIMER usuario del sistema queda como admin; el resto como viewer.
+-- Cualquier usuario activo (con perfil) puede leer; las políticas RLS lo usan.
+create or replace function public.is_member()
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.app_role() is not null
+$$;
+
+-- Al crearse un usuario en Auth se crea su perfil.
+--   · El PRIMER usuario del sistema queda como admin activo.
+--   · Los demás quedan como viewer INACTIVOS: no ven ningún dato hasta que un
+--     admin los active (la función "invite-user" lo hace al invitar). Así,
+--     aunque alguien se auto-registre, no obtiene acceso.
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
+declare first_user boolean := not exists (select 1 from public.profiles);
 begin
-  insert into public.profiles (id, full_name, email, role)
+  insert into public.profiles (id, full_name, email, role, active)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
     new.email,
-    case when exists (select 1 from public.profiles) then 'viewer' else 'admin' end
+    case when first_user then 'admin' else 'viewer' end,
+    first_user
   )
   on conflict (id) do nothing;
   return new;
@@ -105,8 +116,10 @@ create trigger on_auth_user_created after insert on auth.users
 create or replace function public.protect_profile_columns()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
+  -- auth.uid() es NULL cuando escribe el backend (service role / SQL Editor):
+  -- eso sí se permite. Un usuario autenticado solo puede si es admin.
   if (new.role is distinct from old.role or new.active is distinct from old.active)
-     and not public.is_admin() then
+     and auth.uid() is not null and not public.is_admin() then
     raise exception 'Solo un administrador puede cambiar rol o estado';
   end if;
   return new;

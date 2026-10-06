@@ -67,9 +67,10 @@ export function buildSeed() {
   const now = new Date();
   const first = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
   const last = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  const MES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][now.getMonth()];
   const audit_plans = [
-    { id: uuid(), code: code("PLAN"), audit_type: "LPA", frequency: "Semanal", start_date: first, end_date: last, notes: "LPA semanal en líneas de producción", created_by: "u-maria", created_at: daysAgoISO(35) },
-    { id: uuid(), code: code("PLAN"), audit_type: "Producto", frequency: "Quincenal", start_date: first, end_date: last, notes: "Auditoría de producto terminado", created_by: "u-maria", created_at: daysAgoISO(35) },
+    { id: uuid(), code: code("PLAN"), name: `LPA líneas de producción · ${MES}`, audit_type: "LPA", frequency: "Mensual", start_date: first, end_date: last, notes: "LPA en líneas de producción", status: "enviado", sent_at: daysAgoISO(4), sent_by: "u-maria", created_by: "u-maria", created_at: daysAgoISO(35) },
+    { id: uuid(), code: code("PLAN"), name: "Producto terminado · quincena", audit_type: "Producto", frequency: "Quincenal", start_date: first, end_date: addDays(first, 14), notes: "Auditoría de producto terminado", status: "borrador", sent_at: null, sent_by: null, created_by: "u-maria", created_at: daysAgoISO(35) },
   ];
   const audits = [], audit_answers = [], findings = [], actions = [];
   const auditors = ["u-juan", "u-maria", "u-carlos"];
@@ -81,7 +82,7 @@ export function buildSeed() {
       let status = "programada";
       if (past && k % 5 !== 3) status = "completada";
       if (d === T) status = "en_proceso";
-      const a = { id: uuid(), code: code("AUD"), plan_id: plan.id, scheduled_date: d, assigned_to: who[k % who.length], level: levelCycle ? (k % 3) + 1 : null, form_id: form.id, due_at: iso(d + "T17:00:00"), status, score: null, notes: null, completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1) };
+      const a = { id: uuid(), code: code("AUD"), plan_id: plan.id, scheduled_date: d, assigned_to: who[k % who.length], level: levelCycle ? (k % 3) + 1 : null, form_id: form.id, due_at: iso(d + "T17:00:00"), status, score: null, notes: null, completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1), notified_at: plan.status === "enviado" ? daysAgoISO(4) : null, notified_to: plan.status === "enviado" ? who[k % who.length] : null };
       if (status === "completada") {
         const items = form_items.filter((i) => i.form_id === form.id);
         let ok = 0, nok = 0;
@@ -103,6 +104,9 @@ export function buildSeed() {
   };
   addAudits(audit_plans[0], fLPA, 7, auditors, true);
   addAudits(audit_plans[1], fPRO, 14, ["u-juan", "u-carlos"], false);
+  // Una auditoría en sábado (día inhábil habilitado por tener responsable)
+  const sat = (() => { for (let d = audit_plans[0].start_date; d <= audit_plans[0].end_date; d = addDays(d, 1)) if (d > T && new Date(d + "T12:00:00").getDay() === 6) return d; return null; })();
+  if (sat) audits.push({ id: uuid(), code: code("AUD"), plan_id: audit_plans[0].id, scheduled_date: sat, assigned_to: "u-juan", level: 2, form_id: fLPA.id, due_at: iso(sat + "T17:00:00"), status: "programada", score: null, notes: "Turno especial en sábado", completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1), notified_at: null, notified_to: null });
 
   /* Hallazgos manuales */
   const [cNorte, cDelta, cAurora, cMetal] = clients;
@@ -159,6 +163,6 @@ export function buildSeed() {
   return {
     currentUser: "u-carlos",
     counters,
-    tables: { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions, customer_notifications: notifs, risks, opportunities },
+    tables: { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions, customer_notifications: notifs, risks, opportunities, attachments: [] },
   };
 }

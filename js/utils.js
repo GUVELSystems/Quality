@@ -68,3 +68,25 @@ export function downloadCSV(filename, columns, rows) {
 
 export const uuid = () =>
   crypto?.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => { const r = (Math.random() * 16) | 0; return (c === "x" ? r : (r & 3) | 8).toString(16); });
+
+/* ------------------------- Periodos y días hábiles ------------------- */
+export const DOW_LONG = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+export const DOW_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+export const isWeekend = (s) => { const g = parseDate(s)?.getDay(); return g === 0 || g === 6; };
+export const weekdayName = (s) => DOW_LONG[parseDate(s).getDay()];
+export const eachDay = (start, end) => { const out = []; for (let d = start; d <= end && out.length < 400; d = addDays(d, 1)) out.push(d); return out; };
+export const mondayOf = (s) => { const d = parseDate(s); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return isoDate(d); };
+
+/** Fecha final del periodo según la frecuencia (Custom lo define el usuario) */
+export function periodEnd(frequency, start) {
+  const d = parseDate(start);
+  if (!d) return "";
+  if (frequency === "Semanal") return addDays(start, 6);
+  if (frequency === "Quincenal") return addDays(start, 14);
+  if (frequency === "Mensual") {
+    const y = d.getFullYear(), m = d.getMonth() + 1, last = new Date(y, m + 1, 0).getDate();
+    return d.getDate() > last ? isoDate(new Date(y, m, last)) : addDays(isoDate(new Date(y, m, d.getDate())), -1);
+  }
+  return "";
+}
+export const rangeText = (a, b) => `${fmtDate(a)} → ${fmtDate(b)}`;

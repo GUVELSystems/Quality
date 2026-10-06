@@ -29,7 +29,7 @@ export function makeCrud(cfg) {
     openForm({
       eyebrow: row ? row.code || cfg.label : cfg.eyebrow || "Nuevo registro",
       title: row ? `Editar ${cfg.singular || "registro"}` : cfg.newLabel,
-      size: cfg.dialogSize || "", fields: cfg.fields(!!row), values: row || (cfg.defaults ? cfg.defaults() : {}),
+      size: cfg.dialogSize || "", fields: cfg.fields(!!row), values: row || (cfg.defaults ? cfg.defaults() : {}), intro: row && cfg.editIntro ? cfg.editIntro(row) : "",
       submitLabel: row ? "Guardar" : "Crear",
       onSubmit: async (v) => {
         if (cfg.beforeSave) v = cfg.beforeSave(v, row) || v;
@@ -41,7 +41,7 @@ export function makeCrud(cfg) {
     });
   };
 
-  on(`${cfg.id}-new`, () => openEditor(null));
+  on(`${cfg.id}-new`, () => (cfg.onCreate ? cfg.onCreate() : openEditor(null)));
   on(`${cfg.id}-edit`, (el) => canWrite() && openEditor(db.get(cfg.table, el.dataset.id)));
   on(`${cfg.id}-export`, () => cfg.exportCols && downloadCSV(`${cfg.id}.csv`, cfg.exportCols, filtered()));
   onChange(`${cfg.id}-filter`, (el) => { S.f[el.dataset.key] = el.value; rerender(); });

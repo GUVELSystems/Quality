@@ -7,6 +7,7 @@
 --   quality_manager  → todo lo operativo + catálogos + borrar registros
 --   auditor          → crear/editar auditorías, hallazgos, acciones, etc.
 --   viewer           → solo lectura
+--   (usuario inactivo → sin acceso a ningún dato)
 -- =====================================================================
 
 -- Privilegios base (RLS decide qué filas se pueden ver / modificar)
@@ -35,7 +36,7 @@ end $$;
 -- ---------------------------------------------------------------------
 drop policy if exists profiles_select on public.profiles;
 create policy profiles_select on public.profiles
-  for select to authenticated using (true);
+  for select to authenticated using (id = auth.uid() or public.is_member());
 
 drop policy if exists profiles_update_self on public.profiles;
 create policy profiles_update_self on public.profiles
@@ -56,7 +57,7 @@ declare t text;
 begin
   foreach t in array array['clients','classifications','forms','form_items'] loop
     execute format('drop policy if exists %1$s_select on public.%1$s', t);
-    execute format('create policy %1$s_select on public.%1$s for select to authenticated using (true)', t);
+    execute format('create policy %1$s_select on public.%1$s for select to authenticated using (public.is_member())', t);
 
     execute format('drop policy if exists %1$s_write on public.%1$s', t);
     execute format(
@@ -77,7 +78,7 @@ begin
     'customer_notifications','risks','opportunities'
   ] loop
     execute format('drop policy if exists %1$s_select on public.%1$s', t);
-    execute format('create policy %1$s_select on public.%1$s for select to authenticated using (true)', t);
+    execute format('create policy %1$s_select on public.%1$s for select to authenticated using (public.is_member())', t);
 
     execute format('drop policy if exists %1$s_insert on public.%1$s', t);
     execute format('create policy %1$s_insert on public.%1$s for insert to authenticated with check (public.is_staff())', t);
@@ -95,4 +96,4 @@ end $$;
 -- ---------------------------------------------------------------------
 drop policy if exists activity_select on public.activity_log;
 create policy activity_select on public.activity_log
-  for select to authenticated using (true);
+  for select to authenticated using (public.is_member());

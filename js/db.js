@@ -24,7 +24,8 @@ const CASCADE = {
   form_items: [["audit_answers", "item_id"]],
 };
 
-export const state = { session: null, profile: null, data: {}, demo: isDemo };
+export const state = { session: null, profile: null, data: {}, demo: isDemo, authIntent: null, authError: null };
+export const siteUrl = () => (location.origin + location.pathname).replace(/index\.html$/, "");
 let sb = null;
 const LS_DATA = "guvel_quality_demo_v1";
 const LS_SESSION = "guvel_quality_demo_session";
@@ -34,14 +35,92 @@ let demo = null; // { tables, counters }
 export async function init() {
   TABLES.forEach((t) => (state.data[t] = []));
   if (state.demo) return localStorage.getItem(LS_SESSION) === "1";
-  const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
+  // Enlaces de correo (invitación / recuperación) llegan como #access_token=...&type=invite
+  const hp = new URLSearchParams(location.hash.replace(/^#/, ""));
+  if (hp.get("access_token") && ["invite", "recovery", "signup", "magiclink"].includes(hp.get("type"))) state.authIntent = hp.get("type");
+  if (hp.get("error_description")) state.authError = hp.get("error_description").replace(/\+/g, " ");
+  // supabase-js vendorizado (sin CDN): expone window.supabase
+  if (!window.supabase) await new Promise((res, rej) => { const el = document.createElement("script"); el.src = "js/vendor/supabase.umd.js"; el.onload = res; el.onerror = () => rej(new Error("No se pudo cargar supabase-js")); document.head.append(el); });
+  const { createClient } = window.supabase;
   sb = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });
   const { data } = await sb.auth.getSession();
   state.session = data.session;
+  if (state.authIntent || state.authError) history.replaceState(null, "", location.pathname + location.search);
   return !!data.session;
 }
+
+/** Notifica cambios de sesión: cb("SIGNED_OUT" | "PASSWORD_RECOVERY" | ...) */
+export function onAuthEvent(cb) {
+  if (state.demo || !sb) return;
+  sb.auth.onAuthStateChange((event, session) => { state.session = session; cb(event); });
+}
+export async function setPassword(password) {
+  if (state.demo) return;
+  const { error } = await sb.auth.updateUser({ password });
+  if (error) throw new Error(error.message);
+  state.authIntent = null;
+}
+export async function resetPassword(email) {
+  if (state.demo) return;
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: siteUrl() });
+  if (error) throw new Error(error.message);
+}
+
+/** Invoca una Edge Function y devuelve su JSON (o lanza un error legible) */
+export async function invokeFn(name, body) {
+  const { data, error } = await sb.functions.invoke(name, { body });
+  if (error) {
+    let msg = error.message;
+    try { const j = await error.context?.json?.(); if (j?.error) msg = j.error; } catch { /* sin cuerpo */ }
+    throw new Error(msg);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+export async function reload(...tables) {
+  if (state.demo) return;
+  for (const t of tables) state.data[t] = await fetchAll(t);
+  if (tables.includes("profiles")) state.profile = state.data.profiles.find((p) => p.id === state.session.user.id) || state.profile;
+}
+
+/* ------------------- Invitación de usuarios (admin) ------------------ */
+export async function inviteUser({ email, full_name, role, area }) {
+  if (state.demo) return insert("profiles", { id: uuid(), email, full_name, role, area, active: true });
+  await invokeFn("invite-user", { email, full_name, role, area, site_url: siteUrl() });
+  await reload("profiles");
+}
+
+/* ----------------- Notificación de planes de auditoría --------------- */
+/** Agrupa por auditor las auditorías pendientes de notificar de un plan */
+export function planRecipients(planId, { all = false } = {}) {
+  const map = new Map();
+  for (const a of rows("audits").filter((x) => x.plan_id === planId && x.assigned_to && x.status !== "cancelada")) {
+    const pending = !a.notified_at || a.notified_to !== a.assigned_to;
+    if (!all && !pending) continue;
+    const p = get("profiles", a.assigned_to);
+    if (!p) continue;
+    if (!map.has(p.id)) map.set(p.id, { profile: p, audits: [] });
+    map.get(p.id).audits.push(a);
+  }
+  return [...map.values()].sort((a, b) => a.profile.full_name.localeCompare(b.profile.full_name));
+}
+
+/** Envía plan + notificaciones individuales. En demo solo simula y marca como enviado. */
+export async function notifyPlan(planId, { pdfBase64 = null, all = false } = {}) {
+  const recipients = planRecipients(planId, { all });
+  if (state.demo) {
+    const now = new Date().toISOString();
+    for (const r of recipients) for (const a of r.audits) await update("audits", a.id, { notified_at: now, notified_to: a.assigned_to });
+    await update("audit_plans", planId, { status: "enviado", sent_at: now, sent_by: state.profile.id });
+    return { demo: true, sent_plan: recipients.length, sent_audits: recipients.reduce((n, r) => n + r.audits.length, 0), failed: [] };
+  }
+  const res = await invokeFn("notify-audit-plan", { plan_id: planId, pdf_base64: pdfBase64, resend_all: all, site_url: siteUrl() });
+  await reload("audit_plans", "audits");
+  return res;
+}
+
 
 export async function signIn(email, password) {
   if (state.demo) { localStorage.setItem(LS_SESSION, "1"); return; }

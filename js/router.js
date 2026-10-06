@@ -37,6 +37,7 @@ export async function renderRoute(scroll = true) {
   document.getElementById("sidebar")?.classList.remove("open");
   document.getElementById("scrim")?.remove();
   const root = document.getElementById("view");
+  const keepY = window.scrollY;
   try {
     root.innerHTML = "";
     await mod.render(root, params);
@@ -45,6 +46,7 @@ export async function renderRoute(scroll = true) {
     setHead({ title: mod.label });
     root.innerHTML = `<div class="panel"><div class="empty">${icon("finding")}<strong>Algo salió mal</strong>${esc(e.message || e)}</div></div>`;
   }
+  if (!scroll) window.scrollTo({ top: keepY });
   if (scroll && lastId !== mod.id + params.join("/")) window.scrollTo({ top: 0 });
   lastId = mod.id + params.join("/");
   afterRender();

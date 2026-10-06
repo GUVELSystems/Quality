@@ -10,10 +10,10 @@ import { buildSeed } from "./seed.js";
 export const TABLES = [
   "profiles", "clients", "classifications", "forms", "form_items",
   "audit_plans", "audits", "audit_answers", "findings", "actions",
-  "customer_notifications", "risks", "opportunities",
+  "customer_notifications", "risks", "opportunities", "attachments",
 ];
 const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP" };
-const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities"]);
+const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);
 const READONLY = new Set(["id", "created_at", "updated_at", "created_by"]);
 const GENERATED = { risks: ["score"] }; // columnas calculadas por la base de datos
 const CASCADE = {
@@ -88,7 +88,8 @@ export async function loadAll() {
 function persist() {
   if (!state.demo) return;
   demo.tables = state.data;
-  localStorage.setItem(LS_DATA, JSON.stringify(demo));
+  try { localStorage.setItem(LS_DATA, JSON.stringify(demo)); }
+  catch { throw new Error("Sin espacio en el modo demo (el navegador limita ~5 MB). Elimina adjuntos o usa Supabase."); }
 }
 
 /* ------------------------------ Lectura ------------------------------ */
@@ -184,14 +185,17 @@ export async function upsertMany(t, list, keys) {
 
 export async function remove(t, id) {
   if (!state.demo) {
+    await purgeStorageFor(t, id);
     const { error } = await sb.from(t).delete().eq("id", id);
     if (error) throw new Error(friendly(error));
   }
   purge(t, id);
   persist();
 }
+const ATT_ENTITY = { findings: "finding", audits: "audit", customer_notifications: "notification" };
 function purge(t, id) {
   state.data[t] = state.data[t].filter((r) => r.id !== id);
+  if (ATT_ENTITY[t]) state.data.attachments = state.data.attachments.filter((a) => !(a.entity === ATT_ENTITY[t] && a.entity_id === id));
   (CASCADE[t] || []).forEach(([child, fk]) => {
     state.data[child].filter((r) => r[fk] === id).forEach((r) => purge(child, r.id));
   });
@@ -207,3 +211,81 @@ function friendly(e) {
 }
 
 export const activeProfiles = () => rows("profiles").filter((p) => p.active).sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""));
+
+/* ------------------------------ Adjuntos ----------------------------- */
+const BUCKET = "evidence";
+const MAX_BYTES = 10 * 1024 * 1024;
+const DEMO_MAX_BYTES = 1.5 * 1024 * 1024;
+export const ATTACH_ACCEPT = "image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv";
+const ALLOWED = /^(image\/(jpeg|png|webp|gif)|application\/pdf|text\/(plain|csv)|application\/(msword|vnd\.ms-excel|vnd\.ms-powerpoint|vnd\.openxmlformats-officedocument\..+))$/;
+const urlCache = new Map();
+
+/** Reduce fotos grandes (lado máx. y JPEG) para ahorrar espacio y datos móviles */
+async function prepareFile(file) {
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
+  const maxDim = state.demo ? 1100 : 1920, quality = state.demo ? 0.7 : 0.82;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+    if (scale === 1 && file.size < 1.2 * 1024 * 1024 && !state.demo) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+    if (!blob || (blob.size >= file.size && !state.demo)) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch { return file; }
+}
+const toDataURL = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+const safeName = (n) => n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.\-]+/g, "_").slice(-80);
+
+export async function addAttachment({ entity, entity_id, ref = null, file }) {
+  const typeOk = file.type ? ALLOWED.test(file.type) : /\.(docx?|xlsx?|pptx?|csv|txt|pdf)$/i.test(file.name); // algunos navegadores no informan el tipo
+  if (!typeOk) throw new Error("Tipo de archivo no permitido (usa imágenes, PDF, Office, TXT o CSV).");
+  const f = await prepareFile(file);
+  if (f.size > (state.demo ? DEMO_MAX_BYTES : MAX_BYTES)) throw new Error(`El archivo supera el límite de ${state.demo ? "1.5 MB en modo demo" : "10 MB"}.`);
+  const base = { entity, entity_id, ref, file_name: f.name, mime_type: f.type || "application/octet-stream", size_bytes: f.size };
+  if (state.demo) {
+    try { return await insert("attachments", { ...base, data_url: await toDataURL(f) }); }
+    catch (e) {
+      const last = state.data.attachments.at(-1); // insert() agrega a caché antes de persistir
+      if (last && last.entity_id === entity_id && last.file_name === base.file_name) state.data.attachments.pop();
+      throw e;
+    }
+  }
+  const path = `${entity}/${entity_id}/${uuid()}-${safeName(f.name)}`;
+  const up = await sb.storage.from(BUCKET).upload(path, f, { contentType: base.mime_type, upsert: false });
+  if (up.error) throw new Error(friendly(up.error));
+  try { return await insert("attachments", { ...base, file_path: path }); }
+  catch (e) { await sb.storage.from(BUCKET).remove([path]); throw e; }
+}
+
+/** URL utilizable en <img>/<a>: blob (demo) o URL firmada temporal (Supabase) */
+export async function attachmentUrl(att) {
+  const hit = urlCache.get(att.id);
+  if (hit && hit.exp > Date.now()) return hit.url;
+  let url;
+  if (state.demo) url = URL.createObjectURL(await (await fetch(att.data_url)).blob());
+  else {
+    const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(att.file_path, 3600);
+    if (error) throw new Error(friendly(error));
+    url = data.signedUrl;
+  }
+  urlCache.set(att.id, { url, exp: Date.now() + 50 * 60 * 1000 });
+  return url;
+}
+
+export async function removeAttachment(att) {
+  if (!state.demo) await sb.storage.from(BUCKET).remove([att.file_path]);
+  await remove("attachments", att.id);
+  urlCache.delete(att.id);
+}
+
+/** Antes de borrar un registro padre, elimina sus archivos de Storage (mejor esfuerzo) */
+async function purgeStorageFor(t, id) {
+  let pairs = [];
+  if (ATT_ENTITY[t]) pairs = [[ATT_ENTITY[t], id]];
+  if (t === "audit_plans") pairs = rows("audits").filter((a) => a.plan_id === id).map((a) => ["audit", a.id]);
+  const paths = rows("attachments").filter((a) => pairs.some(([e, i]) => a.entity === e && a.entity_id === i)).map((a) => a.file_path).filter(Boolean);
+  if (paths.length) await sb.storage.from(BUCKET).remove(paths).catch(() => {});
+}

@@ -14,6 +14,7 @@ import actions from "./modules/actions.js";
 import notifications from "./modules/notifications.js";
 import { risks, opportunities, clients, classifications, users } from "./modules/catalogs.js";
 import forms from "./modules/forms.js";
+import "./modules/attachments.js";
 
 [dashboard, audits, findings, actions, notifications, risks, opportunities, clients, classifications, forms, users].forEach(register);
 

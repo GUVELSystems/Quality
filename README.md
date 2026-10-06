@@ -12,6 +12,7 @@ Aplicación web estática (HTML + CSS + JavaScript ES modules, **sin build**) co
 |---|---|
 | **Dashboard** | KPIs (hallazgos abiertos/vencidos, cumplimiento de auditorías, notificaciones, acciones vencidas, riesgos altos), gráficas, vencimientos críticos y actividad reciente. |
 | **Auditorías** | Planes (LPA, Producto, Proceso, Sistema, Interna) con frecuencia semanal/quincenal/mensual/custom, **calendario mensual**, generación automática de auditorías, asignación, nivel LPA, límite de entrega y **ejecución de checklist** con resultado (%) y **hallazgos generados automáticamente** por cada punto que no cumple. |
+| **Evidencias** | Fotos y documentos (imágenes, PDF, Office, TXT, CSV) en **hallazgos**, **notificaciones de cliente** y **auditorías** (generales y **por pregunta del checklist**). Las fotos se comprimen automáticamente antes de subir; archivos en bucket privado con URLs firmadas temporales. |
 | **Hallazgos** | Flujo *Abierto → En análisis → En acción → Verificación → Cerrado*, severidad, origen, responsable, fecha compromiso, causa raíz, acciones vinculadas, exportación CSV. |
 | **Acciones** | Contención / correctiva / preventiva, con seguimiento y filtros (vencidas, solo mías). |
 | **Notificaciones de cliente** | Quejas, devoluciones, SCAR, alertas y auditorías de cliente con control de **fecha límite de respuesta** y botón para **generar hallazgo** vinculado. |
@@ -38,6 +39,7 @@ python3 -m http.server 8000
    1. `supabase/01_schema.sql` – tablas, códigos automáticos, triggers, bitácora.
    2. `supabase/02_policies.sql` – seguridad por roles (RLS).
    3. `supabase/03_seed.sql` – catálogos y 3 formatos base (LPA, Producto, Proceso).
+   4. `supabase/04_attachments.sql` – evidencias: tabla `attachments`, bucket privado `evidence` (10 MB/archivo) y sus políticas.
 3. En **Authentication → Users → Add user** crea tu usuario. **El primer usuario queda como administrador**; los siguientes inician como *Consulta* y el admin les asigna rol en *Configuración → Usuarios*.
 4. En **Project Settings → API** copia *Project URL* y la clave **anon public** y pégalas en `js/config.js`:
    ```js
@@ -58,6 +60,12 @@ python3 -m http.server 8000
 | `quality_manager` | Todo lo operativo, catálogos, formularios y borrado de registros. |
 | `auditor` | Crear y editar auditorías, hallazgos, acciones, notificaciones, riesgos y oportunidades. |
 | `viewer` | Solo lectura. |
+
+### Evidencias: notas
+- Límite de **10 MB** por archivo (configurable en `04_attachments.sql` y `MAX_BYTES` de `js/db.js`). En **modo demo** el límite es 1.5 MB porque se guarda en el navegador.
+- El bucket es **privado**: los archivos se ven mediante URLs firmadas que caducan en 1 hora.
+- Al eliminar un hallazgo, auditoría o plan, la app borra también sus archivos de Storage.
+- Subir y borrar evidencias requiere rol `auditor` o superior; un auditor solo puede borrar lo que él subió.
 
 ## Publicar en GitHub Pages
 
@@ -88,7 +96,7 @@ En GitHub: **Settings → Pages → Source: GitHub Actions**. El workflow `.gith
 │   ├── seed.js              datos del modo demo
 │   ├── ui.js · utils.js · icons.js · constants.js
 │   └── modules/             un archivo por módulo
-├── supabase/                01_schema · 02_policies · 03_seed (SQL)
+├── supabase/                01_schema · 02_policies · 03_seed · 04_attachments (SQL)
 ├── docs/DESIGN.md           guía de diseño
 └── .github/workflows/       despliegue a GitHub Pages
 ```
@@ -99,7 +107,6 @@ El lenguaje visual sale del logotipo GUVEL: **navy `#0f1b2d`**, **cian `#0cc0df`
 
 ## Hoja de ruta sugerida
 
-- Adjuntar evidencias (Supabase Storage) en hallazgos y auditorías.
 - Notificaciones por correo de vencimientos (Edge Function + cron).
 - Reporte 8D / PDF por notificación de cliente.
 - Tablero de indicadores por área/línea y Pareto de defectos.

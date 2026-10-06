@@ -4,6 +4,7 @@ import { icon } from "../icons.js";
 import { setHead, rerender, navigate } from "../router.js";
 import { on, onChange, onInput, badge, empty, openForm, confirmDialog, toast } from "../ui.js";
 import { AUDIT_TYPES, FREQUENCIES, AUDIT_STATUS, SEVERITY, SEVERITY_SLA_DAYS } from "../constants.js";
+import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts } from "./shared.js";
 
 const DOW = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -165,7 +166,7 @@ function initDraft(audit) {
 }
 const RES = { ok: "Cumple", nok: "No cumple", na: "N/A" };
 
-function questionHTML(it, readonly) {
+function questionHTML(it, readonly, auditId) {
   const a = draft.answers[it.id] || {};
   const f = db.get("findings", a.finding_id);
   return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}">
@@ -173,6 +174,7 @@ function questionHTML(it, readonly) {
     ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RES[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="#/findings/${f.id}">${esc(f.code)}</a> <span class="muted">hallazgo generado</span></div>` : ""}</div>`
     : `<div class="seg" role="group">${Object.entries(RES).map(([v, l]) => `<button type="button" data-action="au-ans" data-item="${it.id}" data-v="${v}" aria-pressed="${a.result === v}">${l}</button>`).join("")}</div>
        <textarea class="textarea" data-input="au-comment" data-item="${it.id}" placeholder="Comentario o evidencia (obligatorio si no cumple)">${esc(a.comment || "")}</textarea>`}
+    ${attachmentsSection("audit", auditId, { ref: it.id, compact: true, canEdit: !readonly })}
   </div>`;
 }
 
@@ -200,7 +202,7 @@ function auditView(root, id) {
     <div class="panel"><div class="panel-head"><h2>Checklist</h2>${badge(AUDIT_STATUS, st)}</div><div class="panel-body">
       ${!form ? empty("Sin formato", "Asigna un formato en “Programación” para poder ejecutar la auditoría.", "form")
         : !items.length ? empty("El formato no tiene preguntas", "Agrega preguntas en Configuración → Formularios.", "form")
-        : sections.map((s) => `<div class="check-section">${esc(s)}</div>${items.filter((i) => (i.section || "General") === s).map((i) => questionHTML(i, locked)).join("")}`).join("")}
+        : sections.map((s) => `<div class="check-section">${esc(s)}</div>${items.filter((i) => (i.section || "General") === s).map((i) => questionHTML(i, locked, audit.id)).join("")}`).join("")}
     </div>${!locked && items.length ? `<div class="dialog-foot"><button class="btn" data-action="au-save" data-id="${audit.id}">Guardar avance</button><button class="btn primary" data-action="au-finish" data-id="${audit.id}">Finalizar auditoría</button></div>` : ""}</div>
     <div class="stack">
       <div class="panel"><div class="panel-body" id="au-progress">${audit.status === "completada" ? `<div class="score-ring"><strong>${audit.score != null ? Number(audit.score).toFixed(0) + "%" : "—"}</strong><div><div class="eyebrow">Resultado final</div><div class="muted">Completada ${fmtDateTime(audit.completed_at)}</div></div></div>` : progressHTML(items)}</div></div>
@@ -208,6 +210,7 @@ function auditView(root, id) {
         <div><dt>Fecha</dt><dd>${fmtDate(audit.scheduled_date)}</dd></div><div><dt>Nivel</dt><dd>${audit.level ? "Nivel " + audit.level : "—"}</dd></div>
         <div><dt>Asignado a</dt><dd>${esc(db.profileName(audit.assigned_to))}</dd></div><div><dt>Límite</dt><dd>${fmtDateTime(audit.due_at)}</dd></div>
         ${audit.notes ? `<div class="span-2"><dt>Notas</dt><dd>${esc(audit.notes)}</dd></div>` : ""}</dl></div></div>
+      <div class="panel"><div class="panel-body">${attachmentsSection("audit", audit.id, { title: "Evidencias generales", canEdit: audit.status !== "cancelada" })}</div></div>
       <div class="panel"><div class="panel-head"><h2>Hallazgos generados</h2><small>${linked.length}</small></div><div class="panel-body">
         ${linked.length ? linked.map((f) => `<div class="item-row"><div><a class="mono" href="#/findings/${f.id}">${esc(f.code)}</a><div style="margin-top:4px">${esc(f.title)}</div></div>${badge(SEVERITY, f.severity)}</div>`).join("") : '<span class="muted">Aún no se han generado hallazgos.</span>'}</div></div>
     </div></div>`;
@@ -217,6 +220,8 @@ async function saveAnswers(audit) {
   const rowsToSave = Object.entries(draft.answers).filter(([, a]) => a.result).map(([item_id, a]) => ({ audit_id: audit.id, item_id, result: a.result, comment: a.comment || null, finding_id: a.finding_id || null }));
   await db.upsertMany("audit_answers", rowsToSave, ["audit_id", "item_id"]);
 }
+
+hooks.audit = () => rerender();
 
 /* -------------------------------- Módulo ----------------------------- */
 export default {

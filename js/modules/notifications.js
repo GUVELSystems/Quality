@@ -4,6 +4,7 @@ import { icon } from "../icons.js";
 import { setHead, rerender, replaceHash, navigate } from "../router.js";
 import { on, onChange, onInput, badge, empty, openDrawer, openForm, toast } from "../ui.js";
 import { SEVERITY, SEVERITY_SLA_DAYS, NOTIF_TYPE, NOTIF_FLOW, NOTIF_STATUS } from "../constants.js";
+import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts, clientOpts, mapOpts, clientName } from "./shared.js";
 
 const F = { q: "", status: "", type: "", client: "" };
@@ -63,6 +64,7 @@ function drawerHTML(n) {
     <div class="section-title"><span>Hallazgo vinculado</span></div>
     ${finding ? `<div class="item-row"><div><a class="mono" href="#/findings/${finding.id}">${esc(finding.code)}</a><div style="margin-top:4px">${esc(finding.title)}</div></div></div>`
       : `<div class="muted" style="margin-bottom:12px">Esta notificación aún no tiene un hallazgo asociado para dar seguimiento con acciones.</div>${db.can.write ? `<button class="btn" data-action="n-finding" data-id="${n.id}">${icon("finding")} Generar hallazgo</button>` : ""}`}
+    ${attachmentsSection("notification", n.id, { title: "Evidencias y documentos del cliente" })}
   </div>
   ${db.can.write ? `<div class="dialog-foot"><button class="btn" data-action="n-edit" data-id="${n.id}">${icon("edit")} Editar</button></div>` : ""}`;
 }
@@ -77,6 +79,8 @@ async function refresh() {
   await rerender();
   if (drawer && document.body.contains(drawer.el)) { const n = db.get("customer_notifications", drawerId); n ? drawer.set(drawerHTML(n)) : drawer.close(); }
 }
+
+hooks.notification = () => refresh();
 
 const filtered = () => {
   const q = F.q.toLowerCase();

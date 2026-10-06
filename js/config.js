@@ -9,8 +9,8 @@
    (datos de ejemplo guardados en el navegador).
    ===================================================================== */
 export const CONFIG = {
-  SUPABASE_URL: "https://vaalezcebtxdoluwayde.supabase.co",
-  SUPABASE_ANON_KEY: "sb_publishable_3u3b2fs12hMg4GW95qcgyA_V7gdu-wx",
+  SUPABASE_URL: "",
+  SUPABASE_ANON_KEY: "",
   APP_NAME: "GUVEL Quality",
 };
 

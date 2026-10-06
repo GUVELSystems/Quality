@@ -4,6 +4,7 @@ import { icon } from "../icons.js";
 import { setHead, rerender, replaceHash } from "../router.js";
 import { on, onChange, onInput, badge, userCell, empty, openDrawer, openForm, confirmDialog, toast } from "../ui.js";
 import { SEVERITY, SEVERITY_SLA_DAYS, SOURCE, FINDING_STATUS, FINDING_FLOW, ACTION_TYPE, ACTION_STATUS, ACTION_FLOW } from "../constants.js";
+import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts, catOpts, catNameOpts, clientOpts, mapOpts, catName, clientName } from "./shared.js";
 
 const F = { q: "", status: "", severity: "", source: "" };
@@ -99,6 +100,7 @@ function drawerHTML(f) {
         <div class="meta">${esc(db.profileName(a.owner_id))} · <span class="${late ? "overdue" : ""}">${d.text}</span></div></div>
         ${db.can.write ? `<div style="display:flex;gap:6px">${a.status !== "verificada" ? `<button class="btn sm" data-action="a-next" data-id="${a.id}" title="Avanzar estado">${icon("chevR")}</button>` : ""}<button class="btn sm icon" data-action="a-edit" data-id="${a.id}" aria-label="Editar">${icon("edit")}</button></div>` : ""}</div>`; }).join("")
       : `<div class="muted" style="padding:6px 0 0">Aún no hay acciones. Agrega una acción de contención, correctiva o preventiva.</div>`}
+    ${attachmentsSection("finding", f.id)}
   </div>
   ${db.can.write ? `<div class="dialog-foot"><button class="btn" data-action="f-edit" data-id="${f.id}">${icon("edit")} Editar</button></div>` : ""}`;
 }
@@ -114,6 +116,8 @@ async function refresh() {
   await rerender();
   if (drawer && document.body.contains(drawer.el)) { const f = db.get("findings", drawerId); f ? drawer.set(drawerHTML(f)) : drawer.close(); }
 }
+
+hooks.finding = () => refresh();
 
 /* -------------------------------- Lista ------------------------------ */
 const filtered = () => {

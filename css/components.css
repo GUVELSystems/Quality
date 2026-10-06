@@ -272,3 +272,25 @@ a.kpi:hover { border-color: var(--g-cyan); transform: translateY(-2px); }
 .sr-pop a .mono { color: var(--g-cyan); }
 .sr-pop a span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sr-none { padding: 14px; color: var(--muted); }
+
+/* =========================== Evidencias ============================= */
+.att-grid { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+.att-item { position: relative; }
+.att-thumb { display: block; width: 92px; height: 92px; background: var(--bg-1); border: 1px solid var(--line); overflow: hidden; }
+.att-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s; }
+.att-thumb:hover img { transform: scale(1.06); }
+.att-item.file > a { display: flex; align-items: center; gap: 10px; min-width: 190px; max-width: 280px; padding: 10px 34px 10px 12px; background: var(--bg-1); border: 1px solid var(--line); border-left: 2px solid var(--g-cyan); color: var(--text); text-decoration: none !important; }
+.att-item.file svg { width: 22px; height: 22px; color: var(--g-cyan); flex: none; }
+.att-item.file span { min-width: 0; display: grid; }
+.att-item.file b { font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-item.file small { color: var(--muted); font-size: 11px; }
+.att-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; background: rgba(10,20,34,.85); border: 1px solid var(--line); color: var(--text-2); opacity: 0; transition: opacity .12s; }
+.att-x svg { width: 12px; height: 12px; }
+.att-item:hover .att-x, .att-x:focus-visible { opacity: 1; }
+.att-x:hover { color: var(--danger); border-color: var(--danger); }
+@media (hover: none) { .att-x { opacity: 1; } }
+.att-broken { opacity: .4; }
+.att-upload { cursor: pointer; }
+.att.compact { margin-top: 12px; }
+.att.compact .att-thumb { width: 64px; height: 64px; }
+.att.compact .att-upload { align-self: center; }

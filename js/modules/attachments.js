@@ -1,0 +1,74 @@
+/* Evidencias: sección reutilizable (miniaturas + subir/eliminar) */
+import * as db from "../db.js";
+import { esc } from "../utils.js";
+import { icon } from "../icons.js";
+import { on, onChange, toast, confirmDialog } from "../ui.js";
+
+/** Cada módulo anfitrión registra cómo refrescarse: hooks.finding = fn, … */
+export const hooks = {};
+
+const fmtSize = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+const canDelete = (a) => db.can.manage || (db.can.write && a.created_by === db.state.profile.id);
+
+/**
+ * entity: finding | audit | notification · ref: subclasificación opcional (id de pregunta)
+ * compact: sin título (para usar dentro de una pregunta del checklist)
+ */
+export function attachmentsSection(entity, id, { ref = null, canEdit = true, title = "Evidencias", compact = false } = {}) {
+  const list = db.rows("attachments")
+    .filter((a) => a.entity === entity && a.entity_id === id && (a.ref || null) === ref)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  const editable = canEdit && db.can.write;
+  const uploadBtn = editable
+    ? `<label class="btn sm att-upload">${icon("plus")} Adjuntar<input type="file" multiple hidden accept="${db.ATTACH_ACCEPT}" data-change="att-upload" data-entity="${entity}" data-id="${id}" data-ref="${esc(ref || "")}"></label>`
+    : "";
+  if (compact && !list.length && !editable) return "";
+  const items = list.map((a) => {
+    const isImg = (a.mime_type || "").startsWith("image/");
+    const del = editable && canDelete(a) ? `<button type="button" class="att-x" data-action="att-del" data-id="${a.id}" aria-label="Eliminar ${esc(a.file_name)}">${icon("close")}</button>` : "";
+    return isImg
+      ? `<div class="att-item"><a class="att-thumb" data-att="${a.id}" target="_blank" rel="noopener" title="${esc(a.file_name)}"><img alt="${esc(a.file_name)}"></a>${del}</div>`
+      : `<div class="att-item file"><a data-att="${a.id}" target="_blank" rel="noopener" download="${esc(a.file_name)}">${icon("form")}<span><b>${esc(a.file_name)}</b><small>${fmtSize(a.size_bytes || 0)}</small></span></a>${del}</div>`;
+  }).join("");
+  return `<div class="att ${compact ? "compact" : ""}">
+    ${compact ? "" : `<div class="section-title"><span>${esc(title)} (${list.length})</span>${uploadBtn}</div>`}
+    ${list.length ? `<div class="att-grid">${items}${compact ? uploadBtn : ""}</div>` : compact ? uploadBtn : `<div class="muted">Sin evidencias. ${editable ? "Adjunta fotos o documentos." : ""}</div>`}
+  </div>`;
+}
+
+/* Las URLs (blob o firmadas) se resuelven después del render */
+let pending = false;
+async function hydrate() {
+  pending = false;
+  for (const el of document.querySelectorAll("[data-att]:not([data-ready])")) {
+    el.dataset.ready = "1";
+    const att = db.get("attachments", el.dataset.att);
+    if (!att) continue;
+    try {
+      const url = await db.attachmentUrl(att);
+      el.href = url;
+      const img = el.querySelector("img");
+      if (img) img.src = url;
+    } catch { el.classList.add("att-broken"); }
+  }
+}
+new MutationObserver(() => { if (!pending) { pending = true; requestAnimationFrame(hydrate); } }).observe(document.body, { childList: true, subtree: true });
+
+onChange("att-upload", async (el) => {
+  const { entity, id, ref } = el.dataset, files = [...el.files];
+  el.value = "";
+  if (!files.length) return;
+  toast(files.length > 1 ? `Subiendo ${files.length} archivos…` : "Subiendo archivo…");
+  let ok = 0;
+  for (const file of files) {
+    try { await db.addAttachment({ entity, entity_id: id, ref: ref || null, file }); ok++; }
+    catch (e) { toast(`${file.name}: ${e.message}`, "danger"); }
+  }
+  if (ok) { toast(`${ok} archivo(s) adjuntado(s)`, "ok"); await hooks[entity]?.(); }
+});
+
+on("att-del", async (el) => {
+  const att = db.get("attachments", el.dataset.id);
+  if (!att || !(await confirmDialog({ title: "¿Eliminar evidencia?", message: att.file_name, confirmLabel: "Eliminar", danger: true }))) return;
+  try { await db.removeAttachment(att); toast("Evidencia eliminada"); await hooks[att.entity]?.(); } catch (e) { toast(e.message, "danger"); }
+});

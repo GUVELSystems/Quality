@@ -1,1 +1,22 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GUVEL Quality</title><link rel="stylesheet" href="styles.css"></head><body><div class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">G</span><div><strong>GUVEL <em>Quality</em></strong><small>Smarter Industrial Systems</small></div></div><button class="menu-btn" id="menuBtn">☰</button><nav id="nav"><button data-view="dashboard">Dashboard</button><button class="active" data-view="audits">Auditorías</button><button data-view="clients">Clientes</button><button data-view="risks">Riesgos</button><button data-view="opportunities">Oportunidades</button><button data-view="classifications">Clasificaciones</button><button data-view="forms">Formularios</button><button data-view="users">Usuarios</button></nav><div class="user">CG</div></header><main><div class="page-head"><div><span class="eyebrow">QUALITY MANAGEMENT PLATFORM</span><h1 id="pageTitle">Auditorías</h1><p id="pageSubtitle">Planifica, programa y controla tus auditorías.</p></div><button class="primary" id="createPlan">＋ Crear Plan de Auditoría</button></div><section id="app"></section></main></div><div class="modal hidden" id="modal"><div class="modal-card"><div class="modal-head"><div><span class="eyebrow">NUEVO PLAN</span><h2>Crear Plan de Auditoría</h2></div><button id="closeModal">×</button></div><div class="form-grid"><label>Plan de Auditoría<select id="auditType"><option>LPA</option><option>Producto</option><option>Proceso</option><option>Sistema</option><option>Interna</option></select></label><label>Plan<select id="frequency"><option>Semanal</option><option>Quincenal</option><option>Mensual</option><option>Custom</option></select></label><label>Fecha inicial<input type="date" id="startDate"></label><label>Fecha final<input type="date" id="endDate"></label></div><div class="modal-actions"><button class="secondary" id="cancelPlan">Cancelar</button><button class="primary" id="savePlan">Generar calendario</button></div></div></div><div class="modal hidden" id="auditModal"><div class="modal-card"><div class="modal-head"><div><span class="eyebrow">AUDITORÍA PROGRAMADA</span><h2 id="selectedDateTitle">Agregar auditoría</h2></div><button id="closeAuditModal">×</button></div><div class="form-grid"><label>Número de Auditoría<input id="auditNumber" placeholder="AUD-0001"></label><label>Asignado A<select id="assigned"><option>Seleccionar usuario</option><option>Juan Pérez</option><option>María López</option><option>Carlos Gutiérrez</option></select></label><label id="levelField">Nivel de Auditoría<select id="auditLevel"><option>Nivel 1</option><option>Nivel 2</option><option>Nivel 3</option><option>Nivel 4</option><option>Nivel 5</option></select></label><label>Número de Formato<select id="formNumber"><option>Seleccionar formato</option><option>FOR-LPA-001</option><option>FOR-PRO-001</option><option>FOR-PRC-001</option></select></label><label>Tiempo límite de entrega<input type="datetime-local" id="dueDate"></label></div><div class="modal-actions"><button class="secondary" id="cancelAudit">Cancelar</button><button class="primary" id="saveAudit">Guardar auditoría</button></div></div></div><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GUVEL Quality</title>
+  <meta name="description" content="GUVEL Quality · Gestión de auditorías, hallazgos, acciones y notificaciones de cliente.">
+  <meta name="theme-color" content="#0f1b2d">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+  <noscript>GUVEL Quality requiere JavaScript habilitado.</noscript>
+  <div id="app"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

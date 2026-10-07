@@ -136,11 +136,23 @@ export async function signOut() {
 export function resetDemo() { localStorage.removeItem(LS_DATA); }
 
 /* ------------------------------ Carga -------------------------------- */
+/** Supabase a veces responde "PGRST303: JWT issued at future" justo tras iniciar sesión
+ *  (desfase de reloj entre Auth y la API). Es transitorio: se reintenta con espera. */
+const SKEW = /JWT issued at future|PGRST303/i;
+async function retrySkew(run) {
+  for (let i = 0; ; i++) {
+    const res = await run();
+    const msg = `${res?.error?.code || ""} ${res?.error?.message || ""}`;
+    if (!res?.error || !SKEW.test(msg) || i >= 5) return res;
+    await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+  }
+}
+
 async function fetchAll(table) {
   const out = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await sb.from(table).select("*").range(from, from + 999);
-    if (error) throw new Error(`${table}: ${error.message}`);
+    const { data, error } = await retrySkew(() => sb.from(table).select("*").range(from, from + 999));
+    if (error) throw new Error(SKEW.test(error.message) ? "Supabase tuvo un desfase de reloj momentáneo. Espera unos segundos e inténtalo de nuevo." : `${table}: ${error.message}`);
     out.push(...data);
     if (data.length < 1000) break;
   }
@@ -217,7 +229,7 @@ export async function insert(t, row) {
     return r;
   }
   if (HAS_CREATED_BY.has(t)) data.created_by = state.profile.id;
-  const { data: res, error } = await sb.from(t).insert(data).select().single();
+  const { data: res, error } = await retrySkew(() => sb.from(t).insert(data).select().single());
   if (error) throw new Error(friendly(error));
   state.data[t].push(res);
   return res;
@@ -233,7 +245,7 @@ export async function update(t, id, patch) {
     persist();
     return cur;
   }
-  const { data: res, error } = await sb.from(t).update(data).eq("id", id).select().single();
+  const { data: res, error } = await retrySkew(() => sb.from(t).update(data).eq("id", id).select().single());
   if (error) throw new Error(friendly(error));
   const i = state.data[t].findIndex((r) => r.id === id);
   state.data[t][i] = res;
@@ -254,7 +266,7 @@ export async function upsertMany(t, list, keys) {
     persist();
     return;
   }
-  const { data, error } = await sb.from(t).upsert(list.map((r) => clean(r, t)), { onConflict: keys.join(",") }).select();
+  const { data, error } = await retrySkew(() => sb.from(t).upsert(list.map((r) => clean(r, t)), { onConflict: keys.join(",") }).select());
   if (error) throw new Error(friendly(error));
   for (const r of data) {
     const i = state.data[t].findIndex((x) => x.id === r.id || match(x, r));
@@ -265,7 +277,7 @@ export async function upsertMany(t, list, keys) {
 export async function remove(t, id) {
   if (!state.demo) {
     await purgeStorageFor(t, id);
-    const { error } = await sb.from(t).delete().eq("id", id);
+    const { error } = await retrySkew(() => sb.from(t).delete().eq("id", id));
     if (error) throw new Error(friendly(error));
   }
   purge(t, id);

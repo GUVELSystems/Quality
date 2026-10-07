@@ -3,23 +3,50 @@ import * as db from "./db.js";
 import { esc, initials, today } from "./utils.js";
 import { icon } from "./icons.js";
 import { on, onInput, toast, confirmDialog } from "./ui.js";
-import { register, getModules, renderRoute, onAfterRender } from "./router.js";
+import { registerWs, getWs, current, renderRoute, onAfterRender } from "./router.js";
 import { ROLES } from "./constants.js";
 
 import dashboard from "./modules/dashboard.js";
-import audits from "./modules/audits.js";
+import * as audits from "./modules/audits.js";
 import findings from "./modules/findings.js";
 import actions from "./modules/actions.js";
 import notifications from "./modules/notifications.js";
 import { risks, opportunities, clients, classifications, users } from "./modules/catalogs.js";
 import forms from "./modules/forms.js";
 import "./modules/attachments.js";
+import { findingsOf, actionsOf, isDone, WS_LABEL, auditWs, findingWs } from "./scope.js";
 
-[dashboard, audits, findings, actions, notifications, risks, opportunities, clients, classifications, forms, users].forEach(register);
+/* ------------------- Módulos (portales dentro del portal) ------------------- */
+const openF = (ws) => ({ n: findingsOf(ws).filter((f) => f.status !== "cerrado").length });
+const lateA = (ws) => ({ n: actionsOf(ws).filter((a) => !isDone(a) && a.due_date && a.due_date < today()).length, hot: true });
+const auditTabs = () => [
+  { id: "planes", label: "Planes", render: audits.renderPlanes },
+  { id: "lista", label: "Auditorías", render: audits.renderLista },
+  { id: "hallazgos", label: "Hallazgos", render: findings.render, count: openF },
+  { id: "acciones", label: "Acciones", render: actions.render, count: lateA },
+  { id: "formatos", label: "Formatos", render: forms.render },
+  { id: "plan", hidden: true, activeAs: "planes", render: audits.renderPlan },
+  { id: "audit", hidden: true, activeAs: "lista", render: audits.renderAudit },
+];
+registerWs({ id: "dashboard", label: "Dashboard", hideTabs: true, tabs: [{ id: "inicio", render: dashboard.render }] });
+registerWs({ id: "auditorias", label: WS_LABEL.auditorias, tabs: auditTabs() });
+registerWs({ id: "internas", label: WS_LABEL.internas, tabs: auditTabs() });
+registerWs({ id: "issues", label: WS_LABEL.issues, tabs: [
+  { id: "notificaciones", label: "Notificaciones", render: notifications.render, count: () => ({ n: db.rows("customer_notifications").filter((n) => n.status !== "cerrada").length }) },
+  { id: "hallazgos", label: "Hallazgos", render: findings.render, count: openF },
+  { id: "acciones", label: "Acciones", render: actions.render, count: lateA },
+] });
+registerWs({ id: "riesgos", label: WS_LABEL.riesgos, hideTabs: true, tabs: [{ id: "riesgos", render: risks.render }] });
+registerWs({ id: "oportunidades", label: WS_LABEL.oportunidades, hideTabs: true, tabs: [{ id: "oportunidades", render: opportunities.render }] });
+registerWs({ id: "config", label: WS_LABEL.config, tabs: [
+  { id: "clientes", label: "Clientes", render: clients.render },
+  { id: "clasificaciones", label: "Clasificaciones", render: classifications.render },
+  { id: "usuarios", label: "Usuarios", render: users.render },
+] });
 
 const app = document.getElementById("app");
-const MAIN_NAV = ["dashboard", "audits", "findings", "actions", "notifications", "risks", "opportunities"];
-const CONFIG_NAV = ["clients", "classifications", "forms", "users"];
+const MENU = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades"];
+const CONFIG_MENU = [["clientes", "Clientes"], ["clasificaciones", "Clasificaciones"], ["usuarios", "Usuarios"]];
 let appShown = false;
 
 /* ------------------------------- Tema -------------------------------- */
@@ -33,7 +60,7 @@ on("theme", (el) => {
 });
 
 /* ------------------------------ Pantallas de acceso ------------------ */
-const authBrand = `<div class="auth-brand"><img src="assets/guvel-logo.png" alt=""><strong>GUVEL</strong><small>Smarter industrial systems</small></div>`;
+const authBrand = `<div class="auth-brand"><img src="assets/guvel-logo.png" alt=""><strong>GUVEL</strong><small>Quality</small></div>`;
 const msg = (m, err) => (m ? `<div class="auth-msg ${err ? "error" : ""}" role="${err ? "alert" : "status"}">${esc(m)}</div>` : "");
 
 function showLogin(error = "", info = "") {
@@ -85,7 +112,7 @@ function showConfirmLink() {
     <p class="auth-lead">${invite ? "Te invitaron al portal de calidad de GUVEL. Pulsa el botón para continuar y crear tu contraseña." : "Pulsa el botón para continuar y elegir una nueva contraseña."}</p>
     <div id="cl-msg"></div>
     <div class="auth-form"><button class="btn primary" id="cl-go" type="button">Continuar</button></div>
-    <div class="auth-foot">GUVEL · Smarter industrial systems</div></div></div>`;
+    <div class="auth-foot">GUVEL Quality</div></div></div>`;
   document.getElementById("cl-go").addEventListener("click", async (e) => {
     e.target.disabled = true; e.target.textContent = "Verificando…";
     try { await db.verifyEmailLink(); showSetPassword(db.state.authIntent === "invite"); }
@@ -106,7 +133,7 @@ function showSetPassword(invite = true, error = "") {
       <label>Confirmar contraseña<input class="input" type="password" name="p2" autocomplete="new-password" minlength="8" required></label>
       <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="showPw" style="width:16px;height:16px;accent-color:#0CC0DF"> Mostrar contraseña</label>
       <button class="btn primary" type="submit">Guardar y entrar</button></form>
-    <div class="auth-foot">GUVEL · Smarter industrial systems</div></div></div>`;
+    <div class="auth-foot">GUVEL Quality</div></div></div>`;
   document.getElementById("showPw").addEventListener("change", (e) => document.querySelectorAll("#pwForm input[type=password], #pwForm input[data-pw]").forEach((i) => { i.type = e.target.checked ? "text" : "password"; i.dataset.pw = "1"; }));
   document.getElementById("pwForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -119,16 +146,15 @@ function showSetPassword(invite = true, error = "") {
 
 /* -------------------------------- Shell ------------------------------ */
 function shell() {
-  const p = db.state.profile, mods = getModules(), mod = (id) => mods.find((m) => m.id === id);
-  const link = (id, extra = "") => `<a class="nav-item" href="#/${id}" data-route="${id}">${mod(id).label}${extra}</a>`;
+  const p = db.state.profile;
   app.innerHTML = `
   <header class="topbar">
-    <a class="brand" href="#/dashboard"><img src="assets/guvel-logo.png" alt=""><span class="brand-word"><strong>GUVEL</strong><small>Smarter industrial systems</small></span><span class="brand-product">Quality</span></a>
+    <a class="brand" href="#/dashboard"><img src="assets/guvel-logo.png" alt=""><span class="brand-word"><strong>GUVEL</strong><small>Quality</small></span></a>
     <nav class="top-nav" aria-label="Principal">
-      ${MAIN_NAV.map((id) => link(id, ["findings", "actions", "notifications"].includes(id) ? `<span class="nav-count hidden" data-count="${id}"></span>` : "")).join("")}
-      <div class="nav-more"><button class="nav-item" data-action="nav-more" id="navMoreBtn" aria-haspopup="true">Configuración ${icon("more")}</button></div>
+      <button class="ws-chip" id="wsBtn" data-action="ws-menu" aria-haspopup="true" aria-expanded="false"></button>
+      <span class="nav-tabs" id="navTabs"></span>
     </nav>
-    <div class="nav-menu hidden" id="navMenu">${CONFIG_NAV.map((id) => `<a href="#/${id}" data-route="${id}">${mod(id).label}</a>`).join("")}</div>
+    <div class="nav-menu hidden" id="wsMenu" role="menu"></div>
     <div class="top-actions">
       <label class="search">${icon("search")}<input id="gsearch" type="search" placeholder="Buscar folio o título…" data-input="gsearch" autocomplete="off" aria-label="Búsqueda global"><div id="sresults"></div></label>
       <button class="top-btn" data-action="theme" title="Cambiar tema" aria-label="Cambiar tema">${icon(currentTheme() === "dark" ? "sun" : "moon")}</button>
@@ -142,24 +168,29 @@ function shell() {
   appShown = true;
 }
 
-on("nav-more", (el) => {
-  const m = document.getElementById("navMenu"), r = el.getBoundingClientRect();
-  m.style.top = r.bottom + "px"; m.style.left = Math.min(r.left, innerWidth - 230) + "px";
-  m.classList.toggle("hidden");
+/* Selector de módulo (chip "Quality ▾"): lista de módulos y, aparte, Configuración */
+on("ws-menu", (el) => {
+  const m = document.getElementById("wsMenu"), r = el.getBoundingClientRect();
+  m.style.top = r.bottom + 4 + "px"; m.style.left = Math.max(8, Math.min(r.left, innerWidth - 250)) + "px";
+  const hidden = m.classList.toggle("hidden");
+  el.setAttribute("aria-expanded", String(!hidden));
 });
-document.addEventListener("click", (e) => { if (!e.target.closest("#navMenu, #navMoreBtn")) document.getElementById("navMenu")?.classList.add("hidden"); });
+document.addEventListener("click", (e) => { if (!e.target.closest("#wsMenu, #wsBtn")) document.getElementById("wsMenu")?.classList.add("hidden"); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.getElementById("wsMenu")?.classList.add("hidden"); });
 
-function updateNav() {
-  const t = today();
-  const set = (id, n, hot) => { const el = document.querySelector(`[data-count="${id}"]`); if (!el) return; el.textContent = n; el.classList.toggle("hidden", !n); el.classList.toggle("hot", !!hot); };
-  set("findings", db.rows("findings").filter((f) => f.status !== "cerrado").length);
-  set("actions", db.rows("actions").filter((a) => !["completada", "verificada"].includes(a.status) && a.due_date && a.due_date < t).length, true);
-  set("notifications", db.rows("customer_notifications").filter((n) => n.status !== "cerrada").length);
-  const route = location.hash.replace(/^#\//, "").split("/")[0] || "dashboard";
-  document.getElementById("navMoreBtn")?.classList.toggle("active", CONFIG_NAV.includes(route));
-  document.querySelectorAll("#navMenu a").forEach((a) => a.classList.toggle("active", a.dataset.route === route));
+function renderNav() {
+  const c = current(), w = getWs(c.ws);
+  if (!w || !document.getElementById("wsBtn")) return;
+  document.getElementById("wsBtn").innerHTML = `${esc(w.label)} ${icon("more")}`;
+  document.getElementById("wsMenu").innerHTML = MENU.map((id) => `<a href="#/${id}" class="${id === c.ws ? "active" : ""}" role="menuitem">${esc(getWs(id).label)}</a>`).join("")
+    + `<div class="menu-sep">Configuración</div>` + CONFIG_MENU.map(([id, l]) => `<a href="#/config/${id}" class="${c.ws === "config" && c.tab === id ? "active" : ""}" role="menuitem">${l}</a>`).join("");
+  document.getElementById("wsMenu").classList.add("hidden");
+  document.getElementById("navTabs").innerHTML = w.hideTabs ? "" : w.tabs.filter((t) => !t.hidden).map((t) => {
+    const k = t.count?.(w.id), active = t.id === c.tab || t.activeAs === c.tab;
+    return `<a class="nav-item ${active ? "active" : ""}" href="#/${w.id}/${t.id}">${esc(t.label)}${k && k.n ? `<span class="nav-count ${k.hot ? "hot" : ""}">${k.n}</span>` : ""}</a>`;
+  }).join("");
 }
-onAfterRender(updateNav);
+onAfterRender(renderNav);
 
 /* --------------------------- Búsqueda global ------------------------- */
 onInput("gsearch", (el) => {
@@ -167,10 +198,10 @@ onInput("gsearch", (el) => {
   if (q.length < 2) { box.innerHTML = ""; return; }
   const hit = (...v) => v.some((x) => String(x || "").toLowerCase().includes(q));
   const res = [
-    ...db.rows("findings").filter((r) => hit(r.code, r.title)).map((r) => ({ t: "Hallazgo", c: r.code, l: r.title, to: `findings/${r.id}` })),
-    ...db.rows("audits").filter((r) => hit(r.code)).map((r) => ({ t: "Auditoría", c: r.code, l: db.get("audit_plans", r.plan_id)?.name || "", to: `audits/${r.id}` })),
-    ...db.rows("customer_notifications").filter((r) => hit(r.code, r.subject, r.part_number)).map((r) => ({ t: "Cliente", c: r.code, l: r.subject, to: `notifications/${r.id}` })),
-    ...db.rows("actions").filter((r) => hit(r.code, r.description)).map((r) => ({ t: "Acción", c: r.code, l: r.description, to: `findings/${r.finding_id}` })),
+    ...db.rows("findings").filter((r) => hit(r.code, r.title)).map((r) => ({ t: "Hallazgo", c: r.code, l: r.title, to: `${findingWs(r)}/hallazgos/${r.id}` })),
+    ...db.rows("audits").filter((r) => hit(r.code)).map((r) => ({ t: "Auditoría", c: r.code, l: db.get("audit_plans", r.plan_id)?.name || "", to: `${auditWs(r)}/audit/${r.id}` })),
+    ...db.rows("customer_notifications").filter((r) => hit(r.code, r.subject, r.part_number)).map((r) => ({ t: "Cliente", c: r.code, l: r.subject, to: `issues/notificaciones/${r.id}` })),
+    ...db.rows("actions").filter((r) => hit(r.code, r.description)).map((r) => ({ t: "Acción", c: r.code, l: r.description, to: `${findingWs(db.get("findings", r.finding_id))}/hallazgos/${r.finding_id}` })),
   ].slice(0, 8);
   box.innerHTML = `<div class="sr-pop">${res.length ? res.map((r) => `<a href="#/${r.to}" data-action="close-search"><small>${r.t}</small><span class="mono">${esc(r.c)}</span><span>${esc(r.l)}</span></a>`).join("") : '<div class="sr-none">Sin resultados</div>'}</div>`;
 });

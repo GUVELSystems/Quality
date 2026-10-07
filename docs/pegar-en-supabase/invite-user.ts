@@ -1,3 +1,4 @@
+// GUVEL Quality · invite-user (archivo único para pegar en el editor de Supabase)
 // Edge Function: invite-user
 // Solo un administrador puede invitar. Envía la invitación de Supabase Auth
 // (enlace para crear contraseña) y deja el perfil activo con el rol indicado.

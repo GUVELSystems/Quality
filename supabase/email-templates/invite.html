@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Invitación</title></head>
+<body style="margin:0;padding:0;background:#EAF2F8">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0">Te dieron acceso a GUVEL Quality. Crea tu contraseña para entrar.</span>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EAF2F8;padding:28px 12px"><tr><td align="center">
+ <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff">
+  <tr><td style="background:#0F1B2D;padding:20px 30px">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="padding-right:14px"><img src="https://quality.guvelsystems.com/assets/guvel-logo.png" width="42" height="42" alt="GUVEL" style="display:block;border:0"></td>
+      <td style="font:800 24px Arial,Helvetica,sans-serif;letter-spacing:3px;color:#ffffff;line-height:1">GUVEL<br><span style="font:700 10px Arial,Helvetica,sans-serif;letter-spacing:4px;color:#0CC0DF">QUALITY</span></td>
+    </tr></table></td></tr>
+  <tr><td style="height:4px;background:#0CC0DF;font-size:0;line-height:0">&nbsp;</td></tr>
+  <tr><td style="padding:34px 32px 10px;font:15px/1.6 Arial,Helvetica,sans-serif;color:#0F1B2D">
+    <p style="margin:0 0 6px;font:700 12px Arial,Helvetica,sans-serif;letter-spacing:2px;color:#067A8E">INVITACIÓN</p>
+    <h1 style="margin:0 0 14px;font:700 26px/1.2 Arial,Helvetica,sans-serif;color:#0F1B2D">Hola{{ if .Data.full_name }} {{ .Data.full_name }}{{ end }}, ya tienes acceso</h1>
+    <p style="margin:0 0 18px">Te invitaron a <b>GUVEL Quality</b>, el portal donde se gestionan auditorías, hallazgos y notificaciones de cliente. Solo falta que crees tu contraseña.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F8FB;border-left:3px solid #0CC0DF"><tr><td style="padding:14px 18px;font:14.5px/1.7 Arial,Helvetica,sans-serif;color:#0F1B2D">
+      <b>1.</b> Pulsa el botón y crea tu contraseña.<br>
+      <b>2.</b> Entra con este correo: <b>{{ .Email }}</b>.<br>
+      <b>3.</b> Las auditorías que te asignen te llegarán por correo, con un enlace directo.
+    </td></tr></table>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 10px"><tr><td style="background:#0CC0DF;border-radius:3px">
+      <a href="https://quality.guvelsystems.com/?token_hash={{ .TokenHash }}&amp;type=invite" style="display:inline-block;padding:15px 30px;font:700 16px Arial,Helvetica,sans-serif;color:#0F1B2D;text-decoration:none">Crear mi contraseña</a></td></tr></table>
+    <p style="margin:14px 0 0;font:12.5px/1.5 Arial,Helvetica,sans-serif;color:#52647A">¿El botón no funciona? Copia y pega este enlace en tu navegador:<br><a href="https://quality.guvelsystems.com/?token_hash={{ .TokenHash }}&amp;type=invite" style="color:#067A8E;word-break:break-all">https://quality.guvelsystems.com/?token_hash={{ .TokenHash }}&amp;type=invite</a></p>
+  </td></tr>
+  <tr><td style="padding:22px 32px 26px"><p style="margin:0;padding-top:16px;border-top:1px solid #DDE6EE;font:12px/1.5 Arial,Helvetica,sans-serif;color:#7A8A9C">Este mensaje es automático. Si no esperabas este correo, puedes ignorarlo.<br>GUVEL Quality</p></td></tr>
+ </table></td></tr></table></body></html>

@@ -62,7 +62,7 @@ function drawerHTML(n) {
       ${n.closed_at ? `<div><dt>Cerrada</dt><dd>${fmtDateTime(n.closed_at)}</dd></div>` : ""}
     </dl>
     <div class="section-title"><span>Hallazgo vinculado</span></div>
-    ${finding ? `<div class="item-row"><div><a class="mono" href="#/findings/${finding.id}">${esc(finding.code)}</a><div style="margin-top:4px">${esc(finding.title)}</div></div></div>`
+    ${finding ? `<div class="item-row"><div><a class="mono" href="#/issues/hallazgos/${finding.id}">${esc(finding.code)}</a><div style="margin-top:4px">${esc(finding.title)}</div></div></div>`
       : `<div class="muted" style="margin-bottom:12px">Esta notificación aún no tiene un hallazgo asociado para dar seguimiento con acciones.</div>${db.can.write ? `<button class="btn" data-action="n-finding" data-id="${n.id}">${icon("finding")} Generar hallazgo</button>` : ""}`}
     ${attachmentsSection("notification", n.id, { title: "Evidencias y documentos del cliente" })}
   </div>
@@ -93,7 +93,7 @@ export default {
   id: "notifications", label: "Notif. de cliente", icon: "bell",
   render(root, params) {
     setHead({
-      eyebrow: "Gestión de calidad", title: "Notificaciones de cliente", subtitle: "Quejas, devoluciones, SCAR y alertas con control de tiempos de respuesta.",
+      title: "Notificaciones de calidad", subtitle: "Quejas, devoluciones, SCAR y alertas de clientes, con control de tiempos de respuesta.",
       actions: `<button class="btn" data-action="n-export">${icon("download")} Exportar CSV</button>${db.can.write ? `<button class="btn primary" data-action="n-new">${icon("plus")} Nueva notificación</button>` : ""}`,
     });
     const all = db.rows("customer_notifications"), open = all.filter((n) => n.status !== "cerrada"), late = open.filter((n) => n.response_due && n.response_due < today());
@@ -119,7 +119,7 @@ export default {
         </tbody></table></div>` : empty("Sin notificaciones", "No hay notificaciones con los filtros actuales.", "bell")}
       </div>
     </div>`;
-    if (params?.[0]) { openNotif(params[0]); replaceHash("notifications"); }
+    if (params?.[0]) { openNotif(params[0]); replaceHash("issues/notificaciones"); }
   },
 };
 
@@ -131,6 +131,7 @@ on("n-finding", async (el) => {
   const n = db.get("customer_notifications", el.dataset.id);
   try {
     const f = await db.insert("findings", {
+      module: "issues",
       title: `[${NOTIF_TYPE[n.notification_type]}] ${n.subject}`, description: n.description, source: "cliente", severity: n.severity,
       client_id: n.client_id, owner_id: n.owner_id, due_date: n.response_due || addDays(today(), SEVERITY_SLA_DAYS[n.severity]),
     });

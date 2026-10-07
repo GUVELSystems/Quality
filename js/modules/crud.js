@@ -51,7 +51,7 @@ export function makeCrud(cfg) {
     id: cfg.id, label: cfg.label, icon: cfg.icon,
     render(root) {
       setHead({
-        eyebrow: cfg.eyebrow || "Gestión", title: cfg.title || cfg.label, subtitle: cfg.subtitle,
+        title: cfg.title || cfg.label, subtitle: cfg.subtitle,
         actions: `${cfg.exportCols ? `<button class="btn" data-action="${cfg.id}-export">${icon("download")} Exportar CSV</button>` : ""}${canCreate() ? `<button class="btn primary" data-action="${cfg.id}-new">${icon("plus")} ${esc(cfg.newLabel)}</button>` : ""}`,
       });
       const list = filtered();

@@ -32,7 +32,7 @@ function layout(o: { siteUrl: string; preheader: string; title: string; body: st
     <td style="font:800 22px Arial,Helvetica,sans-serif;letter-spacing:2px;color:#ffffff">GUVEL<br><span style="font:700 10px Arial,Helvetica,sans-serif;letter-spacing:3px;color:${CYAN}">QUALITY</span></td></tr></table></td></tr>
   <tr><td style="padding:30px 28px 26px;font:15px/1.55 Arial,Helvetica,sans-serif;color:${INK}">
     <h1 style="margin:0 0 16px;font:700 22px/1.25 Arial,Helvetica,sans-serif;color:${INK}">${esc(o.title)}</h1>${o.body}${btn}</td></tr>
-  <tr><td style="padding:16px 28px;background:#F4F8FB;border-top:1px solid ${LINE};font:12px/1.5 Arial,Helvetica,sans-serif;color:${MUTED}">Este mensaje es automático. Para entrar debes iniciar sesión con tu correo en GUVEL Quality.<br>GUVEL · Smarter industrial systems</td></tr>
+  <tr><td style="padding:16px 28px;background:#F4F8FB;border-top:1px solid ${LINE};font:12px/1.5 Arial,Helvetica,sans-serif;color:${MUTED}">Este mensaje es automático. Para entrar debes iniciar sesión con tu correo en GUVEL Quality.<br>GUVEL Quality</td></tr>
  </table></td></tr></table></body></html>`;
 }
 

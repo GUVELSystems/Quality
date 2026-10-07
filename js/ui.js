@@ -55,6 +55,7 @@ function mountOverlay(inner, { side = false } = {}) {
   const prevFocus = document.activeElement;
   const close = () => { ov.remove(); document.removeEventListener("keydown", onKey); prevFocus?.focus?.(); };
   const onKey = (e) => { if (e.key === "Escape" && ov === [...document.querySelectorAll(".overlay")].pop()) close(); };
+  ov._close = close; // permite cerrar paneles/diálogos al cambiar de ruta
   ov.addEventListener("mousedown", (e) => { if (e.target === ov) close(); });
   ov.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) close(); });
   document.addEventListener("keydown", onKey);

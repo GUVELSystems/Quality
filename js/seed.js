@@ -56,6 +56,13 @@ export function buildSeed() {
     ["Empaque", "¿El empaque e identificación cumplen con el requisito del cliente?", true],
     ["Registros", "¿Los registros de inspección están completos y firmados?", false],
   ]);
+  const fINT = addForm("FOR-INT-001", "Auditoría interna del sistema de gestión", "Interna", [
+    ["Documentación", "¿La documentación del sistema de gestión está vigente y controlada?", false],
+    ["Registros", "¿Los registros requeridos se conservan y son legibles?", false],
+    ["Competencia", "¿El personal evidencia la competencia y capacitación requeridas?", true],
+    ["Acciones", "¿Las acciones correctivas previas se cerraron con evidencia de eficacia?", true],
+    ["Mejora", "¿Se da seguimiento a los objetivos e indicadores de calidad?", false],
+  ]);
   addForm("FOR-PRC-001", "Auditoría de proceso", "Proceso", [
     ["Proceso", "¿Los parámetros del proceso coinciden con la hoja de proceso?", true],
     ["Proceso", "¿Se realizó la verificación de arranque (set-up)?", true],
@@ -71,10 +78,11 @@ export function buildSeed() {
   const audit_plans = [
     { id: uuid(), code: code("PLAN"), name: `LPA líneas de producción · ${MES}`, audit_type: "LPA", frequency: "Mensual", start_date: first, end_date: last, notes: "LPA en líneas de producción", status: "enviado", sent_at: daysAgoISO(4), sent_by: "u-maria", created_by: "u-maria", created_at: daysAgoISO(35) },
     { id: uuid(), code: code("PLAN"), name: "Producto terminado · quincena", audit_type: "Producto", frequency: "Quincenal", start_date: first, end_date: addDays(first, 14), notes: "Auditoría de producto terminado", status: "borrador", sent_at: null, sent_by: null, created_by: "u-maria", created_at: daysAgoISO(35) },
+    { id: uuid(), code: code("PLAN"), name: `Auditoría interna ISO · ${MES}`, audit_type: "Interna", frequency: "Mensual", start_date: first, end_date: last, notes: "Programa anual de auditorías internas", status: "enviado", sent_at: daysAgoISO(6), sent_by: "u-maria", created_by: "u-maria", created_at: daysAgoISO(34) },
   ];
   const audits = [], audit_answers = [], findings = [], actions = [];
   const auditors = ["u-juan", "u-maria", "u-carlos"];
-  const mkFinding = (o) => { const f = { id: uuid(), code: code("HAL"), description: null, source: "auditoria", severity: "menor", status: "abierto", classification_id: null, area: null, owner_id: null, audit_id: null, client_id: null, root_cause: null, due_date: null, closed_at: null, created_by: "u-maria", created_at: daysAgoISO(10), updated_at: daysAgoISO(2), ...o }; findings.push(f); return f; };
+  const mkFinding = (o) => { const f = { id: uuid(), code: code("HAL"), module: "auditorias", description: null, source: "auditoria", severity: "menor", status: "abierto", classification_id: null, area: null, owner_id: null, audit_id: null, client_id: null, root_cause: null, due_date: null, closed_at: null, created_by: "u-maria", created_at: daysAgoISO(10), updated_at: daysAgoISO(2), ...o }; findings.push(f); return f; };
 
   const addAudits = (plan, form, step, who, levelCycle) => {
     for (let k = 0, d = plan.start_date; d <= plan.end_date; k++, d = addDays(d, step)) {
@@ -91,7 +99,7 @@ export function buildSeed() {
           const ans = { id: uuid(), audit_id: a.id, item_id: it.id, result: bad ? "nok" : "ok", comment: bad ? "Se detectó desviación durante el recorrido." : null, finding_id: null, created_at: iso(d + "T11:00:00") };
           if (bad) {
             nok++;
-            const f = mkFinding({ title: it.question.replace(/[¿?]/g, "").replace(/^./, (c) => c.toUpperCase()).slice(0, 90) + " · NO CUMPLE", description: ans.comment, severity: it.critical ? "mayor" : "menor", status: k % 2 ? "en_accion" : "abierto", audit_id: a.id, owner_id: "u-juan", due_date: addDays(d, it.critical ? 30 : 60), area: "Producción", classification_id: catId("Proceso"), created_at: iso(d + "T11:00:00") });
+            const f = mkFinding({ title: it.question.replace(/[¿?]/g, "").replace(/^./, (c) => c.toUpperCase()).slice(0, 90) + " · NO CUMPLE", description: ans.comment, module: plan.audit_type === "Interna" ? "internas" : "auditorias", severity: it.critical ? "mayor" : "menor", status: k % 2 ? "en_accion" : "abierto", audit_id: a.id, owner_id: "u-juan", due_date: addDays(d, it.critical ? 30 : 60), area: "Producción", classification_id: catId("Proceso"), created_at: iso(d + "T11:00:00") });
             ans.finding_id = f.id;
           } else ok++;
           audit_answers.push(ans);
@@ -104,6 +112,7 @@ export function buildSeed() {
   };
   addAudits(audit_plans[0], fLPA, 7, auditors, true);
   addAudits(audit_plans[1], fPRO, 14, ["u-juan", "u-carlos"], false);
+  addAudits(audit_plans[2], fINT, 9, ["u-maria", "u-carlos"], false);
   // Una auditoría en sábado (día inhábil habilitado por tener responsable)
   const sat = (() => { for (let d = audit_plans[0].start_date; d <= audit_plans[0].end_date; d = addDays(d, 1)) if (d > T && new Date(d + "T12:00:00").getDay() === 6) return d; return null; })();
   if (sat) audits.push({ id: uuid(), code: code("AUD"), plan_id: audit_plans[0].id, scheduled_date: sat, assigned_to: "u-juan", level: 2, form_id: fLPA.id, due_at: iso(sat + "T17:00:00"), status: "programada", score: null, notes: "Turno especial en sábado", completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1), notified_at: null, notified_to: null });
@@ -139,8 +148,11 @@ export function buildSeed() {
   mkNotif({ client_id: cAurora.id, notification_type: "scar", subject: "SCAR-2291 · Falta de identificación en empaque", part_number: "IA-9012", quantity: 60, severity: "menor", received_at: addDays(T, -20), response_due: addDays(T, -8), status: "respuesta_enviada" });
   mkNotif({ client_id: cMetal.id, notification_type: "alerta", subject: "Alerta de calidad por variación de dureza", part_number: "GM-3310", severity: "mayor", received_at: addDays(T, -1), response_due: addDays(T, 4), status: "recibida" });
   mkNotif({ client_id: cNorte.id, notification_type: "auditoria_cliente", subject: "Auditoría de segunda parte · Resultados", severity: "observacion", received_at: addDays(T, -45), response_due: addDays(T, -30), status: "cerrada", closed_at: daysAgoISO(30) });
-  const linked = mkFinding({ title: "Etiqueta de embarque con número de parte incorrecto", source: "cliente", severity: "mayor", status: "en_analisis", client_id: cAurora.id, area: "Logística", classification_id: catId("Calidad de producto"), owner_id: "u-maria", due_date: addDays(T, 8) });
+  const linked = mkFinding({ module: "issues", title: "Etiqueta de embarque con número de parte incorrecto", source: "cliente", severity: "mayor", status: "en_analisis", client_id: cAurora.id, area: "Logística", classification_id: catId("Calidad de producto"), owner_id: "u-maria", due_date: addDays(T, 8) });
   notifs[2].finding_id = linked.id;
+  const rebaba = mkFinding({ module: "issues", title: "[Queja] Rebaba excesiva en pieza AN-4471", description: "El cliente reporta rebaba fuera de tolerancia.", source: "cliente", severity: "mayor", status: "en_accion", client_id: cNorte.id, area: "Producción", classification_id: catId("Calidad de producto"), owner_id: "u-maria", due_date: addDays(T, 2) });
+  notifs[0].finding_id = rebaba.id;
+  mkAction({ finding_id: rebaba.id, action_type: "contencion", description: "Selección 100% del inventario en planta y en tránsito", due_date: addDays(T, 1), status: "en_proceso", owner_id: "u-maria" });
 
   /* Riesgos y oportunidades */
   const rk = (title, category, probability, impact, status, owner_id, mitigation) => ({ id: uuid(), code: code("RSK"), title, description: null, category, probability, impact, score: probability * impact, owner_id, mitigation, status, review_date: addDays(T, 30), created_by: "u-maria", created_at: daysAgoISO(40), updated_at: daysAgoISO(5) });

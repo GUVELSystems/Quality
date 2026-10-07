@@ -1,9 +1,9 @@
 import * as db from "../db.js";
 import { esc } from "../utils.js";
 import { icon } from "../icons.js";
-import { setHead, rerender } from "../router.js";
+import { setHead, rerender, wsId } from "../router.js";
+import { typesOf, formsOf, WS_LABEL } from "../scope.js";
 import { on, badge, pill, empty, openDialog, confirmDialog, toast } from "../ui.js";
-import { AUDIT_TYPES } from "../constants.js";
 
 const itemsOf = (id) => db.rows("form_items").filter((i) => i.form_id === id).sort((a, b) => a.position - b.position);
 let F = { q: "", type: "" };
@@ -26,7 +26,7 @@ function editor(form) {
     eyebrow: form ? form.code : "Nuevo formato", title: form ? "Editar formato" : "Crear formato", size: "wide",
     body: `<form id="fm-head" class="form-grid" novalidate>
       <label class="field"><span>Número de formato <i>*</i></span><input class="input" name="code" required value="${esc(form?.code || "")}" placeholder="FOR-LPA-002"></label>
-      <label class="field"><span>Tipo de auditoría <i>*</i></span><select class="select" name="audit_type">${AUDIT_TYPES.map((t) => `<option ${form?.audit_type === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="field"><span>Tipo de auditoría <i>*</i></span><select class="select" name="audit_type">${typesOf(wsId()).map((t) => `<option ${form?.audit_type === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="field span-2"><span>Nombre <i>*</i></span><input class="input" name="name" required value="${esc(form?.name || "")}"></label>
       <label class="field"><span>Versión</span><input class="input" name="version" value="${esc(form?.version || "1.0")}"></label>
       <label class="check" style="align-self:end;height:38px"><input type="checkbox" name="active" ${form?.active === false ? "" : "checked"}> Formato activo</label></form>
@@ -74,8 +74,8 @@ function editor(form) {
 export default {
   id: "forms", label: "Formularios", icon: "form",
   render(root) {
-    setHead({ eyebrow: "Configuración", title: "Formularios", subtitle: "Formatos y checklists que se usan en la ejecución de auditorías.", actions: db.can.manage ? `<button class="btn primary" data-action="fm-new">${icon("plus")} Nuevo formato</button>` : "" });
-    const list = db.rows("forms").sort((a, b) => a.code.localeCompare(b.code));
+    setHead({ title: "Formatos", subtitle: `Checklists que se usan al ejecutar las auditorías de ${WS_LABEL[wsId()]}.`, actions: db.can.manage ? `<button class="btn primary" data-action="fm-new">${icon("plus")} Nuevo formato</button>` : "" });
+    const list = formsOf(wsId()).sort((a, b) => a.code.localeCompare(b.code));
     root.innerHTML = `<div class="panel">${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Formato</th><th>Nombre</th><th>Tipo</th><th>Versión</th><th class="num">Preguntas</th><th>Estado</th></tr></thead><tbody>
       ${list.map((f) => { const n = itemsOf(f.id); return `<tr data-action="fm-edit" data-id="${f.id}"><td class="code">${esc(f.code)}</td><td><span class="title">${esc(f.name)}</span></td><td>${pill(f.audit_type, "info")}</td><td class="mono">v${esc(f.version)}</td><td class="num mono">${n.length}${n.some((i) => i.critical) ? ` <span class="muted">(${n.filter((i) => i.critical).length} críticas)</span>` : ""}</td><td>${pill(f.active ? "Activo" : "Inactivo", f.active ? "ok" : "neutral")}</td></tr>`; }).join("")}
       </tbody></table></div>` : empty("Sin formatos", "Crea tu primer formato de auditoría.", "form")}</div>`;

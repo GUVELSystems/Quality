@@ -34,7 +34,8 @@ on conflict (kind, name) do nothing;
 insert into public.forms (code, name, audit_type, version) values
   ('FOR-LPA-001','Auditoría en capas (LPA) · Línea de producción','LPA','1.0'),
   ('FOR-PRO-001','Auditoría de producto terminado','Producto','1.0'),
-  ('FOR-PRC-001','Auditoría de proceso','Proceso','1.0')
+  ('FOR-PRC-001','Auditoría de proceso','Proceso','1.0'),
+  ('FOR-INT-001','Auditoría interna del sistema de gestión','Interna','1.0')
 on conflict (code) do nothing;
 
 -- Preguntas (solo si el formato aún no tiene preguntas)
@@ -55,6 +56,11 @@ join (values
   ('FOR-PRC-001',1,'Proceso','¿Los parámetros del proceso coinciden con la hoja de proceso?',true),
   ('FOR-PRC-001',2,'Proceso','¿Se realizó la verificación de arranque (set-up)?',true),
   ('FOR-PRC-001',3,'Control','¿El plan de control está disponible y vigente?',false),
-  ('FOR-PRC-001',4,'Control','¿Las reacciones ante desviaciones están documentadas?',false)
+  ('FOR-PRC-001',4,'Control','¿Las reacciones ante desviaciones están documentadas?',false),
+  ('FOR-INT-001',1,'Documentación','¿La documentación del sistema de gestión está vigente y controlada?',false),
+  ('FOR-INT-001',2,'Registros','¿Los registros requeridos se conservan y son legibles?',false),
+  ('FOR-INT-001',3,'Competencia','¿El personal evidencia la competencia y capacitación requeridas?',true),
+  ('FOR-INT-001',4,'Acciones','¿Las acciones correctivas previas se cerraron con evidencia de eficacia?',true),
+  ('FOR-INT-001',5,'Mejora','¿Se da seguimiento a los objetivos e indicadores de calidad?',false)
 ) as v(code, position, section, question, critical) on v.code = f.code
 where not exists (select 1 from public.form_items fi where fi.form_id = f.id);

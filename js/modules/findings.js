@@ -1,18 +1,26 @@
 import * as db from "../db.js";
 import { esc, today, addDays, fmtDate, fmtDateTime, dueText, downloadCSV } from "../utils.js";
 import { icon } from "../icons.js";
-import { setHead, rerender, replaceHash } from "../router.js";
+import { setHead, rerender, replaceHash, wsId, H } from "../router.js";
+import { findingsOf, auditsOf, auditWs, WS_LABEL } from "../scope.js";
 import { on, onChange, onInput, badge, userCell, empty, openDrawer, openForm, confirmDialog, toast } from "../ui.js";
 import { SEVERITY, SEVERITY_SLA_DAYS, SOURCE, FINDING_STATUS, FINDING_FLOW, ACTION_TYPE, ACTION_STATUS, ACTION_FLOW } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts, catOpts, catNameOpts, clientOpts, mapOpts, catName, clientName } from "./shared.js";
 
-const F = { q: "", status: "", severity: "", source: "" };
+// Filtros independientes por módulo (Auditorías, Internas, Issues)
+const FS = {};
+const blankF = () => ({ q: "", status: "", severity: "", source: "" });
+const F = new Proxy({}, {
+  get: (_, k) => (FS[wsId()] ||= blankF())[k],
+  set: (_, k, v) => { (FS[wsId()] ||= blankF())[k] = v; return true; },
+});
+const isIssues = () => wsId() === "issues";
 let drawer = null, drawerId = null;
 const SEV_RANK = { critico: 0, mayor: 1, menor: 2, observacion: 3 };
 
 /* ------------------------------ Formularios -------------------------- */
-const findingFields = (editing) => [
+const findingFields = (editing) => ([
   { name: "title", label: "Título del hallazgo", required: true, span2: true },
   { name: "description", label: "Descripción", type: "textarea", span2: true },
   { name: "source", label: "Origen", type: "select", required: true, options: mapOpts(SOURCE) },
@@ -23,16 +31,16 @@ const findingFields = (editing) => [
   { name: "owner_id", label: "Responsable", type: "select", options: userOpts() },
   { name: "due_date", label: "Fecha compromiso", type: "date" },
   { name: "client_id", label: "Cliente (si aplica)", type: "select", options: clientOpts() },
-  { name: "audit_id", label: "Auditoría origen", type: "select", options: db.rows("audits").map((a) => [a.id, a.code]) },
+  { name: "audit_id", label: "Auditoría origen", type: "select", options: auditsOf(wsId()).map((a) => [a.id, a.code]) },
   { name: "root_cause", label: "Causa raíz (6M)", type: "select", options: catNameOpts("causa_raiz") },
-];
+]).filter((f) => (f.name === "audit_id" ? !isIssues() : f.name === "client_id" ? isIssues() : true));
 
 export function newFinding(defaults = {}, onDone) {
   openForm({
     eyebrow: "Nuevo hallazgo", title: "Registrar hallazgo", fields: findingFields(false), size: "wide",
-    values: { source: "auditoria", severity: "menor", due_date: addDays(today(), SEVERITY_SLA_DAYS.menor), owner_id: db.state.profile.id, ...defaults },
+    values: { source: isIssues() ? "cliente" : "auditoria", severity: "menor", due_date: addDays(today(), SEVERITY_SLA_DAYS.menor), owner_id: db.state.profile.id, ...defaults },
     submitLabel: "Registrar hallazgo",
-    onSubmit: async (v) => { const r = await db.insert("findings", v); toast(`Hallazgo ${r.code} registrado`, "ok"); await refresh(); onDone?.(r); },
+    onSubmit: async (v) => { const r = await db.insert("findings", { ...v, module: wsId() }); toast(`Hallazgo ${r.code} registrado`, "ok"); await refresh(); onDone?.(r); },
   });
 }
 function editFinding(f) {
@@ -45,7 +53,7 @@ function editFinding(f) {
 
 export function actionForm({ finding_id, action, onDone }) {
   const fields = [
-    ...(finding_id ? [] : [{ name: "finding_id", label: "Hallazgo", type: "select", required: true, span2: true, options: db.rows("findings").filter((f) => f.status !== "cerrado").map((f) => [f.id, `${f.code} · ${f.title}`]) }]),
+    ...(finding_id ? [] : [{ name: "finding_id", label: "Hallazgo", type: "select", required: true, span2: true, options: findingsOf(wsId()).filter((f) => f.status !== "cerrado").map((f) => [f.id, `${f.code} · ${f.title}`]) }]),
     { name: "description", label: "Descripción de la acción", type: "textarea", required: true, span2: true },
     { name: "action_type", label: "Tipo", type: "select", required: true, options: mapOpts(ACTION_TYPE) },
     { name: "status", label: "Estado", type: "select", required: true, options: mapOpts(ACTION_STATUS) },
@@ -87,7 +95,7 @@ function drawerHTML(f) {
       <div><dt>Área</dt><dd>${esc(f.area || "—")}</dd></div>
       <div><dt>Causa raíz</dt><dd>${esc(f.root_cause || "—")}</dd></div>
       <div><dt>Cliente</dt><dd>${esc(clientName(f.client_id))}</dd></div>
-      <div><dt>Origen</dt><dd>${audit ? `<a href="#/audits/${audit.id}">${esc(audit.code)}</a>` : notif ? `<a href="#/notifications/${notif.id}">${esc(notif.code)}</a>` : "—"}</dd></div>
+      <div><dt>Origen</dt><dd>${audit ? `<a href="#/${auditWs(audit)}/audit/${audit.id}">${esc(audit.code)}</a>` : notif ? `<a href="#/issues/notificaciones/${notif.id}">${esc(notif.code)}</a>` : "—"}</dd></div>
       <div><dt>Registrado</dt><dd>${fmtDateTime(f.created_at)}</dd></div>
       ${f.closed_at ? `<div><dt>Cerrado</dt><dd>${fmtDateTime(f.closed_at)}</dd></div>` : ""}
     </dl>
@@ -122,7 +130,7 @@ hooks.finding = () => refresh();
 /* -------------------------------- Lista ------------------------------ */
 const filtered = () => {
   const q = F.q.toLowerCase();
-  return db.rows("findings")
+  return findingsOf(wsId())
     .filter((f) => (!F.status || f.status === F.status) && (!F.severity || f.severity === F.severity) && (!F.source || f.source === F.source) &&
       (!q || `${f.code} ${f.title} ${f.area || ""}`.toLowerCase().includes(q)))
     .sort((a, b) => (a.status === "cerrado") - (b.status === "cerrado") || SEV_RANK[a.severity] - SEV_RANK[b.severity] || (a.due_date || "9").localeCompare(b.due_date || "9"));
@@ -132,7 +140,7 @@ export default {
   id: "findings", label: "Hallazgos", icon: "finding",
   render(root, params) {
     setHead({
-      eyebrow: "Gestión de calidad", title: "Hallazgos", subtitle: "Registra, analiza y da seguimiento a cada hallazgo hasta su cierre verificado.",
+      title: "Hallazgos", subtitle: `Hallazgos de ${WS_LABEL[wsId()]}: registra, analiza y da seguimiento hasta su cierre verificado.`,
       actions: `<button class="btn" data-action="f-export">${icon("download")} Exportar CSV</button>${db.can.write ? `<button class="btn primary" data-action="f-new">${icon("plus")} Nuevo hallazgo</button>` : ""}`,
     });
     const list = filtered();
@@ -150,7 +158,7 @@ export default {
           return `<tr data-action="f-open" data-id="${f.id}"><td class="code">${esc(f.code)}</td><td><span class="title">${esc(f.title)}</span><span class="sub">${esc(f.area || "Sin área")}</span></td><td>${badge(SOURCE, f.source)}</td><td>${badge(SEVERITY, f.severity)}</td><td>${badge(FINDING_STATUS, f.status)}</td><td>${esc(db.profileName(f.owner_id))}</td><td class="${d.overdue && f.status !== "cerrado" ? "overdue" : ""}">${f.status === "cerrado" ? fmtDate(f.due_date) : d.text}</td><td class="num mono">${done}/${acts.length}</td></tr>`; }).join("")}
       </tbody></table></div>` : empty("Sin hallazgos", "No hay registros con los filtros actuales.", "finding")}
     </div>`;
-    if (params?.[0]) { openFinding(params[0]); replaceHash("findings"); }
+    if (params?.[0]) { openFinding(params[0]); replaceHash(`${wsId()}/hallazgos`); }
   },
 };
 
@@ -158,7 +166,7 @@ export default {
 on("f-open", (el) => openFinding(el.dataset.id));
 on("f-new", () => newFinding());
 on("f-edit", (el) => editFinding(db.get("findings", el.dataset.id)));
-on("f-export", () => downloadCSV("hallazgos.csv", [
+on("f-export", () => downloadCSV(`hallazgos_${wsId()}.csv`, [
   { label: "Folio", value: (r) => r.code }, { label: "Título", value: (r) => r.title }, { label: "Origen", value: (r) => SOURCE[r.source][0] },
   { label: "Severidad", value: (r) => SEVERITY[r.severity][0] }, { label: "Estado", value: (r) => FINDING_STATUS[r.status][0] },
   { label: "Responsable", value: (r) => db.profileName(r.owner_id) }, { label: "Área", value: (r) => r.area }, { label: "Compromiso", value: (r) => r.due_date }, { label: "Cierre", value: (r) => r.closed_at?.slice(0, 10) },

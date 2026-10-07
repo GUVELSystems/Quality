@@ -1,0 +1,13 @@
+Plantillas de correo de acceso (Supabase Auth)
+
+Dónde pegarlas: Supabase → Authentication → Emails → pestaña "Templates".
+  invite.html    → plantilla "Invite user"    · Asunto: Te invitaron a GUVEL Quality
+  recovery.html  → plantilla "Reset password" · Asunto: Restablece tu contraseña · GUVEL Quality
+
+Notas:
+- El botón NO apunta al enlace de Supabase, sino a tu portal con el token (token_hash).
+  El token se canjea solo cuando la persona pulsa «Continuar»; así los filtros de seguridad de
+  correo corporativo (Safe Links, Mimecast, Proofpoint…) no lo consumen antes de tiempo.
+- El dominio está fijo como https://quality.guvelsystems.com (enlace, botón y logotipo).
+  Si usas otro, cámbialo en ambos archivos.
+- No cambies {{ .TokenHash }}, {{ .Email }} ni {{ .Data.full_name }}: Supabase las reemplaza.

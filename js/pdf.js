@@ -72,7 +72,7 @@ export async function buildPlanPDF(planId) {
   fill(C.navy); doc.rect(0, 0, PW, 70, "F");
   if (logoData) doc.addImage(logoData, "PNG", M, 17, 36, 36);
   doc.setFont("helvetica", "bold"); doc.setFontSize(21); ink(C.white); doc.text("GUVEL", M + 46, 38);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.text("SMARTER INDUSTRIAL SYSTEMS", M + 46, 49);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.text("Q U A L I T Y", M + 46, 49);
   doc.setFontSize(9); ink(C.cyan); doc.setFont("helvetica", "bold"); doc.text("PLAN DE AUDITORÍA", PW - M, 31, { align: "right" });
   doc.setFontSize(17); ink(C.white); doc.text(plan.code, PW - M, 52, { align: "right" });
 

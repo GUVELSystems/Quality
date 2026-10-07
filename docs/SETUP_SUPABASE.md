@@ -24,6 +24,7 @@ Tiempo estimado: 30–40 min la primera vez.
    3. `supabase/03_seed.sql`
    4. `supabase/04_attachments.sql`
    5. `supabase/05_audit_notifications.sql`
+   6. `supabase/06_modules.sql` (separa los hallazgos por módulo; ejecútalo **antes** de publicar la versión con módulos independientes)
 
 > Todos son re-ejecutables. Si ya habías corrido una versión anterior, vuelve a ejecutar los 5 en orden (migra sin perder datos).
 
@@ -103,7 +104,7 @@ export const CONFIG = {
   APP_NAME: "GUVEL Quality",
 };
 ```
-Haz commit y publica en GitHub Pages (el workflow incluido lo hace al hacer push a `main`).
+Haz commit y publica en Cloudflare (ver README: «Publicar en Cloudflare»).
 
 ## 7. Probar todo (checklist)
 
@@ -129,9 +130,29 @@ Haz commit y publica en GitHub Pages (el workflow incluido lo hace al hacer push
 | «Falta configurar RESEND_API_KEY y FROM_EMAIL» | No se cargaron los secretos (`supabase secrets set …`). |
 | Resend responde *domain not verified* | Verifica el dominio o usa un remitente de un dominio ya verificado. |
 | El enlace del correo lleva a una página de error / «redirect_to not allowed» | Falta la URL en *Redirect URLs* (paso 2). |
+| «Email link is invalid or has expired» con correos corporativos (Gmail sí funciona) | Un filtro de seguridad del correo (Safe Links, Mimecast, Proofpoint…) abrió el enlace antes que la persona. Usa las plantillas de `supabase/email-templates/` (llevan a `/?token_hash=…` con botón «Continuar») y reenvía la invitación. |
 | «Tu usuario está desactivado» | Un admin debe activarlo en *Usuarios* (o fue creado manualmente en Auth sin invitación). |
 | «Ese correo ya tiene una cuenta» al invitar | Ya existe en Auth. Abre su perfil y usa *Enviar enlace de acceso*. |
 | Logo roto en los correos | `SITE_URL` incorrecto: el logo se sirve desde `SITE_URL/assets/guvel-logo.png`. |
 | No llegan correos | Revisa spam; la tabla `notification_log` guarda cada envío con su estado y error. |
 
 Para auditar los envíos: `select * from notification_log order by created_at desc;`
+
+---
+
+## Anexo · Hostinger → Cloudflare → Resend (sin instalar nada)
+
+- **Dominio**: si lo compraste en Hostinger, sus *nameservers* deben apuntar a Cloudflare (en Cloudflare el dominio debe decir **Active**). Los registros DNS se editan **en Cloudflare**, no en Hostinger.
+- **Usa un subdominio para los correos** (p. ej. `mail.tudominio.com`) para no chocar con buzones de Hostinger en el dominio raíz. Remitente: `GUVEL Quality <calidad@mail.tudominio.com>`.
+- En Resend: *Domains → Add Domain* → botón **Sign in to Cloudflare** (automático) o copia a mano los 3 registros (MX prioridad 10, TXT SPF, TXT DKIM `resend._domainkey`) en *Cloudflare → DNS → Records* con la nube **gris (DNS only)** y sin repetir el dominio en el *Name*.
+- **Funciones sin CLI**: pega `docs/pegar-en-supabase/invite-user.ts` y `docs/pegar-en-supabase/notify-audit-plan.ts` (un solo archivo cada una) en *Edge Functions → Deploy a new function → Via Editor*. Las llaves se cargan en *Edge Functions → Secrets*.
+
+## Anexo · Correo de invitación con diseño GUVEL
+
+En `supabase/email-templates/` hay dos plantillas HTML:
+- `invite.html` → Supabase → **Authentication → Emails → Templates → Invite user** (asunto: *Te invitaron a GUVEL Quality*).
+- `recovery.html` → **Reset password** (asunto: *Restablece tu contraseña · GUVEL Quality*).
+
+Pega el HTML completo en el recuadro de contenido y guarda. El logotipo se carga desde `https://quality.guvelsystems.com/assets/guvel-logo.png`; si tu dominio es otro, cámbialo en ambos archivos. No modifiques `{{ .ConfirmationURL }}`, `{{ .Email }}` ni `{{ .Data.full_name }}`.
+
+> **Importante:** las plantillas de invitación y recuperación usan `{{ .TokenHash }}` y llevan al portal, que canjea el token **solo cuando la persona pulsa «Continuar»**. Así los filtros de correo corporativo no consumen el enlace. Si usas Resend con *Click tracking* activado, desactívalo para el dominio (Resend → Domains), porque reescribe los enlaces.

@@ -2,11 +2,27 @@
 
 # GUVEL Quality
 
-Portal de gestión de calidad de **GUVEL · Smarter Industrial Systems**: auditorías, hallazgos, acciones, notificaciones de cliente, riesgos y oportunidades en un solo lugar.
+Portal de gestión de calidad de **GUVEL Quality**: auditorías, hallazgos, acciones, notificaciones de cliente, riesgos y oportunidades en un solo lugar.
 
-Aplicación web estática (HTML + CSS + JavaScript ES modules, **sin build**) con **Supabase** como backend (Auth + PostgreSQL + RLS + Edge Functions) y **Resend** para correos. Se publica tal cual en GitHub Pages. Comparte el sistema de diseño de **GUVEL Operational**.
+Aplicación web estática (HTML + CSS + JavaScript ES modules, **sin build**) con **Supabase** como backend (Auth + PostgreSQL + RLS + Edge Functions) y **Resend** para correos. Se publica tal cual en Cloudflare (o en cualquier hosting estático). Comparte el sistema de diseño de **GUVEL Operational**.
 
-## Módulos
+## Cómo está organizado: un portal dentro del portal
+
+El chip cian de la barra superior (junto al logo) despliega los módulos. Cada uno tiene sus propias pestañas y **sus propios datos**:
+
+| Módulo | Pestañas | Qué contiene |
+|---|---|---|
+| **Dashboard** | — | Panorama de todos los módulos y acceso directo a cada uno |
+| **Auditorías** | Planes · Auditorías · Hallazgos · Acciones · Formatos | Solo auditorías LPA, Producto, Proceso y Sistema, y los hallazgos que nacen de ellas |
+| **Auditorías Internas** | Planes · Auditorías · Hallazgos · Acciones · Formatos | Solo auditorías de tipo *Interna*, con sus propios hallazgos y formatos |
+| **Issues** | Notificaciones · Hallazgos · Acciones | Notificaciones de calidad de clientes (quejas, devoluciones, SCAR, alertas) y sus hallazgos |
+| **Riesgos** | — | Matriz 5×5 y mitigaciones |
+| **Oportunidades** | — | Ideas de mejora |
+| **Configuración** | Clientes · Clasificaciones · Usuarios | Catálogos y accesos (menú del chip) |
+
+Los hallazgos llevan la columna `module` (`auditorias`, `internas`, `issues`) y las acciones heredan la de su hallazgo; por eso los módulos no se mezclan. Los enlaces antiguos de correo (`#/audits/…`) siguen funcionando: el portal los redirige al módulo correcto.
+
+## Detalle de funciones
 
 | Módulo | Qué hace |
 |---|---|
@@ -38,7 +54,7 @@ Guía completa paso a paso (Auth, SMTP, Resend, Edge Functions, checklist de pru
 
 Resumen:
 
-1. Crea un proyecto en [supabase.com](https://supabase.com) y ejecuta en el **SQL Editor**, en orden: `supabase/01_schema.sql` → `02_policies.sql` → `03_seed.sql` → `04_attachments.sql` → `05_audit_notifications.sql`.
+1. Crea un proyecto en [supabase.com](https://supabase.com) y ejecuta en el **SQL Editor**, en orden: `supabase/01_schema.sql` → `02_policies.sql` → `03_seed.sql` → `04_attachments.sql` → `05_audit_notifications.sql` → `06_modules.sql`.
 2. **Auth**: desactiva el registro libre («Allow new users to sign up»), define *Site URL* y *Redirect URLs* con la URL del portal.
 3. Crea tu usuario en *Authentication → Users*. **El primer usuario es administrador**; a los demás los invitas desde el portal (*Configuración → Usuarios → Invitar usuario*).
 4. Despliega las Edge Functions (`invite-user`, `notify-audit-plan`) y carga los secretos `RESEND_API_KEY`, `FROM_EMAIL`, `SITE_URL`.
@@ -61,17 +77,16 @@ Resumen:
 - Al eliminar un hallazgo, auditoría o plan, la app borra también sus archivos de Storage.
 - Subir y borrar evidencias requiere rol `auditor` o superior; un auditor solo puede borrar lo que él subió.
 
-## Publicar en GitHub Pages
+## Publicar en Cloudflare (Workers con archivos estáticos)
 
-```bash
-git init -b main
-git add .
-git commit -m "GUVEL Quality v1.0"
-git remote add origin https://github.com/<tu-org>/Quality.git
-git push -u origin main
-```
+El portal es un sitio estático: se publica como un Worker que solo sirve archivos (`wrangler.jsonc`). `.assetsignore` evita que se publiquen `supabase/`, `docs/` y archivos internos.
 
-En GitHub: **Settings → Pages → Source: GitHub Actions**. El workflow `.github/workflows/pages.yml` publica en cada push a `main`.
+1. Sube este proyecto a un repositorio de GitHub (con `js/config.js` ya editado).
+2. En Cloudflare: **Workers & Pages → tu Worker → Settings → Builds → Connect to Git**. Build command vacío; deploy command `npx wrangler deploy`.
+3. El `name` de `wrangler.jsonc` debe ser **igual** al nombre del Worker en Cloudflare.
+4. En **Domains & Routes** asigna el dominio (p. ej. `quality.guvelsystems.com`). Cada `git push` a `main` vuelve a publicar.
+
+> Si en la misma zona existe un Worker con una ruta comodín (`*.dominio.com/*`), crea una ruta específica `quality.dominio.com/*` apuntando al Worker de Quality.
 
 ## Estructura
 
@@ -98,7 +113,8 @@ En GitHub: **Settings → Pages → Source: GitHub Actions**. El workflow `.gith
 ├── docs/
 │   ├── SETUP_SUPABASE.md    guía de configuración completa
 │   └── DESIGN.md            guía de diseño
-└── .github/workflows/       despliegue a GitHub Pages
+├── wrangler.jsonc           despliegue como Worker de archivos estáticos
+└── .assetsignore            archivos que no se publican
 ```
 
 ## Diseño

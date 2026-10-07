@@ -1,13 +1,13 @@
 import * as db from "../db.js";
 import { esc, today, addDays, fmtDate, fmtDateTime, toLocalInput, fromLocalInput, periodEnd, eachDay, isWeekend, mondayOf, parseDate, DOW_SHORT, rangeText } from "../utils.js";
 import { icon } from "../icons.js";
-import { setHead, rerender, navigate } from "../router.js";
+import { setHead, rerender, navigate, H, wsId } from "../router.js";
+import { typesOf, plansOf, auditsOf, findingsOf, actionsOf, planWs, WS_LABEL, isDone } from "../scope.js";
 import { on, onChange, onInput, badge, pill, empty, openForm, openDialog, confirmDialog, toast } from "../ui.js";
-import { AUDIT_TYPES, AUDIT_STATUS, SEVERITY, SEVERITY_SLA_DAYS } from "../constants.js";
+import { AUDIT_STATUS, SEVERITY, SEVERITY_SLA_DAYS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts } from "./shared.js";
 
-let tab = "plans";
 const F = { q: "", status: "", mine: "" };
 let currentPlanId = null;
 let draft = null; // { auditId, answers: { itemId: {result, comment, finding_id} } }
@@ -53,10 +53,11 @@ function miniCal(start, end) {
 }
 
 function planWizard() {
-  const w = { type: "LPA", frequency: "Mensual", start: today(), end: addDays(today(), 13) };
+  const types = typesOf(wsId());
+  const w = { type: types[0], frequency: "Mensual", start: today(), end: addDays(today(), 13) };
   const body = `
     <div class="wiz-step"><div class="wiz-label"><i>1</i>¿Qué tipo de auditoría es?</div>
-      <div class="opt-cards" id="w-types">${AUDIT_TYPES.map((t) => `<button type="button" class="opt-card" data-type="${t}"><b>${t}</b><small>${TYPE_INFO[t]}</small></button>`).join("")}</div></div>
+      <div class="opt-cards" id="w-types">${types.map((t) => `<button type="button" class="opt-card" data-type="${t}"><b>${t}</b><small>${TYPE_INFO[t]}</small></button>`).join("")}</div></div>
     <div class="wiz-step"><div class="wiz-label"><i>2</i>¿Cada cuánto? <span class="muted" style="font-weight:400">El calendario se arma solo, con la duración de la frecuencia.</span></div>
       <div class="freq-seg" id="w-freq">${FREQ_INFO.map(([v, l, s]) => `<button type="button" data-freq="${v}"><b>${l}</b><small>${s}</small></button>`).join("")}</div></div>
     <div class="wiz-step"><div class="wiz-label"><i>3</i>¿Desde qué día inicia?</div>
@@ -98,7 +99,7 @@ function planWizard() {
     e.target.disabled = true;
     try {
       const plan = await db.insert("audit_plans", { name: $("#w-name").value.trim() || `${w.type} · ${fmtDate(w.start)} al ${fmtDate(end)}`, audit_type: w.type, frequency: w.frequency, start_date: w.start, end_date: end, notes: $("#w-notes").value.trim(), status: "borrador" });
-      dlg.close(); toast(`${plan.code} creado. Asigna a tu equipo en el calendario.`, "ok"); navigate(`audits/plan/${plan.id}`);
+      dlg.close(); toast(`${plan.code} creado. Asigna a tu equipo en el calendario.`, "ok"); navigate(`${wsId()}/plan/${plan.id}`);
     } catch (ex) { fail(ex.message); e.target.disabled = false; }
   });
 }
@@ -111,7 +112,7 @@ function scheduleForm(audit, plan, date) {
   openForm({
     eyebrow: audit ? audit.code : `${plan?.code || "Plan"} · ${fmtDate(date)}`,
     title: audit ? "Editar auditoría" : "Asignar auditoría", submitLabel: audit ? "Guardar" : "Asignar",
-    intro: audit ? `<p style="margin-bottom:14px"><a class="btn sm" href="#/audits/${audit.id}" data-close>${icon("audit")} Abrir checklist de la auditoría</a></p>` : "",
+    intro: audit ? `<p style="margin-bottom:14px"><a class="btn sm" href="${H("audit/" + audit.id)}" data-close>${icon("audit")} Abrir checklist de la auditoría</a></p>` : "",
     values: audit ? { ...audit, due_at: toLocalInput(audit.due_at) } : { scheduled_date: date, due_at: `${date}T17:00`, level: 1, form_id: db.rows("forms").find((f) => f.audit_type === type && f.active)?.id },
     fields: [
       { name: "scheduled_date", label: "Fecha", type: "date", required: true },
@@ -129,7 +130,7 @@ function scheduleForm(audit, plan, date) {
       else { const r = await db.insert("audits", { ...data, plan_id: plan.id, status: "programada" }); toast(`${r.code} asignada`, "ok"); }
       await rerender();
     },
-    onDelete: audit && db.can.manage ? async () => { const pid = audit.plan_id; await db.remove("audits", audit.id); toast("Auditoría eliminada"); navigate(pid ? `audits/plan/${pid}` : "audits"); } : null,
+    onDelete: audit && db.can.manage ? async () => { const pid = audit.plan_id; await db.remove("audits", audit.id); toast("Auditoría eliminada"); navigate(pid ? `${wsId()}/plan/${pid}` : `${wsId()}/planes`); } : null,
   });
 }
 
@@ -138,7 +139,7 @@ function editPlan(plan) {
     eyebrow: plan.code, title: "Editar plan", values: plan, submitLabel: "Guardar",
     fields: [{ name: "name", label: "Nombre del plan", required: true, span2: true }, { name: "notes", label: "Notas", type: "textarea", span2: true }],
     onSubmit: async (v) => { await db.update("audit_plans", plan.id, v); toast("Plan actualizado", "ok"); await rerender(); },
-    onDelete: db.can.manage ? async () => { await db.remove("audit_plans", plan.id); toast("Plan eliminado"); navigate("audits"); } : null,
+    onDelete: db.can.manage ? async () => { await db.remove("audit_plans", plan.id); toast("Plan eliminado"); navigate(`${wsId()}/planes`); } : null,
   });
 }
 
@@ -231,38 +232,53 @@ async function sendPlan(plan) {
 /* ===================================================================== */
 /*  Vistas                                                                */
 /* ===================================================================== */
-function listView(root) {
+function moduleKpis(ws) {
+  const t = today(), au = auditsOf(ws).filter((a) => a.status !== "cancelada"), month = au.filter((a) => a.scheduled_date.startsWith(t.slice(0, 7)));
+  const done = month.filter((a) => a.status === "completada").length, pct = month.length ? Math.round((done / month.length) * 100) : 0;
+  const openF = findingsOf(ws).filter((f) => f.status !== "cerrado"), late = actionsOf(ws).filter((a) => !isDone(a) && a.due_date && a.due_date < t);
+  const live = plansOf(ws).filter((p) => p.end_date >= t).length;
+  return `<div class="kpi-strip">
+    <div class="kpi" data-tone="info"><label>Planes vigentes</label><strong>${live}</strong><small>${plansOf(ws).length} en total</small></div>
+    <div class="kpi" data-tone="${!month.length ? "" : pct >= 90 ? "ok" : pct >= 70 ? "warn" : "danger"}"><label>Cumplimiento del mes</label><strong>${pct}%</strong><small>${done} de ${month.length} realizadas</small></div>
+    <a class="kpi" href="${H("hallazgos")}" data-tone="${openF.length ? "warn" : "ok"}"><label>Hallazgos abiertos</label><strong>${openF.length}</strong><small>${openF.filter((f) => f.severity === "critico").length} crítico(s) · solo de este módulo</small></a>
+    <a class="kpi" href="${H("acciones")}" data-tone="${late.length ? "danger" : "ok"}"><label>Acciones vencidas</label><strong>${late.length}</strong><small>Pendientes fuera de fecha</small></a></div>`;
+}
+
+function renderPlanes(root) {
+  const ws = wsId(), internal = ws === "internas";
   setHead({
-    eyebrow: "Gestión de calidad", title: "Auditorías", subtitle: "Crea planes por periodo, asigna a tu equipo y envía las notificaciones para que realicen cada auditoría.",
+    title: internal ? "Planes de auditoría interna" : "Planes de auditoría",
+    subtitle: internal ? "Planifica las auditorías internas por periodo, asigna a tu equipo y envía las notificaciones." : "Crea planes por periodo (LPA, producto, proceso, sistema), asigna a tu equipo y envía las notificaciones para que realicen cada auditoría.",
     actions: db.can.write ? `<button class="btn primary" data-action="au-plan-new">${icon("plus")} Crear plan de auditoría</button>` : "",
   });
-  const plans = db.rows("audit_plans").sort((a, b) => b.start_date.localeCompare(a.start_date));
-  const all = db.rows("audits");
-  let body;
-  if (tab === "plans") {
-    body = plans.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Plan</th><th>Tipo</th><th>Periodo</th><th style="min-width:170px">Avance</th><th>Envío</th><th></th></tr></thead><tbody>
+  const plans = plansOf(ws).sort((a, b) => b.start_date.localeCompare(a.start_date)), all = auditsOf(ws);
+  const body = plans.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Plan</th><th>Tipo</th><th>Periodo</th><th style="min-width:170px">Avance</th><th>Envío</th><th></th></tr></thead><tbody>
       ${plans.map((p) => { const au = all.filter((a) => a.plan_id === p.id && a.status !== "cancelada"), done = au.filter((a) => a.status === "completada").length, pct = au.length ? Math.round((done / au.length) * 100) : 0, st = p.status || "borrador";
         return `<tr data-action="au-plan-open" data-id="${p.id}"><td><span class="title">${esc(planName(p))}</span><span class="sub mono">${esc(p.code)}</span></td><td>${esc(p.audit_type)}<span class="sub">${p.frequency === "Custom" ? "Personalizado" : esc(p.frequency)}</span></td><td>${rangeText(p.start_date, p.end_date)}</td>
         <td><div class="progress"><i style="width:${pct}%"></i></div><span class="sub mono">${done}/${au.length} realizadas · ${pct}%</span></td><td>${badge(PLAN_STATUS, st)}${p.sent_at ? `<span class="sub">${fmtDate(p.sent_at.slice(0, 10))}</span>` : ""}</td>
-        <td class="end"><a class="btn sm" href="#/audits/plan/${p.id}">${icon("calendar")} Calendario</a> <button class="btn sm icon" data-action="au-export" data-id="${p.id}" title="Exportar PDF" aria-label="Exportar PDF">${icon("download")}</button></td></tr>`; }).join("")}
+        <td class="end"><a class="btn sm" href="${H("plan/" + p.id)}">${icon("calendar")} Calendario</a> <button class="btn sm icon" data-action="au-export" data-id="${p.id}" title="Exportar PDF" aria-label="Exportar PDF">${icon("download")}</button></td></tr>`; }).join("")}
       </tbody></table></div>` : empty("Aún no hay planes", "Crea tu primer plan: elige tipo, frecuencia y fecha de inicio; el calendario se genera solo.", "calendar");
-  } else {
-    const q = F.q.toLowerCase();
-    const list = all.filter((a) => (!F.status || auditStatus(a) === F.status) && (!F.mine || a.assigned_to === db.state.profile.id) && (!q || a.code.toLowerCase().includes(q)))
-      .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date));
-    body = `<div class="toolbar"><input class="input grow" id="au-q" type="search" placeholder="Buscar por folio…" value="${esc(F.q)}" data-input="au-q">
+  root.innerHTML = `<div class="stack">${moduleKpis(ws)}<div class="panel">${body}</div></div>`;
+}
+
+function renderLista(root) {
+  const ws = wsId();
+  setHead({ title: ws === "internas" ? "Auditorías internas" : "Auditorías", subtitle: "Todas las auditorías programadas, en proceso y completadas. Entra a una para ejecutar su checklist." });
+  const all = auditsOf(ws), q = F.q.toLowerCase();
+  const list = all.filter((a) => (!F.status || auditStatus(a) === F.status) && (!F.mine || a.assigned_to === db.state.profile.id) && (!q || a.code.toLowerCase().includes(q)))
+    .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date));
+  root.innerHTML = `<div class="panel"><div class="toolbar"><input class="input grow" id="au-q" type="search" placeholder="Buscar por folio…" value="${esc(F.q)}" data-input="au-q">
       <select class="select" data-change="au-filter" data-key="status"><option value="">Todos los estados</option>${Object.entries(AUDIT_STATUS).map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
       <select class="select" data-change="au-filter" data-key="mine"><option value="">Todos los auditores</option><option value="1" ${F.mine ? "selected" : ""}>Solo mis auditorías</option></select><span class="count">${list.length} auditoría(s)</span></div>
       ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Plan</th><th>Fecha</th><th>Asignado a</th><th>Formato</th><th>Estado</th><th class="num">Resultado</th></tr></thead><tbody>
       ${list.map((a) => { const p = db.get("audit_plans", a.plan_id), f = db.get("forms", a.form_id); return `<tr data-action="au-open" data-id="${a.id}"><td class="code">${esc(a.code)}</td><td>${esc(p?.audit_type || "—")}${a.level ? ` · N${a.level}` : ""}<span class="sub">${esc(p?.code || "")}</span></td><td>${fmtDate(a.scheduled_date)}</td><td>${esc(db.profileName(a.assigned_to))}</td><td class="mono">${esc(f?.code || "—")}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="num mono">${a.score != null ? Number(a.score).toFixed(0) + "%" : "—"}</td></tr>`; }).join("")}
-      </tbody></table></div>` : empty("Sin auditorías", "No hay auditorías con los filtros actuales.", "audit")}`;
-  }
-  root.innerHTML = `<div class="panel"><div style="padding:6px 20px 0"><div class="tabs" style="margin:0;border:0"><button class="tab ${tab === "plans" ? "active" : ""}" data-action="au-tab" data-tab="plans">Planes (${plans.length})</button><button class="tab ${tab === "audits" ? "active" : ""}" data-action="au-tab" data-tab="audits">Todas las auditorías (${all.length})</button></div></div><div style="border-top:1px solid var(--line-soft)">${body}</div></div>`;
+      </tbody></table></div>` : empty("Sin auditorías", "No hay auditorías con los filtros actuales.", "audit")}</div>`;
 }
 
 function calendarView(root, planId) {
   const plan = db.get("audit_plans", planId);
   if (!plan) { root.innerHTML = `<div class="panel">${empty("Plan no encontrado", "Es posible que haya sido eliminado.")}</div>`; setHead({ title: "Auditorías" }); return; }
+  if (planWs(plan) !== wsId()) { navigate(`${planWs(plan)}/plan/${planId}`); return; }
   currentPlanId = planId;
   const audits = db.rows("audits").filter((a) => a.plan_id === plan.id && a.status !== "cancelada");
   const byDay = new Map();
@@ -273,7 +289,7 @@ function calendarView(root, planId) {
   setHead({
     eyebrow: `${plan.code} · ${plan.audit_type} · ${plan.frequency === "Custom" ? "Personalizado" : plan.frequency}`, title: planName(plan),
     subtitle: `${rangeText(plan.start_date, plan.end_date)} · ${days.length} días (${hab} hábiles, ${days.length - hab} inhábiles)`,
-    actions: `<a class="btn" href="#/audits">${icon("chevL")} Planes</a>${db.can.write ? `<button class="btn" data-action="au-plan-edit" data-id="${plan.id}">${icon("edit")} Editar</button><button class="btn" data-action="au-bulk" data-id="${plan.id}">${icon("wand")} Asignación rápida</button>` : ""}<button class="btn" data-action="au-export" data-id="${plan.id}">${icon("download")} Exportar PDF</button>${db.can.write ? `<button class="btn primary" data-action="au-send" data-id="${plan.id}">${icon("send")} ${sent ? "Reenviar" : "Terminar y Enviar"}</button>` : ""}`,
+    actions: `<a class="btn" href="${H("planes")}">${icon("chevL")} Planes</a>${db.can.write ? `<button class="btn" data-action="au-plan-edit" data-id="${plan.id}">${icon("edit")} Editar</button><button class="btn" data-action="au-bulk" data-id="${plan.id}">${icon("wand")} Asignación rápida</button>` : ""}<button class="btn" data-action="au-export" data-id="${plan.id}">${icon("download")} Exportar PDF</button>${db.can.write ? `<button class="btn primary" data-action="au-send" data-id="${plan.id}">${icon("send")} ${sent ? "Reenviar" : "Terminar y Enviar"}</button>` : ""}`,
   });
   const t = today(), weeks = [];
   for (let m = mondayOf(plan.start_date); m <= plan.end_date; m = addDays(m, 7)) weeks.push(eachDay(m, addDays(m, 6)));
@@ -312,7 +328,7 @@ function questionHTML(it, readonly, auditId) {
   const f = db.get("findings", a.finding_id);
   return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}">
     <div class="q-text"><span>${esc(it.question)}</span>${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}</div>
-    ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RES[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="#/findings/${f.id}">${esc(f.code)}</a> <span class="muted">hallazgo generado</span></div>` : ""}</div>`
+    ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RES[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado</span></div>` : ""}</div>`
     : `<div class="seg" role="group">${Object.entries(RES).map(([v, l]) => `<button type="button" data-action="au-ans" data-item="${it.id}" data-v="${v}" aria-pressed="${a.result === v}">${l}</button>`).join("")}</div>
        <textarea class="textarea" data-input="au-comment" data-item="${it.id}" placeholder="Comentario o evidencia (obligatorio si no cumple)">${esc(a.comment || "")}</textarea>`}
     ${attachmentsSection("audit", auditId, { ref: it.id, compact: true, canEdit: !readonly })}
@@ -331,11 +347,12 @@ function auditView(root, id) {
   const audit = db.get("audits", id);
   if (!audit) { setHead({ title: "Auditoría" }); root.innerHTML = `<div class="panel">${empty("Auditoría no encontrada", "Es posible que haya sido eliminada.", "audit")}</div>`; return; }
   const plan = db.get("audit_plans", audit.plan_id), form = db.get("forms", audit.form_id), items = form ? itemsOf(form.id) : [];
+  if (plan && planWs(plan) !== wsId()) { navigate(`${planWs(plan)}/audit/${id}`); return; }
   initDraft(audit);
   const st = auditStatus(audit), locked = ["completada", "cancelada"].includes(audit.status) || !db.can.write;
   setHead({
     eyebrow: `${plan?.code || "Auditoría"} · ${plan?.audit_type || ""}`, title: audit.code, subtitle: form ? `${form.code} · ${form.name}` : "Sin formato asignado",
-    actions: `<a class="btn" href="#/audits${plan ? "/plan/" + plan.id : ""}">${icon("chevL")} ${plan ? "Calendario" : "Auditorías"}</a>${db.can.write ? `<button class="btn" data-action="au-edit" data-id="${audit.id}">${icon("edit")} Programación</button>` : ""}${audit.status === "completada" && db.can.manage ? `<button class="btn" data-action="au-reopen" data-id="${audit.id}">Reabrir</button>` : ""}`,
+    actions: `<a class="btn" href="${H(plan ? "plan/" + plan.id : "lista")}">${icon("chevL")} ${plan ? "Calendario" : "Auditorías"}</a>${db.can.write ? `<button class="btn" data-action="au-edit" data-id="${audit.id}">${icon("edit")} Programación</button>` : ""}${audit.status === "completada" && db.can.manage ? `<button class="btn" data-action="au-reopen" data-id="${audit.id}">Reabrir</button>` : ""}`,
   });
   const sections = [...new Set(items.map((i) => i.section || "General"))];
   const linked = db.rows("findings").filter((f) => f.audit_id === audit.id);
@@ -353,7 +370,7 @@ function auditView(root, id) {
         ${audit.notes ? `<div class="span-2"><dt>Notas</dt><dd>${esc(audit.notes)}</dd></div>` : ""}</dl></div></div>
       <div class="panel"><div class="panel-body">${attachmentsSection("audit", audit.id, { title: "Evidencias generales", canEdit: audit.status !== "cancelada" })}</div></div>
       <div class="panel"><div class="panel-head"><h2>Hallazgos generados</h2><small>${linked.length}</small></div><div class="panel-body">
-        ${linked.length ? linked.map((f) => `<div class="item-row"><div><a class="mono" href="#/findings/${f.id}">${esc(f.code)}</a><div style="margin-top:4px">${esc(f.title)}</div></div>${badge(SEVERITY, f.severity)}</div>`).join("") : '<span class="muted">Aún no se han generado hallazgos.</span>'}</div></div>
+        ${linked.length ? linked.map((f) => `<div class="item-row"><div><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a><div style="margin-top:4px">${esc(f.title)}</div></div>${badge(SEVERITY, f.severity)}</div>`).join("") : '<span class="muted">Aún no se han generado hallazgos.</span>'}</div></div>
     </div></div>`;
 }
 
@@ -365,25 +382,18 @@ async function saveAnswers(audit) {
 hooks.audit = () => rerender();
 
 
-/* -------------------------------- Módulo ----------------------------- */
-export default {
-  id: "audits", label: "Auditorías", icon: "audit",
-  render(root, params) {
-    if (params[0] === "plan" && params[1]) return calendarView(root, params[1]);
-    if (params[0]) return auditView(root, params[0]);
-    currentPlanId = null;
-    return listView(root);
-  },
-};
+/* -------------------------------- Pestañas del módulo ----------------------------- */
+export { renderPlanes, renderLista };
+export const renderPlan = (root, params) => calendarView(root, params[0]);
+export const renderAudit = (root, params) => auditView(root, params[0]);
 
 /* -------------------------------- Eventos ---------------------------- */
 const curPlan = () => db.get("audit_plans", currentPlanId);
 on("au-plan-new", planWizard);
-on("au-plan-open", (el) => navigate(`audits/plan/${el.dataset.id}`));
-on("au-tab", (el) => { tab = el.dataset.tab; rerender(); });
-on("au-open", (el) => navigate(`audits/${el.dataset.id}`));
+on("au-plan-open", (el) => navigate(`${wsId()}/plan/${el.dataset.id}`));
+on("au-open", (el) => navigate(`${wsId()}/audit/${el.dataset.id}`));
 on("au-add", (el) => scheduleForm(null, curPlan(), el.dataset.date));
-on("au-slot", (el) => { const a = db.get("audits", el.dataset.id); db.can.write ? scheduleForm(a, curPlan()) : navigate(`audits/${a.id}`); });
+on("au-slot", (el) => { const a = db.get("audits", el.dataset.id); db.can.write ? scheduleForm(a, curPlan()) : navigate(`${wsId()}/audit/${a.id}`); });
 on("au-edit", (el) => { const a = db.get("audits", el.dataset.id); scheduleForm(a, db.get("audit_plans", a.plan_id)); });
 on("au-plan-edit", (el) => editPlan(db.get("audit_plans", el.dataset.id)));
 on("au-bulk", (el) => bulkAssign(db.get("audit_plans", el.dataset.id)));
@@ -433,7 +443,7 @@ on("au-finish", async (el) => {
       const severity = it.critical ? "mayor" : "menor";
       const f = await db.insert("findings", {
         title: `${audit.code} · ${it.question.replace(/[¿?]/g, "").trim()}`.slice(0, 160) + " (No cumple)", description: draft.answers[it.id].comment,
-        source: "auditoria", severity, audit_id: audit.id, owner_id: audit.assigned_to, due_date: addDays(today(), SEVERITY_SLA_DAYS[severity]),
+        source: "auditoria", module: planWs(db.get("audit_plans", audit.plan_id)), severity, audit_id: audit.id, owner_id: audit.assigned_to, due_date: addDays(today(), SEVERITY_SLA_DAYS[severity]),
       });
       draft.answers[it.id].finding_id = f.id;
     }

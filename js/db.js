@@ -24,7 +24,7 @@ const CASCADE = {
   form_items: [["audit_answers", "item_id"]],
 };
 
-export const state = { session: null, profile: null, data: {}, demo: isDemo, authIntent: null, authError: null };
+export const state = { session: null, profile: null, data: {}, demo: isDemo, authIntent: null, authError: null, otp: null };
 export const siteUrl = () => (location.origin + location.pathname).replace(/index\.html$/, "");
 let sb = null;
 const LS_DATA = "guvel_quality_demo_v1";
@@ -35,7 +35,14 @@ let demo = null; // { tables, counters }
 export async function init() {
   TABLES.forEach((t) => (state.data[t] = []));
   if (state.demo) return localStorage.getItem(LS_SESSION) === "1";
-  // Enlaces de correo (invitación / recuperación) llegan como #access_token=...&type=invite
+  // Enlaces nuevos: /?token_hash=...&type=invite|recovery (el token NO se consume hasta pulsar el botón;
+  // así los filtros de seguridad de correo corporativo no lo "queman" al revisar el enlace).
+  const qp = new URLSearchParams(location.search);
+  if (qp.get("token_hash") && ["invite", "recovery", "signup", "magiclink", "email"].includes(qp.get("type"))) {
+    state.otp = { token_hash: qp.get("token_hash"), type: qp.get("type") };
+    history.replaceState(null, "", location.pathname + location.hash);
+  }
+  // Enlaces antiguos de correo llegan como #access_token=...&type=invite
   const hp = new URLSearchParams(location.hash.replace(/^#/, ""));
   if (hp.get("access_token") && ["invite", "recovery", "signup", "magiclink"].includes(hp.get("type"))) state.authIntent = hp.get("type");
   if (hp.get("error_description")) state.authError = hp.get("error_description").replace(/\+/g, " ");
@@ -56,6 +63,15 @@ export function onAuthEvent(cb) {
   if (state.demo || !sb) return;
   sb.auth.onAuthStateChange((event, session) => { state.session = session; cb(event); });
 }
+/** Canjea el token de un solo uso (al pulsar el botón) y abre sesión */
+export async function verifyEmailLink() {
+  const { token_hash, type } = state.otp;
+  const { data, error } = await sb.auth.verifyOtp({ token_hash, type });
+  if (error) throw new Error(/expired|invalid/i.test(error.message) ? "Este enlace ya se usó o venció. Pide a un administrador que te envíe uno nuevo, o usa «¿Olvidaste tu contraseña?» en la pantalla de acceso." : error.message);
+  state.session = data.session;
+  state.authIntent = type === "recovery" ? "recovery" : "invite";
+  state.otp = null;
+}
 export async function setPassword(password) {
   if (state.demo) return;
   const { error } = await sb.auth.updateUser({ password });
@@ -71,6 +87,11 @@ export async function resetPassword(email) {
 /** Invoca una Edge Function y devuelve su JSON (o lanza un error legible) */
 export async function invokeFn(name, body) {
   const { data, error } = await sb.functions.invoke(name, { body });
+  if (error && /FetchError/i.test(error.name || "")) {
+    // El navegador no recibió respuesta: casi siempre la función no existe con ese nombre exacto,
+    // no está desplegada, o falló al arrancar (revisa Edge Functions → Logs en Supabase).
+    throw new Error(`No se pudo contactar la función «${name}». Revisa en Supabase → Edge Functions que exista con ese nombre exacto y esté desplegada (si lo está, mira la pestaña Logs).`);
+  }
   if (error) {
     let msg = error.message;
     try { const j = await error.context?.json?.(); if (j?.error) msg = j.error; } catch { /* sin cuerpo */ }

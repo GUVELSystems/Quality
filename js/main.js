@@ -75,16 +75,39 @@ function showForgot(email = "") {
   });
 }
 
+/** Paso intermedio: el token solo se canjea cuando la persona pulsa el botón */
+function showConfirmLink() {
+  appShown = false;
+  const invite = db.state.otp.type !== "recovery";
+  app.innerHTML = `<div class="auth-screen"><div class="auth-card">${authBrand}
+    <span class="eyebrow">${invite ? "Bienvenido a Quality" : "Recuperación de acceso"}</span>
+    <h1>${invite ? "Activa tu acceso" : "Restablece tu contraseña"}</h1>
+    <p class="auth-lead">${invite ? "Te invitaron al portal de calidad de GUVEL. Pulsa el botón para continuar y crear tu contraseña." : "Pulsa el botón para continuar y elegir una nueva contraseña."}</p>
+    <div id="cl-msg"></div>
+    <div class="auth-form"><button class="btn primary" id="cl-go" type="button">Continuar</button></div>
+    <div class="auth-foot">GUVEL · Smarter industrial systems</div></div></div>`;
+  document.getElementById("cl-go").addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.textContent = "Verificando…";
+    try { await db.verifyEmailLink(); showSetPassword(db.state.authIntent === "invite"); }
+    catch (ex) { showLogin(ex.message); }
+  });
+}
+
 /** Tras abrir un enlace de invitación o recuperación */
 function showSetPassword(invite = true, error = "") {
   appShown = false;
+  const u = db.state.session?.user, first = (u?.user_metadata?.full_name || "").split(" ")[0];
   app.innerHTML = `<div class="auth-screen"><div class="auth-card">${authBrand}
-    <span class="eyebrow">${invite ? "Bienvenido" : "Recuperación"}</span><h1>Crea tu contraseña</h1>
-    <p class="auth-lead">Mínimo 8 caracteres. La usarás junto con tu correo para entrar.</p>${msg(error, true)}
+    <span class="eyebrow">${invite ? "Bienvenido a Quality" : "Recuperación de acceso"}</span>
+    <h1>${invite && first ? `Hola, ${esc(first)}` : "Crea tu contraseña"}</h1>
+    <p class="auth-lead">${invite ? "Crea tu contraseña para entrar al portal." : "Elige una nueva contraseña."}${u?.email ? `<br>Tu usuario será <b style="color:#fff">${esc(u.email)}</b>.` : ""}</p>${msg(error, true)}
     <form class="auth-form" id="pwForm" novalidate>
-      <label>Nueva contraseña<input class="input" type="password" name="p1" autocomplete="new-password" minlength="8" required></label>
+      <label>Nueva contraseña<input class="input" type="password" name="p1" autocomplete="new-password" minlength="8" required placeholder="Mínimo 8 caracteres"></label>
       <label>Confirmar contraseña<input class="input" type="password" name="p2" autocomplete="new-password" minlength="8" required></label>
-      <button class="btn primary" type="submit">Guardar y entrar</button></form></div></div>`;
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400"><input type="checkbox" id="showPw" style="width:16px;height:16px;accent-color:#0CC0DF"> Mostrar contraseña</label>
+      <button class="btn primary" type="submit">Guardar y entrar</button></form>
+    <div class="auth-foot">GUVEL · Smarter industrial systems</div></div></div>`;
+  document.getElementById("showPw").addEventListener("change", (e) => document.querySelectorAll("#pwForm input[type=password], #pwForm input[data-pw]").forEach((i) => { i.type = e.target.checked ? "text" : "password"; i.dataset.pw = "1"; }));
   document.getElementById("pwForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const { p1, p2 } = e.target;
@@ -186,7 +209,8 @@ async function start() {
       if (ev === "SIGNED_OUT" && appShown) showLogin("Tu sesión terminó. Vuelve a iniciar sesión.");
       if (ev === "PASSWORD_RECOVERY") showSetPassword(false);
     });
-    if (db.state.authError) showLogin(db.state.authError);
+    if (db.state.otp) showConfirmLink();
+    else if (db.state.authError) showLogin(db.state.authError);
     else if (signed && db.state.authIntent) showSetPassword(db.state.authIntent === "invite" || db.state.authIntent === "signup");
     else if (signed) await start();
     else showLogin();

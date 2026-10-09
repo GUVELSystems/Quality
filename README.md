@@ -8,7 +8,7 @@ Aplicación web estática (HTML + CSS + JavaScript ES modules, **sin build**) co
 
 ## Cómo está organizado: un portal dentro del portal
 
-El chip cian de la barra superior (junto al logo) despliega los módulos. Cada uno tiene sus propias pestañas y **sus propios datos**:
+El chip cian de la barra superior (junto al logo) despliega los módulos como **iconos**: al pasar encima aparece su nombre. Cada uno tiene sus propias pestañas y **sus propios datos**:
 
 | Módulo | Pestañas | Qué contiene |
 |---|---|---|
@@ -18,9 +18,11 @@ El chip cian de la barra superior (junto al logo) despliega los módulos. Cada u
 | **Issues** | Notificaciones · Hallazgos · Acciones | Notificaciones de calidad de clientes (quejas, devoluciones, SCAR, alertas) y sus hallazgos |
 | **Riesgos** | — | Matriz 5×5 y mitigaciones |
 | **Oportunidades** | — | Ideas de mejora |
-| **Configuración** | Clientes · Clasificaciones · Usuarios | Catálogos y accesos (menú del chip) |
+| **Configuración** | Clientes · Clasificaciones · Niveles LPA · Áreas · Catálogos · Usuarios | Clasificaciones N1/N2 con días hábiles, niveles LPA configurables, áreas con responsables por nivel, catálogos y accesos |
 
 Los hallazgos llevan la columna `module` (`auditorias`, `internas`, `issues`) y las acciones heredan la de su hallazgo; por eso los módulos no se mezclan. Los enlaces antiguos de correo (`#/audits/…`) siguen funcionando: el portal los redirige al módulo correcto.
+
+Flujo de los hallazgos (aceptar/trasladar → análisis → acción con evidencia → verificación del administrador), milestones y asignación automática de responsables: ver [`docs/FLUJO_HALLAZGOS.md`](docs/FLUJO_HALLAZGOS.md).
 
 ## Detalle de funciones
 
@@ -54,7 +56,7 @@ Guía completa paso a paso (Auth, SMTP, Resend, Edge Functions, checklist de pru
 
 Resumen:
 
-1. Crea un proyecto en [supabase.com](https://supabase.com) y ejecuta en el **SQL Editor**, en orden: `supabase/01_schema.sql` → `02_policies.sql` → `03_seed.sql` → `04_attachments.sql` → `05_audit_notifications.sql` → `06_modules.sql`.
+1. Crea un proyecto en [supabase.com](https://supabase.com) y ejecuta en el **SQL Editor**, en orden: `supabase/01_schema.sql` → `02_policies.sql` → `03_seed.sql` → `04_attachments.sql` → `05_audit_notifications.sql` → `06_modules.sql` → `07_workflow.sql`.
 2. **Auth**: desactiva el registro libre («Allow new users to sign up»), define *Site URL* y *Redirect URLs* con la URL del portal.
 3. Crea tu usuario en *Authentication → Users*. **El primer usuario es administrador**; a los demás los invitas desde el portal (*Configuración → Usuarios → Invitar usuario*).
 4. Despliega las Edge Functions (`invite-user`, `notify-audit-plan`) y carga los secretos `RESEND_API_KEY`, `FROM_EMAIL`, `SITE_URL`.

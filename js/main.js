@@ -13,12 +13,13 @@ import actions from "./modules/actions.js";
 import notifications from "./modules/notifications.js";
 import { risks, opportunities, clients, classifications, users } from "./modules/catalogs.js";
 import forms from "./modules/forms.js";
+import { findingClasses, lpaLevels, areas } from "./modules/config.js";
 import "./modules/attachments.js";
-import { findingsOf, actionsOf, isDone, WS_LABEL, auditWs, findingWs } from "./scope.js";
+import { findingsOf, lateActionsOf, WS_LABEL, auditWs, findingWs } from "./scope.js";
 
 /* ------------------- Módulos (portales dentro del portal) ------------------- */
 const openF = (ws) => ({ n: findingsOf(ws).filter((f) => f.status !== "cerrado").length });
-const lateA = (ws) => ({ n: actionsOf(ws).filter((a) => !isDone(a) && a.due_date && a.due_date < today()).length, hot: true });
+const lateA = (ws) => ({ n: lateActionsOf(ws).length, hot: true });
 const auditTabs = () => [
   { id: "planes", label: "Planes", render: audits.renderPlanes },
   { id: "lista", label: "Auditorías", render: audits.renderLista },
@@ -40,13 +41,17 @@ registerWs({ id: "riesgos", label: WS_LABEL.riesgos, hideTabs: true, tabs: [{ id
 registerWs({ id: "oportunidades", label: WS_LABEL.oportunidades, hideTabs: true, tabs: [{ id: "oportunidades", render: opportunities.render }] });
 registerWs({ id: "config", label: WS_LABEL.config, tabs: [
   { id: "clientes", label: "Clientes", render: clients.render },
-  { id: "clasificaciones", label: "Clasificaciones", render: classifications.render },
+  { id: "clasificaciones", label: "Clasificaciones", render: findingClasses.render },
+  { id: "niveles", label: "Niveles LPA", render: lpaLevels.render },
+  { id: "areas", label: "Áreas", render: areas.render },
+  { id: "catalogos", label: "Catálogos", render: classifications.render },
   { id: "usuarios", label: "Usuarios", render: users.render },
 ] });
 
 const app = document.getElementById("app");
 const MENU = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades"];
-const CONFIG_MENU = [["clientes", "Clientes"], ["clasificaciones", "Clasificaciones"], ["usuarios", "Usuarios"]];
+const CONFIG_MENU = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones N1/N2", "tag"], ["niveles", "Niveles LPA", "layers"], ["areas", "Áreas", "area"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"]];
+const MENU_ICON = { dashboard: "dashboard", auditorias: "audit", internas: "internal", issues: "finding", riesgos: "risk", oportunidades: "opportunity" };
 let appShown = false;
 
 /* ------------------------------- Tema -------------------------------- */
@@ -154,7 +159,7 @@ function shell() {
       <button class="ws-chip" id="wsBtn" data-action="ws-menu" aria-haspopup="true" aria-expanded="false"></button>
       <span class="nav-tabs" id="navTabs"></span>
     </nav>
-    <div class="nav-menu hidden" id="wsMenu" role="menu"></div>
+    <div class="ws-menu hidden" id="wsMenu" role="menu"></div>
     <div class="top-actions">
       <label class="search">${icon("search")}<input id="gsearch" type="search" placeholder="Buscar folio o título…" data-input="gsearch" autocomplete="off" aria-label="Búsqueda global"><div id="sresults"></div></label>
       <button class="top-btn" data-action="theme" title="Cambiar tema" aria-label="Cambiar tema">${icon(currentTheme() === "dark" ? "sun" : "moon")}</button>
@@ -171,19 +176,20 @@ function shell() {
 /* Selector de módulo (chip "Quality ▾"): lista de módulos y, aparte, Configuración */
 on("ws-menu", (el) => {
   const m = document.getElementById("wsMenu"), r = el.getBoundingClientRect();
-  m.style.top = r.bottom + 4 + "px"; m.style.left = Math.max(8, Math.min(r.left, innerWidth - 250)) + "px";
+  m.style.top = r.bottom + 4 + "px"; m.style.left = Math.max(8, Math.min(r.left, innerWidth - 270)) + "px";
   const hidden = m.classList.toggle("hidden");
   el.setAttribute("aria-expanded", String(!hidden));
 });
-document.addEventListener("click", (e) => { if (!e.target.closest("#wsMenu, #wsBtn")) document.getElementById("wsMenu")?.classList.add("hidden"); });
+document.addEventListener("click", (e) => { if (!e.target.closest("#wsMenu, #wsBtn") || e.target.closest(".ws-tile")) document.getElementById("wsMenu")?.classList.add("hidden"); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.getElementById("wsMenu")?.classList.add("hidden"); });
 
 function renderNav() {
   const c = current(), w = getWs(c.ws);
   if (!w || !document.getElementById("wsBtn")) return;
   document.getElementById("wsBtn").innerHTML = `${esc(w.label)} ${icon("more")}`;
-  document.getElementById("wsMenu").innerHTML = MENU.map((id) => `<a href="#/${id}" class="${id === c.ws ? "active" : ""}" role="menuitem">${esc(getWs(id).label)}</a>`).join("")
-    + `<div class="menu-sep">Configuración</div>` + CONFIG_MENU.map(([id, l]) => `<a href="#/config/${id}" class="${c.ws === "config" && c.tab === id ? "active" : ""}" role="menuitem">${l}</a>`).join("");
+  const tile = (href, label, ico, active) => `<a href="${href}" class="ws-tile ${active ? "active" : ""}" role="menuitem" aria-label="${esc(label)}" title="${esc(label)}">${icon(ico)}<span class="ws-tip">${esc(label)}</span></a>`;
+  document.getElementById("wsMenu").innerHTML = `<div class="ws-grid">${MENU.map((id) => tile(`#/${id}`, getWs(id).label, MENU_ICON[id], id === c.ws)).join("")}</div>`
+    + `<div class="menu-sep">Configuración</div><div class="ws-grid">${CONFIG_MENU.map(([id, l, ico]) => tile(`#/config/${id}`, l, ico, c.ws === "config" && c.tab === id)).join("")}</div>`;
   document.getElementById("wsMenu").classList.add("hidden");
   document.getElementById("navTabs").innerHTML = w.hideTabs ? "" : w.tabs.filter((t) => !t.hidden).map((t) => {
     const k = t.count?.(w.id), active = t.id === c.tab || t.activeAs === c.tab;

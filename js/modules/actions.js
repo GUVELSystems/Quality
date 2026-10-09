@@ -1,61 +1,63 @@
 import * as db from "../db.js";
-import { esc, today, dueText, downloadCSV } from "../utils.js";
+import { esc, fmtDate, downloadCSV } from "../utils.js";
 import { icon } from "../icons.js";
-import { setHead, rerender, wsId, H } from "../router.js";
-import { actionsOf, WS_LABEL } from "../scope.js";
-import { on, onChange, onInput, badge, empty } from "../ui.js";
-import { ACTION_TYPE, ACTION_STATUS } from "../constants.js";
-import { actionForm } from "./findings.js";
+import { setHead, rerender, wsId } from "../router.js";
+import { findingsOf, WS_LABEL } from "../scope.js";
+import { on, onChange, onInput, empty, pill } from "../ui.js";
+import { classBadge, classOf, milestones } from "../workflow.js";
+import { openFinding } from "./findings.js";
 
+/* Seguimiento de las acciones: una fila por hallazgo que ya llegó a la etapa "En acción" */
 const FS = {};
-const blankF = () => ({ q: "", status: "", type: "", mine: "" });
+const blankF = () => ({ q: "", state: "", mine: "" });
 const F = new Proxy({}, {
   get: (_, k) => (FS[wsId()] ||= blankF())[k],
   set: (_, k, v) => { (FS[wsId()] ||= blankF())[k] = v; return true; },
 });
-const isDone = (a) => ["completada", "verificada"].includes(a.status);
 
+const STATE = {
+  running: ["En curso", "info"], overdue: ["Vencida", "danger"], ontime: ["Cerradas a tiempo", "ok"], late: ["Cerradas tarde", "danger"],
+};
+const rowsOf = () => findingsOf(wsId()).filter((f) => ["en_accion", "verificacion", "cerrado"].includes(f.status) || f.action_plan).map((f) => ({ f, m: milestones(f).m1 }));
+const evCount = (f) => db.rows("attachments").filter((a) => a.entity === "finding" && a.entity_id === f.id && a.ref === "accion").length;
 const filtered = () => {
-  const q = F.q.toLowerCase(), t = today();
-  return actionsOf(wsId()).filter((a) => {
-    if (F.status === "vencidas" ? (isDone(a) || !a.due_date || a.due_date >= t) : F.status === "abiertas" ? isDone(a) : F.status && a.status !== F.status) return false;
-    if (F.type && a.action_type !== F.type) return false;
-    if (F.mine && a.owner_id !== db.state.profile.id) return false;
-    const f = db.get("findings", a.finding_id);
-    return !q || `${a.code} ${a.description} ${f?.code || ""}`.toLowerCase().includes(q);
-  }).sort((a, b) => isDone(a) - isDone(b) || (a.due_date || "9").localeCompare(b.due_date || "9"));
+  const q = F.q.toLowerCase();
+  return rowsOf().filter(({ f, m }) => (!F.state || m.state === F.state) && (!F.mine || f.owner_id === db.state.profile.id) && (!q || `${f.code} ${f.title} ${f.action_plan || ""}`.toLowerCase().includes(q)))
+    .sort((a, b) => ["overdue", "running"].indexOf(b.m.state) - ["overdue", "running"].indexOf(a.m.state) || (a.f.due_date || "9").localeCompare(b.f.due_date || "9"));
 };
 
 export default {
   id: "actions", label: "Acciones", icon: "action",
   render(root) {
     setHead({
-      title: "Acciones", subtitle: `Contención, correctivas y preventivas de los hallazgos de ${WS_LABEL[wsId()]}.`,
-      actions: `<button class="btn" data-action="ac-export">${icon("download")} Exportar CSV</button>${db.can.write ? `<button class="btn primary" data-action="ac-new">${icon("plus")} Nueva acción</button>` : ""}`,
+      title: "Acciones", subtitle: `Seguimiento de las acciones de los hallazgos de ${WS_LABEL[wsId()]}. Se registran en la etapa «En acción» de cada hallazgo, con su evidencia.`,
+      actions: `<button class="btn" data-action="ac-export">${icon("download")} Exportar CSV</button>`,
     });
-    const list = filtered();
-    root.innerHTML = `<div class="panel">
-      <div class="toolbar">
-        <input class="input grow" id="ac-q" type="search" placeholder="Buscar acción u hallazgo…" value="${esc(F.q)}" data-input="ac-q">
-        <select class="select" data-change="ac-filter" data-key="status"><option value="">Todos los estados</option><option value="abiertas" ${F.status === "abiertas" ? "selected" : ""}>Abiertas</option><option value="vencidas" ${F.status === "vencidas" ? "selected" : ""}>Vencidas</option>${Object.entries(ACTION_STATUS).map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-        <select class="select" data-change="ac-filter" data-key="type"><option value="">Todo tipo</option>${Object.entries(ACTION_TYPE).map(([k, [l]]) => `<option value="${k}" ${F.type === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-        <select class="select" data-change="ac-filter" data-key="mine"><option value="">Todos los responsables</option><option value="1" ${F.mine ? "selected" : ""}>Solo mías</option></select>
-        <span class="count">${list.length} acción(es)</span>
+    const all = rowsOf(), count = (s) => all.filter((r) => r.m.state === s).length, list = filtered();
+    root.innerHTML = `<div class="stack">
+      <div class="kpi-strip">
+        <div class="kpi" data-tone="info"><label>En curso</label><strong>${count("running")}</strong><small>Dentro de su plazo</small></div>
+        <div class="kpi" data-tone="${count("overdue") ? "danger" : "ok"}"><label>Vencidas</label><strong>${count("overdue")}</strong><small>Plazo en días hábiles superado</small></div>
+        <div class="kpi" data-tone="ok"><label>Cerradas a tiempo</label><strong>${count("ontime")}</strong><small>Milestone en verde</small></div>
+        <div class="kpi" data-tone="${count("late") ? "danger" : "ok"}"><label>Cerradas tarde</label><strong>${count("late")}</strong><small>Milestone en rojo</small></div>
       </div>
-      ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Acción</th><th>Hallazgo</th><th>Tipo</th><th>Estado</th><th>Responsable</th><th>Compromiso</th></tr></thead><tbody>
-      ${list.map((a) => { const f = db.get("findings", a.finding_id); const d = dueText(a.due_date);
-        return `<tr data-action="ac-edit" data-id="${a.id}"><td class="code">${esc(a.code)}</td><td><span class="title">${esc(a.description)}</span></td><td>${f ? `<a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a>` : "—"}</td><td>${badge(ACTION_TYPE, a.action_type)}</td><td>${badge(ACTION_STATUS, a.status)}</td><td>${esc(db.profileName(a.owner_id))}</td><td class="${d.overdue && !isDone(a) ? "overdue" : ""}">${d.text}</td></tr>`; }).join("")}
-      </tbody></table></div>` : empty("Sin acciones", "No hay acciones con los filtros actuales.", "action")}
-    </div>`;
+      <div class="panel"><div class="toolbar">
+        <input class="input grow" id="ac-q" type="search" placeholder="Buscar acción u hallazgo…" value="${esc(F.q)}" data-input="ac-q">
+        <select class="select" data-change="ac-filter" data-key="state"><option value="">Todos los estados</option>${Object.entries(STATE).map(([k, [l]]) => `<option value="${k}" ${F.state === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <select class="select" data-change="ac-filter" data-key="mine"><option value="">Todos los responsables</option><option value="1" ${F.mine ? "selected" : ""}>Solo mías</option></select>
+        <span class="count">${list.length} acción(es)</span></div>
+      ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Hallazgo</th><th>Acción</th><th>Responsable</th><th>Clasificación</th><th>Límite</th><th>Estado</th><th class="num">Evidencias</th></tr></thead><tbody>
+      ${list.map(({ f, m }) => `<tr data-action="ac-open" data-id="${f.id}"><td><span class="code">${esc(f.code)}</span><span class="sub">${esc(f.title)}</span></td><td>${f.action_plan ? esc(f.action_plan.length > 110 ? f.action_plan.slice(0, 110) + "…" : f.action_plan) : '<span class="muted">Aún sin registrar</span>'}</td>
+        <td>${esc(db.profileName(f.owner_id))}</td><td>${classBadge(f)}</td><td>${fmtDate(f.due_date)}</td><td>${pill(STATE[m.state][0], STATE[m.state][1])}${m.end ? `<span class="sub">${fmtDate(m.end)}</span>` : ""}</td><td class="num mono">${evCount(f)}</td></tr>`).join("")}
+      </tbody></table></div>` : empty("Sin acciones", "Las acciones aparecen cuando un hallazgo llega a la etapa «En acción».", "action")}</div></div>`;
   },
 };
 
-on("ac-new", () => actionForm({}));
-on("ac-edit", (el) => { const a = db.get("actions", el.dataset.id); if (db.can.write) actionForm({ finding_id: a.finding_id, action: a }); });
+on("ac-open", (el) => openFinding(el.dataset.id, "en_accion"));
 on("ac-export", () => downloadCSV(`acciones_${wsId()}.csv`, [
-  { label: "Folio", value: (r) => r.code }, { label: "Hallazgo", value: (r) => db.get("findings", r.finding_id)?.code }, { label: "Descripción", value: (r) => r.description },
-  { label: "Tipo", value: (r) => ACTION_TYPE[r.action_type][0] }, { label: "Estado", value: (r) => ACTION_STATUS[r.status][0] },
-  { label: "Responsable", value: (r) => db.profileName(r.owner_id) }, { label: "Compromiso", value: (r) => r.due_date },
+  { label: "Hallazgo", value: (r) => r.f.code }, { label: "Título", value: (r) => r.f.title }, { label: "Acción", value: (r) => r.f.action_plan },
+  { label: "Responsable", value: (r) => db.profileName(r.f.owner_id) }, { label: "Clasificación", value: (r) => classOf(r.f)?.code }, { label: "Límite", value: (r) => r.f.due_date },
+  { label: "Estado", value: (r) => STATE[r.m.state][0] }, { label: "Cerrada", value: (r) => r.f.actions_closed_on }, { label: "Evidencias", value: (r) => evCount(r.f) },
 ], filtered()));
 onChange("ac-filter", (el) => { F[el.dataset.key] = el.value; rerender(); });
-onInput("ac-q", (el) => { F.q = el.value; const pos = el.selectionStart; rerender().then(() => { const i = document.getElementById("ac-q"); i?.focus(); i?.setSelectionRange(pos, pos); }); });
+onInput("ac-q", (el) => { F.q = el.value; const p = el.selectionStart; rerender().then(() => { const i = document.getElementById("ac-q"); i?.focus(); i?.setSelectionRange(p, p); }); });

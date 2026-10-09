@@ -47,7 +47,7 @@ function legacy(parts) {
     case "risks": return "riesgos";
     case "opportunities": return "oportunidades";
     case "clients": return "config/clientes";
-    case "classifications": return "config/clasificaciones";
+    case "classifications": return "config/catalogos";
     case "users": return "config/usuarios";
     case "forms": return "auditorias/formatos";
     default: return null;

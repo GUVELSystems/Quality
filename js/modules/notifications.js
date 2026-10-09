@@ -3,8 +3,9 @@ import { esc, today, addDays, fmtDate, fmtDateTime, dueText, downloadCSV } from 
 import { icon } from "../icons.js";
 import { setHead, rerender, replaceHash, navigate } from "../router.js";
 import { on, onChange, onInput, badge, empty, openDrawer, openForm, toast } from "../ui.js";
-import { SEVERITY, SEVERITY_SLA_DAYS, NOTIF_TYPE, NOTIF_FLOW, NOTIF_STATUS } from "../constants.js";
+import { SEVERITY, NOTIF_TYPE, NOTIF_FLOW, NOTIF_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
+import { classOptions, areaOptions, resolveOwner, dueFor } from "../workflow.js";
 import { userOpts, clientOpts, mapOpts, clientName } from "./shared.js";
 
 const F = { q: "", status: "", type: "", client: "" };
@@ -127,18 +128,28 @@ on("n-open", (el) => openNotif(el.dataset.id));
 on("n-new", () => openForm_(null));
 on("n-edit", (el) => openForm_(db.get("customer_notifications", el.dataset.id)));
 on("n-status", async (el) => { try { await db.update("customer_notifications", el.dataset.id, { status: el.dataset.status }); await refresh(); } catch (e) { toast(e.message, "danger"); } });
-on("n-finding", async (el) => {
+on("n-finding", (el) => {
   const n = db.get("customer_notifications", el.dataset.id);
-  try {
-    const f = await db.insert("findings", {
-      module: "issues",
-      title: `[${NOTIF_TYPE[n.notification_type]}] ${n.subject}`, description: n.description, source: "cliente", severity: n.severity,
-      client_id: n.client_id, owner_id: n.owner_id, due_date: n.response_due || addDays(today(), SEVERITY_SLA_DAYS[n.severity]),
-    });
-    await db.update("customer_notifications", n.id, { finding_id: f.id });
-    toast(`Hallazgo ${f.code} generado`, "ok");
-    await refresh();
-  } catch (e) { toast(e.message, "danger"); }
+  openForm({
+    eyebrow: n.code, title: "Generar hallazgo", submitLabel: "Generar hallazgo",
+    intro: `<div class="note" style="margin-bottom:14px">El plazo para cerrar las acciones se cuenta en <b>días hábiles</b> a partir de hoy, según la clasificación.</div>`,
+    values: { owner_id: n.owner_id || db.state.profile.id },
+    fields: [
+      { name: "class_id", label: "Seleccionar clasificación", type: "select", required: true, options: classOptions(), span2: true },
+      { name: "area_id", label: "Área", type: "select", options: areaOptions() },
+      { name: "owner_id", label: "Responsable", type: "select", options: userOpts(), hint: "Si eliges un área con responsable, se usa el dueño del área." },
+    ],
+    onSubmit: async (v) => {
+      const day = today(), owner = resolveOwner(v.area_id, null) || v.owner_id || null;
+      const f = await db.insert("findings", {
+        module: "issues", title: `[${NOTIF_TYPE[n.notification_type]}] ${n.subject}`, description: n.description, source: "cliente", status: "abierto",
+        client_id: n.client_id, class_id: v.class_id, area_id: v.area_id || null, area: db.get("areas", v.area_id)?.name || null, owner_id: owner, start_date: day, due_date: dueFor(v.class_id, day),
+      });
+      await db.update("customer_notifications", n.id, { finding_id: f.id });
+      toast(`Hallazgo ${f.code} generado · asignado a ${db.profileName(owner)}`, "ok");
+      await refresh();
+    },
+  });
 });
 on("n-export", () => downloadCSV("notificaciones_cliente.csv", [
   { label: "Folio", value: (r) => r.code }, { label: "Cliente", value: (r) => clientName(r.client_id) }, { label: "Tipo", value: (r) => NOTIF_TYPE[r.notification_type] },

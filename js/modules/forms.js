@@ -3,6 +3,7 @@ import { esc } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead, rerender, wsId } from "../router.js";
 import { typesOf, formsOf, WS_LABEL } from "../scope.js";
+import { areas as activeAreas } from "../workflow.js";
 import { on, badge, pill, empty, openDialog, confirmDialog, toast } from "../ui.js";
 
 const itemsOf = (id) => db.rows("form_items").filter((i) => i.form_id === id).sort((a, b) => a.position - b.position);
@@ -13,7 +14,7 @@ async function saveForm(form, head, items) {
   const keep = new Set(items.filter((i) => i.id).map((i) => i.id));
   for (const cur of itemsOf(f.id)) if (!keep.has(cur.id)) await db.remove("form_items", cur.id);
   for (let idx = 0; idx < items.length; idx++) {
-    const it = items[idx], data = { form_id: f.id, position: idx + 1, section: it.section || null, question: it.question, critical: !!it.critical };
+    const it = items[idx], data = { form_id: f.id, position: idx + 1, area_id: it.area_id || null, section: db.get("areas", it.area_id)?.name || null, question: it.question, critical: !!it.critical };
     if (it.id) await db.update("form_items", it.id, data); else await db.insert("form_items", data);
   }
   return f;
@@ -21,7 +22,7 @@ async function saveForm(form, head, items) {
 
 function editor(form) {
   const canEdit = db.can.manage;
-  let items = form ? itemsOf(form.id).map((i) => ({ ...i })) : [{ section: "", question: "", critical: false }];
+  let items = form ? itemsOf(form.id).map((i) => ({ ...i, area_id: i.area_id || db.rows("areas").find((a) => a.name === i.section)?.id || "" })) : [{ area_id: "", question: "", critical: false }];
   const dlg = openDialog({
     eyebrow: form ? form.code : "Nuevo formato", title: form ? "Editar formato" : "Crear formato", size: "wide",
     body: `<form id="fm-head" class="form-grid" novalidate>
@@ -40,7 +41,7 @@ function editor(form) {
   const paint = () => {
     box.innerHTML = items.map((it, i) => `<div class="item-row" style="align-items:center;gap:8px">
       <span class="mono muted" style="width:22px">${i + 1}</span>
-      <div style="flex:1;display:grid;grid-template-columns:minmax(90px,170px) 1fr;gap:8px"><input class="input" data-k="section" data-i="${i}" placeholder="Sección" value="${esc(it.section || "")}"><input class="input" data-k="question" data-i="${i}" placeholder="Pregunta" value="${esc(it.question || "")}"></div>
+      <div style="flex:1;display:grid;grid-template-columns:minmax(120px,190px) 1fr;gap:8px"><select class="select" data-k="area_id" data-i="${i}" aria-label="Área"><option value="">— Área —</option>${activeAreas().map((a) => `<option value="${a.id}" ${a.id === it.area_id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select><input class="input" data-k="section" data-i="${i}" placeholder="Sección" value="${esc(it.section || "")}"><input class="input" data-k="question" data-i="${i}" placeholder="Pregunta" value="${esc(it.question || "")}"></div>
       <label class="check" style="white-space:nowrap"><input type="checkbox" data-k="critical" data-i="${i}" ${it.critical ? "checked" : ""}> Crítica</label>
       <button type="button" class="btn sm icon" data-mv="-1" data-i="${i}" aria-label="Subir">${icon("arrowUp")}</button><button type="button" class="btn sm icon" data-mv="1" data-i="${i}" aria-label="Bajar">${icon("arrowDown")}</button><button type="button" class="btn sm icon danger" data-rm="${i}" aria-label="Quitar">${icon("trash")}</button></div>`).join("") || `<div class="muted">Sin preguntas todavía.</div>`;
   };
@@ -52,7 +53,7 @@ function editor(form) {
     if (mv) { const i = +mv.dataset.i, j = i + +mv.dataset.mv; if (items[j]) { [items[i], items[j]] = [items[j], items[i]]; paint(); } }
     if (rm) { items.splice(+rm.dataset.rm, 1); paint(); }
   });
-  dlg.el.querySelector("#fm-add").onclick = () => { const last = items[items.length - 1]; items.push({ section: last?.section || "", question: "", critical: false }); paint(); box.lastElementChild?.querySelector('[data-k="question"]')?.focus(); };
+  dlg.el.querySelector("#fm-add").onclick = () => { const last = items[items.length - 1]; items.push({ area_id: last?.area_id || "", question: "", critical: false }); paint(); box.lastElementChild?.querySelector('[data-k="question"]')?.focus(); };
   const err = dlg.el.querySelector("#fm-err");
   dlg.el.querySelector("#fm-save")?.addEventListener("click", async (e) => {
     const f = dlg.el.querySelector("#fm-head");

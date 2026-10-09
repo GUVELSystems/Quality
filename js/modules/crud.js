@@ -21,7 +21,7 @@ export function makeCrud(cfg) {
   const filtered = () => {
     const q = S.q.toLowerCase();
     return db.rows(cfg.table)
-      .filter((r) => (!q || cfg.search(r).toLowerCase().includes(q)) && (cfg.filters || []).every((f) => !S.f[f.key] || f.test(r, S.f[f.key])))
+      .filter((r) => (cfg.scope ? cfg.scope(r) : true) && (!q || cfg.search(r).toLowerCase().includes(q)) && (cfg.filters || []).every((f) => !S.f[f.key] || f.test(r, S.f[f.key])))
       .sort(cfg.sort || ((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))));
   };
 
@@ -55,7 +55,7 @@ export function makeCrud(cfg) {
         actions: `${cfg.exportCols ? `<button class="btn" data-action="${cfg.id}-export">${icon("download")} Exportar CSV</button>` : ""}${canCreate() ? `<button class="btn primary" data-action="${cfg.id}-new">${icon("plus")} ${esc(cfg.newLabel)}</button>` : ""}`,
       });
       const list = filtered();
-      root.innerHTML = `<div class="stack">${cfg.intro || ""}${cfg.top ? cfg.top(db.rows(cfg.table)) : ""}
+      root.innerHTML = `<div class="stack">${typeof cfg.intro === "function" ? cfg.intro() : cfg.intro || ""}${cfg.top ? cfg.top(db.rows(cfg.table)) : ""}
         <div class="panel"><div class="toolbar">
           <input class="input grow" id="${cfg.id}-q" type="search" placeholder="Buscar…" value="${esc(S.q)}" data-input="${cfg.id}-q">
           ${(cfg.filters || []).map((f) => `<select class="select" data-change="${cfg.id}-filter" data-key="${f.key}"><option value="">${esc(f.label)}</option>${f.options.map(([v, l]) => `<option value="${esc(v)}" ${S.f[f.key] === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`).join("")}

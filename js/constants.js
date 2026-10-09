@@ -84,7 +84,6 @@ export const ROLES = {
 
 export const CATALOG_KINDS = {
   categoria_hallazgo: "Categoría de hallazgo",
-  area: "Área",
   causa_raiz: "Causa raíz",
   tipo_riesgo: "Tipo de riesgo",
 };

@@ -2,9 +2,10 @@ import * as db from "../db.js";
 import { esc, today, addDays, fmtDate, fmtDateTime, toLocalInput, fromLocalInput, periodEnd, eachDay, isWeekend, mondayOf, parseDate, DOW_SHORT, rangeText } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead, rerender, navigate, H, wsId } from "../router.js";
-import { typesOf, plansOf, auditsOf, findingsOf, actionsOf, planWs, WS_LABEL, isDone } from "../scope.js";
+import { typesOf, plansOf, auditsOf, findingsOf, lateActionsOf, planWs, WS_LABEL } from "../scope.js";
 import { on, onChange, onInput, badge, pill, empty, openForm, openDialog, confirmDialog, toast } from "../ui.js";
-import { AUDIT_STATUS, SEVERITY, SEVERITY_SLA_DAYS } from "../constants.js";
+import { AUDIT_STATUS } from "../constants.js";
+import { classOptions, dueFor, resolveOwner, levelOptions, levelLabel, classBadge } from "../workflow.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts } from "./shared.js";
 
@@ -113,11 +114,11 @@ function scheduleForm(audit, plan, date) {
     eyebrow: audit ? audit.code : `${plan?.code || "Plan"} · ${fmtDate(date)}`,
     title: audit ? "Editar auditoría" : "Asignar auditoría", submitLabel: audit ? "Guardar" : "Asignar",
     intro: audit ? `<p style="margin-bottom:14px"><a class="btn sm" href="${H("audit/" + audit.id)}" data-close>${icon("audit")} Abrir checklist de la auditoría</a></p>` : "",
-    values: audit ? { ...audit, due_at: toLocalInput(audit.due_at) } : { scheduled_date: date, due_at: `${date}T17:00`, level: 1, form_id: db.rows("forms").find((f) => f.audit_type === type && f.active)?.id },
+    values: audit ? { ...audit, due_at: toLocalInput(audit.due_at) } : { scheduled_date: date, due_at: `${date}T17:00`, level: levelOptions()[0]?.[0] ?? 1, form_id: db.rows("forms").find((f) => f.audit_type === type && f.active)?.id },
     fields: [
       { name: "scheduled_date", label: "Fecha", type: "date", required: true },
       { name: "assigned_to", label: "Asignado a", type: "select", options: staff().map((p) => [p.id, p.full_name]) },
-      ...(type === "LPA" ? [{ name: "level", label: "Nivel (LPA)", type: "select", options: [1, 2, 3, 4, 5].map((n) => [n, `Nivel ${n}`]), parse: (v) => (v ? Number(v) : null) }] : []),
+      ...(type === "LPA" ? [{ name: "level", label: "Nivel (LPA)", type: "select", options: levelOptions(), parse: (v) => (v ? Number(v) : null) }] : []),
       { name: "form_id", label: "Formato / checklist", type: "select", options: db.rows("forms").filter((f) => f.active && (!type || f.audit_type === type)).map((f) => [f.id, `${f.code} · ${f.name}`]) },
       { name: "due_at", label: "Límite de entrega", type: "datetime" },
       ...(audit ? [{ name: "status", label: "Estado", type: "select", required: true, options: ["programada", "en_proceso", "completada", "cancelada"].map((s) => [s, AUDIT_STATUS[s][0]]) }] : []),
@@ -158,7 +159,7 @@ function bulkAssign(plan) {
         <div class="pick-list" id="b-people">${people.map((p) => `<label><input type="checkbox" value="${p.id}">${esc(p.full_name)}<small>${esc(p.area || "")}</small></label>`).join("") || '<div class="muted" style="padding:12px">No hay usuarios con rol de auditor.</div>'}</div></div>
       <div class="wiz-step"><div class="wiz-label"><i>3</i>Formato y límite</div><div class="form-grid">
         <label class="field span-2"><span>Formato / checklist</span><select class="select" id="b-form">${forms.map((f) => `<option value="${f.id}">${esc(f.code)} · ${esc(f.name)}</option>`).join("")}</select></label>
-        ${plan.audit_type === "LPA" ? `<label class="field"><span>Nivel (LPA)</span><select class="select" id="b-level">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}">Nivel ${n}</option>`).join("")}</select></label>` : ""}
+        ${plan.audit_type === "LPA" ? `<label class="field"><span>Nivel (LPA)</span><select class="select" id="b-level">${levelOptions().map(([n, l]) => `<option value="${n}">${esc(l)}</option>`).join("")}</select></label>` : ""}
         <label class="field"><span>Hora límite de entrega</span><input class="input" type="time" id="b-time" value="17:00"></label>
         <label class="check span-2"><input type="checkbox" id="b-skip" checked> Omitir días que ya tienen una auditoría</label></div></div>
       <div class="note" id="b-sum"></div><div class="alert hidden" id="b-err" style="margin-top:12px"></div>`,
@@ -235,13 +236,13 @@ async function sendPlan(plan) {
 function moduleKpis(ws) {
   const t = today(), au = auditsOf(ws).filter((a) => a.status !== "cancelada"), month = au.filter((a) => a.scheduled_date.startsWith(t.slice(0, 7)));
   const done = month.filter((a) => a.status === "completada").length, pct = month.length ? Math.round((done / month.length) * 100) : 0;
-  const openF = findingsOf(ws).filter((f) => f.status !== "cerrado"), late = actionsOf(ws).filter((a) => !isDone(a) && a.due_date && a.due_date < t);
+  const openF = findingsOf(ws).filter((f) => f.status !== "cerrado"), late = lateActionsOf(ws);
   const live = plansOf(ws).filter((p) => p.end_date >= t).length;
   return `<div class="kpi-strip">
     <div class="kpi" data-tone="info"><label>Planes vigentes</label><strong>${live}</strong><small>${plansOf(ws).length} en total</small></div>
     <div class="kpi" data-tone="${!month.length ? "" : pct >= 90 ? "ok" : pct >= 70 ? "warn" : "danger"}"><label>Cumplimiento del mes</label><strong>${pct}%</strong><small>${done} de ${month.length} realizadas</small></div>
-    <a class="kpi" href="${H("hallazgos")}" data-tone="${openF.length ? "warn" : "ok"}"><label>Hallazgos abiertos</label><strong>${openF.length}</strong><small>${openF.filter((f) => f.severity === "critico").length} crítico(s) · solo de este módulo</small></a>
-    <a class="kpi" href="${H("acciones")}" data-tone="${late.length ? "danger" : "ok"}"><label>Acciones vencidas</label><strong>${late.length}</strong><small>Pendientes fuera de fecha</small></a></div>`;
+    <a class="kpi" href="${H("hallazgos")}" data-tone="${openF.length ? "warn" : "ok"}"><label>Hallazgos abiertos</label><strong>${openF.length}</strong><small>${openF.filter((f) => f.status === "abierto").length} por aceptar · solo de este módulo</small></a>
+    <a class="kpi" href="${H("acciones")}" data-tone="${late.length ? "danger" : "ok"}"><label>Acciones vencidas</label><strong>${late.length}</strong><small>Plazo en días hábiles superado</small></a></div>`;
 }
 
 function renderPlanes(root) {
@@ -319,19 +320,32 @@ function calendarView(root, planId) {
 function initDraft(audit) {
   if (draft?.auditId === audit.id) return;
   draft = { auditId: audit.id, answers: {} };
-  db.rows("audit_answers").filter((a) => a.audit_id === audit.id).forEach((a) => (draft.answers[a.item_id] = { result: a.result, comment: a.comment || "", finding_id: a.finding_id }));
+  db.rows("audit_answers").filter((a) => a.audit_id === audit.id).forEach((a) => (draft.answers[a.item_id] = { result: a.result, comment: a.comment || "", class_id: a.class_id || "", finding_id: a.finding_id }));
 }
 const RES = { ok: "Cumple", nok: "No cumple", na: "N/A" };
+const areaName = (it) => db.get("areas", it.area_id)?.name || it.section || "General";
 
-function questionHTML(it, readonly, auditId) {
-  const a = draft.answers[it.id] || {};
-  const f = db.get("findings", a.finding_id);
+/** Texto de ayuda al marcar "No cumple": plazo en días hábiles y responsable automático */
+function nokHint(it, audit, classId) {
+  const c = db.get("finding_classes", classId), owner = resolveOwner(it.area_id, audit.level), ar = db.get("areas", it.area_id);
+  const plazo = c ? `Plazo: <b>${c.days} días hábiles</b> → vence <b>${fmtDate(dueFor(classId, today()))}</b>` : "Elige la clasificación para calcular el plazo.";
+  const resp = owner ? `Se asignará a <b>${esc(db.profileName(owner))}</b>${ar ? ` (${esc(ar.name)}${audit.level ? " · Nivel " + audit.level : ""})` : ""}` : `<span class="overdue">Sin responsable definido${ar ? ` en ${esc(ar.name)}` : ""}: un administrador deberá asignarlo</span>`;
+  return `${plazo}<br>${resp}`;
+}
+
+function questionHTML(it, readonly, audit) {
+  const a = draft.answers[it.id] || {}, f = db.get("findings", a.finding_id), nok = a.result === "nok";
   return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}">
     <div class="q-text"><span>${esc(it.question)}</span>${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}</div>
-    ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RES[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado</span></div>` : ""}</div>`
+    ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RES[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${nok && f ? ` ${classBadge(f)}` : ""}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado · responsable ${esc(db.profileName(f.owner_id))}</span></div>` : ""}</div>`
     : `<div class="seg" role="group">${Object.entries(RES).map(([v, l]) => `<button type="button" data-action="au-ans" data-item="${it.id}" data-v="${v}" aria-pressed="${a.result === v}">${l}</button>`).join("")}</div>
-       <textarea class="textarea" data-input="au-comment" data-item="${it.id}" placeholder="Comentario o evidencia (obligatorio si no cumple)">${esc(a.comment || "")}</textarea>`}
-    ${attachmentsSection("audit", auditId, { ref: it.id, compact: true, canEdit: !readonly })}
+       <div class="q-nok ${nok ? "" : "hidden"}">
+         <label class="field" style="margin-top:12px;max-width:340px"><span>Clasificación <i>*</i></span>
+           <select class="select" data-change="au-class" data-item="${it.id}"><option value="">Seleccionar clasificación</option>${classOptions().map(([v, l]) => `<option value="${v}" ${v === a.class_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+         <div class="q-hint" id="qh_${it.id}">${nokHint(it, audit, a.class_id)}</div>
+       </div>
+       <textarea class="textarea" data-input="au-comment" data-item="${it.id}" placeholder="${nok ? "Comentario obligatorio: describe lo encontrado (aunque adjuntes evidencia)" : "Comentario (opcional)"}">${esc(a.comment || "")}</textarea>`}
+    ${attachmentsSection("audit", audit.id, { ref: it.id, compact: true, canEdit: !readonly })}
   </div>`;
 }
 
@@ -354,28 +368,28 @@ function auditView(root, id) {
     eyebrow: `${plan?.code || "Auditoría"} · ${plan?.audit_type || ""}`, title: audit.code, subtitle: form ? `${form.code} · ${form.name}` : "Sin formato asignado",
     actions: `<a class="btn" href="${H(plan ? "plan/" + plan.id : "lista")}">${icon("chevL")} ${plan ? "Calendario" : "Auditorías"}</a>${db.can.write ? `<button class="btn" data-action="au-edit" data-id="${audit.id}">${icon("edit")} Programación</button>` : ""}${audit.status === "completada" && db.can.manage ? `<button class="btn" data-action="au-reopen" data-id="${audit.id}">Reabrir</button>` : ""}`,
   });
-  const sections = [...new Set(items.map((i) => i.section || "General"))];
+  const sections = [...new Set(items.map(areaName))];
   const linked = db.rows("findings").filter((f) => f.audit_id === audit.id);
   root.innerHTML = `<div class="grid cols-main" style="align-items:start">
     <div class="panel"><div class="panel-head"><h2>Checklist</h2>${badge(AUDIT_STATUS, st)}</div><div class="panel-body">
       ${!form ? empty("Sin formato", "Asigna un formato en “Programación” para poder ejecutar la auditoría.", "form")
-        : !items.length ? empty("El formato no tiene preguntas", "Agrega preguntas en Configuración → Formularios.", "form")
-        : sections.map((s) => `<div class="check-section">${esc(s)}</div>${items.filter((i) => (i.section || "General") === s).map((i) => questionHTML(i, locked, audit.id)).join("")}`).join("")}
+        : !items.length ? empty("El formato no tiene preguntas", "Agrega preguntas en la pestaña Formatos.", "form")
+        : sections.map((s) => `<div class="check-section">${esc(s)}</div>${items.filter((i) => areaName(i) === s).map((i) => questionHTML(i, locked, audit)).join("")}`).join("")}
     </div>${!locked && items.length ? `<div class="dialog-foot"><button class="btn" data-action="au-save" data-id="${audit.id}">Guardar avance</button><button class="btn primary" data-action="au-finish" data-id="${audit.id}">Finalizar auditoría</button></div>` : ""}</div>
     <div class="stack">
       <div class="panel"><div class="panel-body" id="au-progress">${audit.status === "completada" ? `<div class="score-ring"><strong>${audit.score != null ? Number(audit.score).toFixed(0) + "%" : "—"}</strong><div><div class="eyebrow">Resultado final</div><div class="muted">Completada ${fmtDateTime(audit.completed_at)}</div></div></div>` : progressHTML(items)}</div></div>
       <div class="panel"><div class="panel-head"><h2>Datos</h2></div><div class="panel-body"><dl class="detail-grid">
-        <div><dt>Fecha</dt><dd>${fmtDate(audit.scheduled_date)}</dd></div><div><dt>Nivel</dt><dd>${audit.level ? "Nivel " + audit.level : "—"}</dd></div>
+        <div><dt>Fecha</dt><dd>${fmtDate(audit.scheduled_date)}</dd></div><div><dt>Nivel</dt><dd>${esc(levelLabel(audit.level))}</dd></div>
         <div><dt>Asignado a</dt><dd>${esc(db.profileName(audit.assigned_to))}</dd></div><div><dt>Límite</dt><dd>${fmtDateTime(audit.due_at)}</dd></div>
         ${audit.notes ? `<div class="span-2"><dt>Notas</dt><dd>${esc(audit.notes)}</dd></div>` : ""}</dl></div></div>
       <div class="panel"><div class="panel-body">${attachmentsSection("audit", audit.id, { title: "Evidencias generales", canEdit: audit.status !== "cancelada" })}</div></div>
       <div class="panel"><div class="panel-head"><h2>Hallazgos generados</h2><small>${linked.length}</small></div><div class="panel-body">
-        ${linked.length ? linked.map((f) => `<div class="item-row"><div><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a><div style="margin-top:4px">${esc(f.title)}</div></div>${badge(SEVERITY, f.severity)}</div>`).join("") : '<span class="muted">Aún no se han generado hallazgos.</span>'}</div></div>
+        ${linked.length ? linked.map((f) => `<div class="item-row"><div><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a><div style="margin-top:4px">${esc(f.title)}</div></div>${classBadge(f)}</div>`).join("") : '<span class="muted">Aún no se han generado hallazgos.</span>'}</div></div>
     </div></div>`;
 }
 
 async function saveAnswers(audit) {
-  const rowsToSave = Object.entries(draft.answers).filter(([, a]) => a.result).map(([item_id, a]) => ({ audit_id: audit.id, item_id, result: a.result, comment: a.comment || null, finding_id: a.finding_id || null }));
+  const rowsToSave = Object.entries(draft.answers).filter(([, a]) => a.result).map(([item_id, a]) => ({ audit_id: audit.id, item_id, result: a.result, comment: a.comment || null, class_id: a.class_id || null, finding_id: a.finding_id || null }));
   await db.upsertMany("audit_answers", rowsToSave, ["audit_id", "item_id"]);
 }
 
@@ -411,15 +425,25 @@ function refreshProgress() {
   const el = document.getElementById("au-progress");
   if (el) el.innerHTML = progressHTML(items);
 }
+const auditOfDraft = () => db.get("audits", draft.auditId);
+const itemById = (id) => db.get("form_items", id);
 on("au-ans", (el) => {
-  const id = el.dataset.item, a = (draft.answers[id] ||= { result: "", comment: "" });
+  const id = el.dataset.item, a = (draft.answers[id] ||= { result: "", comment: "", class_id: "" });
   a.result = a.result === el.dataset.v ? "" : el.dataset.v;
   const q = document.getElementById("q_" + id);
-  q.dataset.result = a.result;
+  q.dataset.result = a.result; q.classList.remove("q-error");
   q.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === a.result)));
+  q.querySelector(".q-nok")?.classList.toggle("hidden", a.result !== "nok");
+  const ta = q.querySelector("textarea"); if (ta) ta.placeholder = a.result === "nok" ? "Comentario obligatorio: describe lo encontrado (aunque adjuntes evidencia)" : "Comentario (opcional)";
+  const h = document.getElementById("qh_" + id); if (h) h.innerHTML = nokHint(itemById(id), auditOfDraft(), a.class_id);
   refreshProgress();
 });
-onInput("au-comment", (el) => { (draft.answers[el.dataset.item] ||= { result: "", comment: "" }).comment = el.value; });
+onChange("au-class", (el) => {
+  const id = el.dataset.item, a = (draft.answers[id] ||= { result: "nok", comment: "", class_id: "" });
+  a.class_id = el.value; document.getElementById("q_" + id)?.classList.remove("q-error");
+  const h = document.getElementById("qh_" + id); if (h) h.innerHTML = nokHint(itemById(id), auditOfDraft(), a.class_id);
+});
+onInput("au-comment", (el) => { (draft.answers[el.dataset.item] ||= { result: "", comment: "", class_id: "" }).comment = el.value; document.getElementById("q_" + el.dataset.item)?.classList.remove("q-error"); });
 
 on("au-save", async (el) => {
   const audit = db.get("audits", el.dataset.id);
@@ -434,18 +458,23 @@ on("au-finish", async (el) => {
   const audit = db.get("audits", el.dataset.id), items = itemsOf(audit.form_id);
   const pending = items.filter((i) => !draft.answers[i.id]?.result);
   if (pending.length) { toast(`Faltan ${pending.length} pregunta(s) por responder.`, "danger"); document.getElementById("q_" + pending[0].id)?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+  const flag = (list, msg) => { list.forEach((i) => document.getElementById("q_" + i.id)?.classList.add("q-error")); toast(msg, "danger"); document.getElementById("q_" + list[0].id)?.scrollIntoView({ behavior: "smooth", block: "center" }); };
   const noComment = items.filter((i) => draft.answers[i.id].result === "nok" && !draft.answers[i.id].comment?.trim());
-  if (noComment.length) { toast("Agrega un comentario en cada pregunta que no cumple.", "danger"); document.getElementById("q_" + noComment[0].id)?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+  if (noComment.length) return flag(noComment, "Cada pregunta que no cumple necesita un comentario, aunque tenga evidencia adjunta.");
+  const noClass = items.filter((i) => draft.answers[i.id].result === "nok" && !draft.answers[i.id].class_id);
+  if (noClass.length) return flag(noClass, "Selecciona la clasificación en cada pregunta que no cumple.");
   const noks = items.filter((i) => draft.answers[i.id].result === "nok" && !draft.answers[i.id].finding_id);
-  if (!(await confirmDialog({ title: "Finalizar auditoría", message: `Se calculará el resultado y se generarán ${noks.length} hallazgo(s) por los puntos que no cumplen. Después no podrás editar las respuestas.`, confirmLabel: "Finalizar" }))) return;
+  if (!(await confirmDialog({ title: "Finalizar auditoría", message: `Se calculará el resultado y se generarán ${noks.length} hallazgo(s) por los puntos que no cumplen, con su plazo en días hábiles y su responsable. Después no podrás editar las respuestas.`, confirmLabel: "Finalizar" }))) return;
   try {
+    const day = today();
     for (const it of noks) {
-      const severity = it.critical ? "mayor" : "menor";
+      const ans = draft.answers[it.id], cls = db.get("finding_classes", ans.class_id);
       const f = await db.insert("findings", {
-        title: `${audit.code} · ${it.question.replace(/[¿?]/g, "").trim()}`.slice(0, 160) + " (No cumple)", description: draft.answers[it.id].comment,
-        source: "auditoria", module: planWs(db.get("audit_plans", audit.plan_id)), severity, audit_id: audit.id, owner_id: audit.assigned_to, due_date: addDays(today(), SEVERITY_SLA_DAYS[severity]),
+        title: `${audit.code} · ${it.question.replace(/[¿?]/g, "").trim()}`.slice(0, 160) + " (No cumple)", description: ans.comment,
+        source: "auditoria", module: planWs(db.get("audit_plans", audit.plan_id)), class_id: ans.class_id, area_id: it.area_id || null, area: db.get("areas", it.area_id)?.name || null,
+        audit_id: audit.id, owner_id: resolveOwner(it.area_id, audit.level), start_date: day, due_date: dueFor(cls.id, day), status: "abierto",
       });
-      draft.answers[it.id].finding_id = f.id;
+      ans.finding_id = f.id;
     }
     await saveAnswers(audit);
     const ok = items.filter((i) => draft.answers[i.id].result === "ok").length, nok = items.filter((i) => draft.answers[i.id].result === "nok").length;

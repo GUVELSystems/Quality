@@ -3,9 +3,10 @@ import { esc, today, addDays, fmtDate, timeAgo, dueText, MONTHS_LONG, isoDate } 
 import { icon } from "../icons.js";
 import { setHead } from "../router.js";
 import { badge, donut, bars, columns, empty } from "../ui.js";
-import { SEVERITY, SEVERITY_COLOR, AUDIT_STATUS } from "../constants.js";
+import { AUDIT_STATUS, FINDING_STATUS } from "../constants.js";
+import { classes, classTone, classOf, classBadge, overdueKind, STAGE_LABEL } from "../workflow.js";
 import { auditStatus } from "./audits.js";
-import { WS_LABEL, auditWs, findingWs, auditsOf, plansOf, findingsOf, actionsOf, isDone } from "../scope.js";
+import { WS_LABEL, auditWs, findingWs, auditsOf, plansOf, findingsOf, lateActionsOf, lateVerifyOf } from "../scope.js";
 
 const kpi = (label, value, sub, { tone = "", href = "" } = {}) =>
   `<${href ? `a href="${href}"` : "div"} class="kpi" data-tone="${tone}"><label>${esc(label)}</label><strong>${value}</strong><small>${sub}</small></${href ? "a" : "div"}>`;
@@ -23,8 +24,8 @@ export default {
 
     const open = (ws) => findingsOf(ws).filter((f) => f.status !== "cerrado");
     const allOpen = [...open("auditorias"), ...open("internas"), ...open("issues")];
-    const overdueF = allOpen.filter((f) => f.due_date && f.due_date < t);
-    const lateA = ["auditorias", "internas", "issues"].flatMap((ws) => actionsOf(ws).filter((a) => !isDone(a) && a.due_date && a.due_date < t));
+    const WSS = ["auditorias", "internas", "issues"];
+    const lateA = WSS.flatMap(lateActionsOf), lateV = WSS.flatMap(lateVerifyOf), porAceptar = allOpen.filter((f) => f.status === "abierto");
 
     const monthKey = t.slice(0, 7);
     const auds = [...auditsOf("auditorias"), ...auditsOf("internas")].filter((a) => a.status !== "cancelada");
@@ -42,17 +43,21 @@ export default {
     const minePanel = mine.length ? `<div class="panel"><div class="panel-head"><h2>Mis auditorías pendientes</h2><small>${mine.length} asignada(s) a ti</small></div><div class="table-wrap"><table class="table"><tbody>
       ${mine.slice(0, 5).map((a) => { const p = db.get("audit_plans", a.plan_id); return `<tr><td><a href="#/${auditWs(a)}/audit/${a.id}" class="code">${esc(a.code)}</a><span class="sub">${esc(p?.audit_type || "")}${a.level ? " · Nivel " + a.level : ""}</span></td><td>${esc(p?.name || "")}<span class="sub">${WS_LABEL[auditWs(a)]}</span></td><td>${fmtDate(a.scheduled_date)}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="end"><a class="btn sm primary" href="#/${auditWs(a)}/audit/${a.id}">Realizar</a></td></tr>`; }).join("")}</tbody></table></div></div>` : "";
 
+    const myF = allOpen.filter((f) => f.owner_id === me && ["abierto", "en_analisis", "en_accion"].includes(f.status));
+    const NEXT = { abierto: "Aceptar o trasladar", en_analisis: "Registrar análisis", en_accion: "Registrar acción y evidencia" };
+    const myFPanel = myF.length ? `<div class="panel"><div class="panel-head"><h2>Mis hallazgos pendientes</h2><small>${myF.length} a tu cargo</small></div><div class="table-wrap"><table class="table"><tbody>
+      ${myF.slice(0, 6).map((f) => `<tr><td><a href="#/${findingWs(f)}/hallazgos/${f.id}" class="code">${esc(f.code)}</a><span class="sub">${WS_LABEL[findingWs(f)]}</span></td><td>${esc(f.title)}</td><td>${classBadge(f)}</td><td><b>${NEXT[f.status]}</b><span class="sub">${esc(STAGE_LABEL[f.status])} · límite ${fmtDate(f.due_date)}</span></td><td class="end"><a class="btn sm primary" href="#/${findingWs(f)}/hallazgos/${f.id}">Abrir</a></td></tr>`).join("")}</tbody></table></div></div>` : "";
+
     /* Tendencia: hallazgos nuevos por mes */
     const all = db.rows("findings");
     const months = Array.from({ length: 6 }, (_, i) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - (5 - i)); return d; });
     const trend = months.map((d) => { const key = isoDate(d).slice(0, 7); return { label: MONTHS_LONG[d.getMonth()].slice(0, 3), value: all.filter((f) => (f.created_at || "").slice(0, 7) === key).length }; });
 
     const upcoming = auds.filter((a) => ["programada", "en_proceso"].includes(a.status) && a.scheduled_date >= t).sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date)).slice(0, 5);
-    const due = [
-      ...overdueF.map((f) => ({ k: WS_LABEL[findingWs(f)], code: f.code, text: f.title, date: f.due_date, to: `${findingWs(f)}/hallazgos/${f.id}` })),
-      ...lateA.map((a) => { const f = db.get("findings", a.finding_id); return { k: "Acción · " + WS_LABEL[findingWs(f)], code: a.code, text: a.description, date: a.due_date, to: `${findingWs(f)}/hallazgos/${a.finding_id}` }; }),
-      ...lateN.map((n) => ({ k: "Issues", code: n.code, text: n.subject, date: n.response_due, to: `issues/notificaciones/${n.id}` })),
-    ].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 7);
+    const due = allOpen.filter((f) => overdueKind(f)).map((f) => {
+      const verif = overdueKind(f) === "verificacion";
+      return { k: `${WS_LABEL[findingWs(f)]} · ${verif ? "Verificación" : "Cierre de acciones"}`, code: f.code, text: f.title, date: verif ? f.verify_due : f.due_date, to: `${findingWs(f)}/hallazgos/${f.id}` };
+    }).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 7);
     const activity = [
       ...all.map((r) => ({ at: r.updated_at || r.created_at, text: `${WS_LABEL[findingWs(r)]} · Hallazgo ${r.code} · ${r.title}`, to: `${findingWs(r)}/hallazgos/${r.id}` })),
       ...notifs.map((r) => ({ at: r.updated_at || r.created_at, text: `Issues · ${r.code} · ${r.subject}`, to: `issues/notificaciones/${r.id}` })),
@@ -62,10 +67,11 @@ export default {
     root.innerHTML = `
     <div class="stack">
       ${minePanel}
+      ${myFPanel}
       <div class="kpi-strip">
-        ${kpi("Hallazgos abiertos", allOpen.length, `${allOpen.filter((f) => f.severity === "critico").length} crítico(s) · todos los módulos`, { tone: allOpen.some((f) => f.severity === "critico") ? "danger" : "info" })}
-        ${kpi("Hallazgos vencidos", overdueF.length, "Fecha compromiso superada", { tone: overdueF.length ? "danger" : "ok" })}
-        ${kpi("Acciones vencidas", lateA.length, "Pendientes fuera de fecha", { tone: lateA.length ? "danger" : "ok" })}
+        ${kpi("Hallazgos abiertos", allOpen.length, `${porAceptar.length} por aceptar · todos los módulos`, { tone: porAceptar.length ? "warn" : "info" })}
+        ${kpi("Acciones vencidas", lateA.length, "Plazo de cierre en días hábiles superado", { tone: lateA.length ? "danger" : "ok" })}
+        ${kpi("Verificaciones vencidas", lateV.length, "Pendientes de verificar fuera de plazo", { tone: lateV.length ? "danger" : "ok" })}
         ${kpi("Cumplimiento de auditorías", compliance + "%", `${doneAud.length} de ${monthAud.length} del mes`, { tone: !monthAud.length ? "" : compliance >= 90 ? "ok" : compliance >= 70 ? "warn" : "danger" })}
         ${kpi("Resultado promedio", avgScore == null ? "—" : avgScore + "%", `${scored.length} auditoría(s) evaluadas`, { tone: avgScore == null ? "" : avgScore >= 90 ? "ok" : "warn" })}
         ${kpi("Issues abiertos", openN.length, `${lateN.length} con respuesta vencida`, { tone: lateN.length ? "warn" : "info" })}
@@ -85,8 +91,8 @@ export default {
         <div class="panel"><div class="panel-head"><h2>Hallazgos abiertos por módulo</h2><small>Total ${allOpen.length}</small></div><div class="panel-body">
           ${bars([{ label: "Auditorías", value: open("auditorias").length, color: "var(--flow)" }, { label: "Internas", value: open("internas").length, color: "var(--watch)" }, { label: "Issues", value: open("issues").length, color: "var(--stop)" }])}
         </div></div>
-        <div class="panel"><div class="panel-head"><h2>Severidad</h2><small>Hallazgos abiertos</small></div><div class="panel-body">
-          ${donut(Object.entries(SEVERITY).map(([k, [label]]) => ({ label, color: SEVERITY_COLOR[k], value: allOpen.filter((f) => f.severity === k).length })), "Abiertos")}
+        <div class="panel"><div class="panel-head"><h2>Clasificación</h2><small>Hallazgos abiertos</small></div><div class="panel-body">
+          ${donut([...classes().map((c) => ({ label: `${c.code} · ${c.days} d hábiles`, color: { danger: "var(--stop)", warn: "var(--watch)", info: "var(--flow)" }[classTone(c)], value: allOpen.filter((f) => f.class_id === c.id).length })), { label: "Sin clasificar", color: "var(--idle)", value: allOpen.filter((f) => !classOf(f)).length }].filter((x) => x.value || x.label !== "Sin clasificar"), "Abiertos")}
         </div></div>
         <div class="panel"><div class="panel-head"><h2>Hallazgos nuevos</h2><small>Últimos 6 meses</small></div><div class="panel-body">${columns(trend)}</div></div>
       </div>

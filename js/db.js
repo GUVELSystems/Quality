@@ -11,6 +11,7 @@ export const TABLES = [
   "profiles", "clients", "classifications", "forms", "form_items",
   "audit_plans", "audits", "audit_answers", "findings", "actions",
   "customer_notifications", "risks", "opportunities", "attachments",
+  "lpa_levels", "finding_classes", "areas", "area_level_owners", "app_settings",
 ];
 const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP" };
 const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);
@@ -22,6 +23,7 @@ const CASCADE = {
   findings: [["actions", "finding_id"]],
   forms: [["form_items", "form_id"]],
   form_items: [["audit_answers", "item_id"]],
+  areas: [["area_level_owners", "area_id"]],
 };
 
 export const state = { session: null, profile: null, data: {}, demo: isDemo, authIntent: null, authError: null, otp: null };
@@ -105,6 +107,10 @@ export async function reload(...tables) {
   for (const t of tables) state.data[t] = await fetchAll(t);
   if (tables.includes("profiles")) state.profile = state.data.profiles.find((p) => p.id === state.session.user.id) || state.profile;
 }
+
+/* ------------------------------- Ajustes ----------------------------- */
+export const setting = (key, fallback) => { const r = rows("app_settings").find((x) => x.key === key); return r ? r.value : fallback; };
+export async function saveSetting(key, value) { await upsertMany("app_settings", [{ key, value }], ["key"]); }
 
 /* ------------------- Invitación de usuarios (admin) ------------------ */
 export async function inviteUser({ email, full_name, role, area }) {
@@ -290,7 +296,7 @@ export async function upsertMany(t, list, keys) {
   const { data, error } = await retrySkew(() => sb.from(t).upsert(list.map((r) => clean(r, t)), { onConflict: keys.join(",") }).select());
   if (error) throw new Error(friendly(error));
   for (const r of data) {
-    const i = state.data[t].findIndex((x) => x.id === r.id || match(x, r));
+    const i = state.data[t].findIndex((x) => (x.id !== undefined && x.id === r.id) || match(x, r));
     if (i >= 0) state.data[t][i] = r; else state.data[t].push(r);
   }
 }
@@ -327,25 +333,37 @@ export const activeProfiles = () => rows("profiles").filter((p) => p.active).sor
 /* ------------------------------ Adjuntos ----------------------------- */
 const BUCKET = "evidence";
 const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024;   // las fotos no deben superar 2 MB tras comprimir
 const DEMO_MAX_BYTES = 1.5 * 1024 * 1024;
 export const ATTACH_ACCEPT = "image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv";
 const ALLOWED = /^(image\/(jpeg|png|webp|gif)|application\/pdf|text\/(plain|csv)|application\/(msword|vnd\.ms-excel|vnd\.ms-powerpoint|vnd\.openxmlformats-officedocument\..+))$/;
 const urlCache = new Map();
 
-/** Reduce fotos grandes (lado máx. y JPEG) para ahorrar espacio y datos móviles */
-async function prepareFile(file) {
+/** Reduce fotos para que sean ligeras: objetivo ≤ 1 MB (máximo 2 MB), lado mayor ≤ 1600 px.
+ *  Prueba calidades decrecientes y, si hace falta, reduce también las dimensiones. */
+const PHOTO_TARGET = 1024 * 1024;
+export async function prepareFile(file) {
   if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
-  const maxDim = state.demo ? 1100 : 1920, quality = state.demo ? 0.7 : 0.82;
+  const target = state.demo ? 600 * 1024 : PHOTO_TARGET;
   try {
     const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
-    if (scale === 1 && file.size < 1.2 * 1024 * 1024 && !state.demo) return file;
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
-    if (!blob || (blob.size >= file.size && !state.demo)) return file;
-    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+    let maxDim = state.demo ? 1100 : 1600;
+    const small = Math.max(bmp.width, bmp.height) <= maxDim;
+    if (small && file.size <= target) return file;
+    let best = null;
+    for (let round = 0; round < 3; round++) {
+      const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bmp.width * scale)); canvas.height = Math.max(1, Math.round(bmp.height * scale));
+      const ctx = canvas.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      for (const q of [0.82, 0.7, 0.6, 0.5, 0.42]) {
+        const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", q));
+        if (blob && (!best || blob.size < best.size)) best = blob;
+        if (blob && blob.size <= target) return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+      }
+      maxDim = Math.round(maxDim * 0.75);
+    }
+    return best && best.size < file.size ? new File([best], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }) : file;
   } catch { return file; }
 }
 const toDataURL = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
@@ -355,6 +373,7 @@ export async function addAttachment({ entity, entity_id, ref = null, file }) {
   const typeOk = file.type ? ALLOWED.test(file.type) : /\.(docx?|xlsx?|pptx?|csv|txt|pdf)$/i.test(file.name); // algunos navegadores no informan el tipo
   if (!typeOk) throw new Error("Tipo de archivo no permitido (usa imágenes, PDF, Office, TXT o CSV).");
   const f = await prepareFile(file);
+  if (f.type.startsWith("image/") && f.size > (state.demo ? DEMO_MAX_BYTES : MAX_PHOTO_BYTES)) throw new Error("La foto sigue pesando demasiado tras comprimirla (máx. 2 MB). Intenta con otra imagen.");
   if (f.size > (state.demo ? DEMO_MAX_BYTES : MAX_BYTES)) throw new Error(`El archivo supera el límite de ${state.demo ? "1.5 MB en modo demo" : "10 MB"}.`);
   const base = { entity, entity_id, ref, file_name: f.name, mime_type: f.type || "application/octet-stream", size_bytes: f.size };
   if (state.demo) {

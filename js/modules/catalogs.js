@@ -104,9 +104,10 @@ export const clients = makeCrud({
 
 /* --------------------------- Clasificaciones ------------------------- */
 export const classifications = makeCrud({
-  id: "classifications", label: "Clasificaciones", icon: "tag", eyebrow: "Configuración", singular: "clasificación",
-  title: "Clasificaciones", subtitle: "Catálogos configurables: categorías, áreas, causas raíz y tipos de riesgo.",
-  table: "classifications", newLabel: "Nueva clasificación", canWrite: () => db.can.manage,
+  id: "classifications", label: "Catálogos", icon: "list", eyebrow: "Configuración", singular: "elemento",
+  title: "Catálogos", subtitle: "Listas configurables: categorías de hallazgo, causas raíz y tipos de riesgo. (Las áreas y las clasificaciones N1/N2 tienen su propia pestaña.)",
+  scope: (r) => r.kind !== "area",
+  table: "classifications", newLabel: "Nuevo elemento", canWrite: () => db.can.manage,
   defaults: () => ({ kind: "categoria_hallazgo", active: true }),
   search: (r) => `${r.kind} ${r.name} ${r.description || ""}`, sort: (a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name),
   filters: [{ key: "kind", label: "Todos los catálogos", options: Object.entries(CATALOG_KINDS), test: (r, v) => r.kind === v }],

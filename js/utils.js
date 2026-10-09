@@ -90,3 +90,20 @@ export function periodEnd(frequency, start) {
   return "";
 }
 export const rangeText = (a, b) => `${fmtDate(a)} → ${fmtDate(b)}`;
+
+/* ----------------------------- Días hábiles (lun–vie) ---------------------- */
+export const isBusinessDay = (s) => !isWeekend(s);
+/** Suma n días hábiles (lun–vie) a una fecha. El día de inicio no cuenta. */
+export function addBusinessDays(start, n) {
+  let d = start, left = Math.max(0, Number(n) || 0);
+  while (left > 0) { d = addDays(d, 1); if (isBusinessDay(d)) left--; }
+  return d;
+}
+/** Días hábiles entre a y b: positivo si b es posterior a a, negativo si es anterior. */
+export function businessDaysBetween(a, b) {
+  if (a === b) return 0;
+  const sign = b > a ? 1 : -1, [from, to] = sign > 0 ? [a, b] : [b, a];
+  let n = 0;
+  for (let d = addDays(from, 1); d <= to && n < 4000; d = addDays(d, 1)) if (isBusinessDay(d)) n++;
+  return n * sign;
+}

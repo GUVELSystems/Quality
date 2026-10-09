@@ -19,8 +19,9 @@ export function attachmentsSection(entity, id, { ref = null, canEdit = true, tit
     .filter((a) => a.entity === entity && a.entity_id === id && (a.ref || null) === ref)
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   const editable = canEdit && db.can.write;
+  const data = `data-change="att-upload" data-entity="${entity}" data-id="${id}" data-ref="${esc(ref || "")}"`;
   const uploadBtn = editable
-    ? `<label class="btn sm att-upload">${icon("plus")} Adjuntar<input type="file" multiple hidden accept="${db.ATTACH_ACCEPT}" data-change="att-upload" data-entity="${entity}" data-id="${id}" data-ref="${esc(ref || "")}"></label>`
+    ? `<span class="att-btns"><label class="btn sm att-upload">${icon("plus")} Adjuntar evidencia<input type="file" multiple hidden accept="${db.ATTACH_ACCEPT}" ${data}></label><label class="btn sm att-upload">${icon("camera")} Tomar foto<input type="file" hidden accept="image/*" capture="environment" ${data}></label></span>`
     : "";
   if (compact && !list.length && !editable) return "";
   const items = list.map((a) => {
@@ -61,7 +62,7 @@ onChange("att-upload", async (el) => {
   toast(files.length > 1 ? `Subiendo ${files.length} archivos…` : "Subiendo archivo…");
   let ok = 0;
   for (const file of files) {
-    try { await db.addAttachment({ entity, entity_id: id, ref: ref || null, file }); ok++; }
+    try { const att = await db.addAttachment({ entity, entity_id: id, ref: ref || null, file }); ok++; if ((att.mime_type || "").startsWith("image/")) toast(`Foto adjuntada · ${(att.size_bytes / 1048576).toFixed(2)} MB`); }
     catch (e) { toast(`${file.name}: ${e.message}`, "danger"); }
   }
   if (ok) { toast(`${ok} archivo(s) adjuntado(s)`, "ok"); await hooks[entity]?.(); }

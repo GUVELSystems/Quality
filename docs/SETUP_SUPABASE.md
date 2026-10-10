@@ -29,6 +29,7 @@ Tiempo estimado: 30–40 min la primera vez.
    8. `supabase/08_milestones_notifications.sql` (milestones con hora, verificación aceptar/rechazar, bandeja de notificaciones)
    9. `supabase/09_class_scopes.sql` (clasificaciones por tipo de auditoría: N1/N2 para LPA, NCM/NCm para internas…)
    10. `supabase/10_product_dimensions.sql` (dimensiones con nominal ± tolerancia en auditorías de Producto)
+   11. `supabase/11_internal_audit_pro.sql` (proceso declarado, normas, folio IF-, CAPA/Root Cause Files y el flujo de 7 etapas de Auditorías Internas)
 
 > Todos son re-ejecutables. Si ya habías corrido una versión anterior, vuelve a ejecutar los 5 en orden (migra sin perder datos).
 

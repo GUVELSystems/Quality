@@ -13,7 +13,7 @@ import actions from "./modules/actions.js";
 import notifications from "./modules/notifications.js";
 import { risks, opportunities, clients, classifications, users } from "./modules/catalogs.js";
 import forms from "./modules/forms.js";
-import { classesAndLevels, areas } from "./modules/config.js";
+import { classesAndLevels, areas, standards, capaFiles, rcaFiles } from "./modules/config.js";
 import { updateBell, showReminder, closeInbox, inboxCounts } from "./inbox.js";
 import "./modules/attachments.js";
 import { findingsOf, lateActionsOf, WS_LABEL, WS_ICON, auditWs, findingWs } from "./scope.js";
@@ -44,13 +44,16 @@ registerWs({ id: "config", label: WS_LABEL.config, tabs: [
   { id: "clientes", label: "Clientes", icon: "client", render: clients.render },
   { id: "clasificaciones", label: "Clasificaciones y niveles", icon: "tag", render: classesAndLevels.render },
   { id: "areas", label: "Áreas", icon: "area", render: areas.render },
+  { id: "normas", label: "Normas", icon: "standard", render: standards.render },
+  { id: "capa", label: "CAPA Files", icon: "capa", render: capaFiles.render },
+  { id: "rca", label: "Root Cause Files", icon: "rca", render: rcaFiles.render },
   { id: "catalogos", label: "Catálogos", icon: "list", render: classifications.render },
   { id: "usuarios", label: "Usuarios", icon: "users", render: users.render },
 ] });
 
 const app = document.getElementById("app");
 const MENU = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades"];
-const CONFIG_MENU = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas", "area"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"]];
+const CONFIG_MENU = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["rca", "Root Cause Files", "rca"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"]];
 const MENU_ICON = WS_ICON;
 let appShown = false;
 

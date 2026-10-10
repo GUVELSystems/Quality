@@ -52,12 +52,14 @@ export function buildSeed() {
 
   /* Formatos: cada pregunta pertenece a un Área */
   const forms = [], form_items = [];
-  const addForm = (c, name, audit_type, items) => {
-    const f = { id: uuid(), code: c, name, audit_type, version: "1.0", active: true, created_at: daysAgoISO(80), updated_at: daysAgoISO(80) };
+  const addForm = (c, name, audit_type, items, head = {}) => {
+    const f = { id: uuid(), code: c, name, audit_type, version: "1.0", active: true, process_area_id: head.process ? area(head.process).id : null, standard_id: head.standard || null, created_at: daysAgoISO(80), updated_at: daysAgoISO(80) };
     forms.push(f);
-    items.forEach(([areaName, question, critical, spec], i) => form_items.push({ id: uuid(), form_id: f.id, position: i + 1, section: areaName, area_id: area(areaName).id, question, critical, kind: spec?.kind || "inspeccion", nominal: spec?.nominal ?? null, tol_plus: spec?.tol_plus ?? null, tol_minus: spec?.tol_minus ?? null, unit: spec?.unit ?? null, decimals: spec?.decimals ?? null }));
+    items.forEach(([areaName, question, critical, spec, clause], i) => form_items.push({ id: uuid(), form_id: f.id, position: i + 1, section: areaName, area_id: area(areaName).id, question, critical, clause: clause || null, kind: spec?.kind || "inspeccion", nominal: spec?.nominal ?? null, tol_plus: spec?.tol_plus ?? null, tol_minus: spec?.tol_minus ?? null, unit: spec?.unit ?? null, decimals: spec?.decimals ?? null }));
     return f;
   };
+  const standards = [["IATF16949", "IATF 16949"], ["ISO9001", "ISO 9001"], ["VDA6.3", "VDA 6.3"], ["CLIENTE-AN", "Manual de calidad · Automotriz Norte"]].map(([code, name]) => ({ id: uuid(), code, name, active: true, created_at: daysAgoISO(80) }));
+  const std = (c) => standards.find((s) => s.code === c)?.id;
   const fLPA = addForm("FOR-LPA-001", "Auditoría en capas (LPA) · Línea de producción", "LPA", [
     ["Producción", "¿La instrucción de trabajo vigente está disponible en la estación?", false],
     ["Producción", "¿El operador sigue la secuencia definida en la instrucción?", true],
@@ -76,10 +78,10 @@ export function buildSeed() {
     ["Calidad", "¿Los registros de inspección están completos y firmados?", false],
   ]);
   const fINT = addForm("FOR-INT-001", "Auditoría interna del sistema de gestión", "Interna", [
-    ["Calidad", "¿La documentación del sistema de gestión está vigente y controlada?", false], ["Calidad", "¿Los registros requeridos se conservan y son legibles?", false],
-    ["Producción", "¿El personal evidencia la competencia y capacitación requeridas?", true], ["Calidad", "¿Las acciones correctivas previas se cerraron con evidencia de eficacia?", true],
-    ["Ingeniería", "¿Se da seguimiento a los objetivos e indicadores de calidad?", false],
-  ]);
+    ["Calidad", "¿La documentación del sistema de gestión está vigente y controlada?", false, null, "7.5.3"], ["Calidad", "¿Los registros requeridos se conservan y son legibles?", false, null, "7.5.3"],
+    ["Producción", "¿El personal evidencia la competencia y capacitación requeridas?", true, null, "7.2"], ["Calidad", "¿Las acciones correctivas previas se cerraron con evidencia de eficacia?", true, null, "10.2"],
+    ["Ingeniería", "¿Se da seguimiento a los objetivos e indicadores de calidad?", false, null, "9.1.1"],
+  ], { process: "Calidad", standard: std("IATF16949") });
   addForm("FOR-PRC-001", "Auditoría de proceso", "Proceso", [
     ["Producción", "¿Los parámetros del proceso coinciden con la hoja de proceso?", true], ["Producción", "¿Se realizó la verificación de arranque (set-up)?", true],
     ["Calidad", "¿El plan de control está disponible y vigente?", false], ["Calidad", "¿Las reacciones ante desviaciones están documentadas?", false],
@@ -89,12 +91,13 @@ export function buildSeed() {
   const findings = [];
   const mkFinding = (o) => {
     const f = {
-      id: uuid(), code: code("HAL"), module: "auditorias", title: "", description: null, source: "auditoria", severity: "menor", status: "abierto",
+      id: uuid(), code: null, module: "auditorias", title: "", description: null, source: "auditoria", severity: "menor", status: "abierto",
       classification_id: null, class_id: null, area: null, area_id: null, owner_id: null, audit_id: null, client_id: null, root_cause: null,
       start_date: T, due_date: null, closed_at: null, accepted_at: null, accepted_by: null, transfer_count: 0, transferred_from: null, transferred_at: null, transfer_reason: null,
       analysis_text: null, analysis_at: null, action_plan: null, actions_closed_on: null, actions_closed_at: null, verify_due: null, verify_due_at: null, due_at: null, reject_count: 0, rejected_at: null, rejection_reason: null, verified_at: null, verified_by: null, verified_on: null, verification_notes: null,
       created_by: "u-maria", created_at: daysAgoISO(2), updated_at: daysAgoISO(1), ...o,
     };
+    if (!f.code) f.code = code(f.module === "internas" ? "IF" : "HAL");   // folio propio para hallazgos internos
     if (isoDate(new Date(f.created_at)) !== f.start_date) f.created_at = new Date(f.start_date + "T09:00:00").toISOString();
     if (f.class_id && !o.due_date) { const due = shiftBusiness(new Date(f.created_at), finding_classes.find((c) => c.id === f.class_id).days * DAY_MS); f.due_at = due.toISOString(); f.due_date = dueDateOf(due); }
     if (f.area_id && !f.area) f.area = areas.find((a) => a.id === f.area_id).name;
@@ -128,7 +131,7 @@ export function buildSeed() {
       if (past && k % 5 !== 3) status = "completada";
       if (d === T) status = "en_proceso";
       const level = levelCycle ? (k % 3) + 1 : null;
-      const a = { id: uuid(), code: code("AUD"), plan_id: plan.id, scheduled_date: d, assigned_to: who[k % who.length], level, form_id: form.id, due_at: iso(d + "T17:00:00"), status, score: null, notes: null, completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1), notified_at: plan.status === "enviado" ? daysAgoISO(4) : null, notified_to: plan.status === "enviado" ? who[k % who.length] : null };
+      const a = { id: uuid(), code: code("AUD"), plan_id: plan.id, scheduled_date: d, assigned_to: who[k % who.length], level, process_area_id: plan.audit_type === "Interna" ? [area("Calidad").id, area("Producción").id, area("Almacén").id][k % 3] : null, form_id: form.id, due_at: iso(d + "T17:00:00"), status, score: null, notes: null, completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1), notified_at: plan.status === "enviado" ? daysAgoISO(4) : null, notified_to: plan.status === "enviado" ? who[k % who.length] : null };
       if (status === "completada") {
         const items = form_items.filter((i) => i.form_id === form.id);
         let ok = 0, nok = 0;
@@ -186,7 +189,58 @@ export function buildSeed() {
     { id: uuid(), finding_id: rech.id, kind: "rejected", detail: rech.rejection_reason, actor: "u-carlos", created_at: daysAgoISO(1, 9) },
   ];
 
-  /* Notificaciones de cliente (Issues) */
+  /* -------------------- CAPA Files / Root Cause Files (plantillas) -------------------- */
+  const tf = (type, label, extra = {}) => ({ id: uuid(), label, type, hint: "", options: [], columns: ["Columna 1", "Columna 2"], ...extra });
+  const tpl8D = {
+    id: uuid(), code: "CAPA-8D-01", name: "8D · Resolución de problemas", kind: "8D", active: true, created_by: "u-maria", created_at: daysAgoISO(60), updated_at: daysAgoISO(60),
+    schema: { sections: [
+      { id: uuid(), title: "D1 · Equipo", fields: [tf("textarea", "Integrantes y roles")] },
+      { id: uuid(), title: "D2 · Descripción del problema", fields: [tf("textarea", "Descripción detallada")] },
+      { id: uuid(), title: "D4 · Análisis de causa raíz", fields: [tf("grid", "Causas potenciales", { columns: ["Categoría (6M)", "Causa potencial", "¿Confirmada?"] })] },
+      { id: uuid(), title: "D5–D7 · Acciones correctivas permanentes", fields: [tf("grid", "Plan de acción", { columns: ["Acción", "Responsable", "Fecha compromiso"] })] },
+      { id: uuid(), title: "D8 · Cierre y reconocimiento", fields: [tf("textarea", "Lecciones aprendidas")] },
+    ] },
+  };
+  const tplCapaSimple = { id: uuid(), code: "CAPA-01", name: "CAPA simple", kind: "CAPA", active: true, created_by: "u-maria", created_at: daysAgoISO(60), updated_at: daysAgoISO(60),
+    schema: { sections: [{ id: uuid(), title: "Acción correctiva", fields: [tf("textarea", "Acción a implementar"), tf("date", "Fecha compromiso"), tf("select", "Eficacia verificada", { options: ["Sí", "No", "Pendiente"] })] }] } };
+  const capa_templates = [tpl8D, tplCapaSimple];
+  const tpl5W = { id: uuid(), code: "RCA-5W-01", name: "5 Porqués", kind: "5 Porqués", active: true, created_by: "u-maria", created_at: daysAgoISO(60), updated_at: daysAgoISO(60),
+    schema: { sections: [{ id: uuid(), title: "Análisis", fields: [tf("grid", "Secuencia de porqués", { columns: ["Pregunta", "Respuesta"] })] }] } };
+  const tplIshikawa = { id: uuid(), code: "RCA-ISH-01", name: "Diagrama de Ishikawa", kind: "Ishikawa", active: true, created_by: "u-maria", created_at: daysAgoISO(60), updated_at: daysAgoISO(60),
+    schema: { sections: [{ id: uuid(), title: "6M", fields: [tf("grid", "Causas por categoría", { columns: ["Categoría (6M)", "Causa"] })] }] } };
+  const rca_templates = [tpl5W, tplIshikawa];
+  const finding_documents = [];
+
+  /* -------------------- Ejemplos del flujo completo (Auditorías Internas) -------------------- */
+  const f5w = (q1, r1, q2, r2, q3, r3) => [[q1, r1], [q2, r2], [q3, r3]];
+  // 1) Recién aceptado: le toca Descripción del problema
+  const ifOpen = mkFinding({ module: "internas", title: "Formato de inspección de recibo sin firma del responsable", class_id: klass("NCm").id, area_id: A("Almacén"), owner_id: "u-pedro", start_date: bd(1), classification_id: catId("Documentación") });
+  stage(ifOpen, "descripcion"); ifOpen.accepted_at = daysAgoISO(1); ifOpen.accepted_by = "u-pedro";
+  // 2) A medio camino: Descripción y Contención ya registradas, le toca Causa raíz
+  const ifRca = mkFinding({ module: "internas", title: "Capacitación de nuevo ingreso sin evidencia en expediente", class_id: klass("NCM").id, area_id: A("Producción"), owner_id: "u-juan", start_date: bd(4), classification_id: catId("Documentación") });
+  stage(ifRca, "rca"); ifRca.accepted_at = daysAgoISO(4); ifRca.accepted_by = "u-juan";
+  ifRca.problem_desc = "El 20 de septiembre se detectó que 2 operadores de nuevo ingreso en la línea 2 no tienen evidencia de capacitación inicial en su expediente, aunque ya operan equipo crítico."; ifRca.problem_at = daysAgoISO(3);
+  ifRca.containment_text = "Se retiró temporalmente a ambos operadores de las estaciones críticas y se asignó un supervisor de respaldo mientras se regulariza su capacitación."; ifRca.containment_at = daysAgoISO(2);
+  // 3) Cerrado usando plantillas 8D y 5 Porqués llenas
+  const ifClosed = mkFinding({ module: "internas", title: "Acciones correctivas previas sin evidencia de verificación de eficacia", class_id: klass("NCM").id, area_id: A("Calidad"), owner_id: "u-maria", start_date: bd(25), classification_id: catId("Documentación") });
+  stage(ifClosed, "cerrado"); ifClosed.accepted_at = daysAgoISO(25); ifClosed.accepted_by = "u-maria";
+  ifClosed.problem_desc = "De una muestra de 10 acciones correctivas cerradas en el último trimestre, 4 no tienen evidencia de que se haya verificado su eficacia 30 días después del cierre."; ifClosed.problem_at = daysAgoISO(24);
+  ifClosed.containment_text = "Se congeló el cierre de nuevas acciones correctivas hasta no adjuntar la evidencia de verificación correspondiente."; ifClosed.containment_at = daysAgoISO(23);
+  ifClosed.analysis_text = "Ver formato de causa raíz guardado (5 Porqués)."; ifClosed.analysis_at = daysAgoISO(20);
+  ifClosed.action_plan = "Ver formato de acción correctiva guardado (8D)."; closeAt(ifClosed, new Date(addBusinessDays(ifClosed.start_date, 8) + "T16:00:00"));
+  ifClosed.verified_at = shiftBusiness(new Date(ifClosed.actions_closed_at), 2 * DAY_MS).toISOString(); ifClosed.verified_on = isoDate(new Date(ifClosed.verified_at)); ifClosed.verified_by = "u-carlos";
+  ifClosed.verification_notes = "Se revisaron las 4 acciones: ya cuentan con su verificación de eficacia documentada y archivada."; ifClosed.closed_at = ifClosed.verified_at;
+  finding_documents.push(
+    { id: uuid(), finding_id: ifClosed.id, kind: "rca", template_id: tpl5W.id, data: { [tpl5W.schema.sections[0].fields[0].id]: f5w("¿Por qué no se verificó la eficacia?", "No había un responsable asignado para esa revisión.", "¿Por qué no había responsable asignado?", "El procedimiento no lo especifica.", "¿Por qué el procedimiento no lo especifica?", "No se actualizó tras el último cambio del sistema de gestión.") }, updated_at: daysAgoISO(20), updated_by: "u-maria" },
+    { id: uuid(), finding_id: ifClosed.id, kind: "capa", template_id: tpl8D.id, data: {
+        [tpl8D.schema.sections[0].fields[0].id]: "María López (líder) · Carlos Gutiérrez · Juan Pérez",
+        [tpl8D.schema.sections[1].fields[0].id]: ifClosed.problem_desc,
+        [tpl8D.schema.sections[3].fields[0].id]: [["Actualizar el procedimiento de acciones correctivas", "María López", addDays(T, 30)]],
+        [tpl8D.schema.sections[4].fields[0].id]: "Se capacitó al equipo de calidad en el procedimiento actualizado.",
+      }, updated_at: daysAgoISO(18), updated_by: "u-maria" },
+  );
+
+    /* Notificaciones de cliente (Issues) */
   const notifs = [];
   const mkNotif = (o) => notifs.push({ id: uuid(), code: code("NCL"), description: null, part_number: null, quantity: null, severity: "mayor", received_at: T, response_due: null, status: "recibida", owner_id: "u-maria", finding_id: null, closed_at: null, created_by: "u-maria", created_at: daysAgoISO(3), updated_at: daysAgoISO(1), ...o });
   mkNotif({ client_id: cNorte.id, notification_type: "queja", subject: "Rebaba excesiva en pieza AN-4471", description: "El cliente reporta rebaba fuera de tolerancia en 120 piezas del embarque semanal.", part_number: "AN-4471", quantity: 120, severity: "mayor", received_at: addDays(T, -3), response_due: addDays(T, 2), status: "contencion" });
@@ -228,6 +282,6 @@ export function buildSeed() {
   return {
     currentUser: "u-carlos",
     counters,
-    tables: { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions: [], customer_notifications: notifs, risks, opportunities, attachments: [], lpa_levels, finding_classes, areas, area_level_owners, app_settings, notifications, finding_events },
+    tables: { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions: [], customer_notifications: notifs, risks, opportunities, attachments: [], lpa_levels, finding_classes, areas, area_level_owners, app_settings, notifications, finding_events, standards, capa_templates, rca_templates, finding_documents },
   };
 }

@@ -1,11 +1,11 @@
 import * as db from "../db.js";
-import { esc, today, addDays, fmtDate, fmtDateTime, toLocalInput, fromLocalInput, periodEnd, eachDay, isWeekend, mondayOf, parseDate, DOW_SHORT, rangeText } from "../utils.js";
+import { esc, today, addDays, fmtDate, fmtDateTime, toLocalInput, fromLocalInput, periodEnd, eachDay, isWeekend, mondayOf, parseDate, DOW_SHORT, rangeText, initials } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead, rerender, navigate, replaceHash, H, wsId } from "../router.js";
 import { typesOf, plansOf, auditsOf, findingsOf, findingAuditType, planWs, WS_LABEL, TYPE_ICON } from "../scope.js";
 import { on, onChange, onInput, badge, pill, empty, openForm, openDialog, confirmDialog, toast } from "../ui.js";
 import { AUDIT_STATUS } from "../constants.js";
-import { classOptions, dueFor, deadlineFields, resolveOwner, levelOptions, levelLabel, classBadge, overdueKind } from "../workflow.js";
+import { classOptions, dueFor, deadlineFields, resolveOwner, levelOptions, levelLabel, classBadge, overdueKind, areaOptions } from "../workflow.js";
 import { notifyFindings } from "../notify.js";
 import { isDimension, parseValue, dimEval, dimSpec, specText, rangeText as dimRange, fmtNum, KINDS, SECTION_ORDER } from "../dimension.js";
 import { attachmentsSection, hooks } from "./attachments.js";
@@ -134,17 +134,30 @@ function planWizard() {
 /* ===================================================================== */
 /*  Formularios: auditoría individual, edición del plan, asignación rápida */
 /* ===================================================================== */
+/** Panel de vista previa: quién es el responsable del proceso/área elegido (no editable) */
+function ownerPreview(areaId, level) {
+  const a = db.get("areas", areaId);
+  if (!a) return `<h4>Responsable del proceso</h4><p class="aside-empty">Elige un proceso para ver quién lo audita habitualmente como responsable.</p>`;
+  const owner = resolveOwner(areaId, level) || a.owner_id, p = db.get("profiles", owner);
+  const byLevel = db.rows("area_level_owners").filter((r) => r.area_id === areaId);
+  return `<h4>Responsable del proceso</h4>
+    ${p ? `<div class="aside-owner"><div class="avatar">${esc(initials(p.full_name))}</div><div><strong>${esc(p.full_name)}</strong><small>${esc(a.name)}${level ? " · " + esc(levelLabel(level)) : ""}</small></div></div>`
+        : `<p class="aside-empty">El proceso «${esc(a.name)}» no tiene un responsable definido todavía. Configúralo en Configuración → Áreas.</p>`}
+    ${byLevel.length ? `<div class="aside-levels">${byLevel.map((r) => `<div>${esc(levelLabel(r.level))} → ${esc(db.profileName(r.owner_id))}</div>`).join("")}</div>` : ""}`;
+}
 function scheduleForm(audit, plan, date) {
-  const type = plan?.audit_type;
+  const type = plan?.audit_type, internal = type === "Interna";
   openForm({
     eyebrow: audit ? audit.code : `${plan?.code || "Plan"} · ${fmtDate(date)}`,
-    title: audit ? "Editar auditoría" : "Asignar auditoría", submitLabel: audit ? "Guardar" : "Asignar",
+    title: audit ? "Editar auditoría" : "Asignar auditoría", submitLabel: audit ? "Guardar" : "Asignar", size: internal ? "wide" : "",
     intro: audit ? `<p style="margin-bottom:14px"><a class="btn sm" href="${H("audit/" + audit.id)}" data-close>${icon("audit")} Abrir checklist de la auditoría</a></p>` : "",
     values: audit ? { ...audit, due_at: toLocalInput(audit.due_at) } : { scheduled_date: date, due_at: `${date}T17:00`, level: levelOptions()[0]?.[0] ?? 1, form_id: db.rows("forms").find((f) => f.audit_type === type && f.active)?.id },
+    aside: internal ? (v) => ownerPreview(v.process_area_id, v.level) : undefined,
     fields: [
       { name: "scheduled_date", label: "Fecha", type: "date", required: true },
       { name: "assigned_to", label: "Asignado a", type: "select", options: staff().map((p) => [p.id, p.full_name]) },
-      ...(type === "LPA" ? [{ name: "level", label: "Nivel (LPA)", type: "select", options: levelOptions(), parse: (v) => (v ? Number(v) : null) }] : []),
+      ...(internal ? [{ name: "process_area_id", label: "Proceso declarado a auditar", type: "select", required: true, span2: true, options: areaOptions(), hint: "El proceso real que se auditará en esta visita; el responsable se muestra a la derecha." }] : []),
+      ...(type === "LPA" || internal ? [{ name: "level", label: internal ? "Nivel (opcional)" : "Nivel (LPA)", type: "select", options: internal ? [["", "— Sin nivel —"], ...levelOptions()] : levelOptions(), parse: (v) => (v ? Number(v) : null) }] : []),
       { name: "form_id", label: "Formato / checklist", type: "select", options: db.rows("forms").filter((f) => f.active && (!type || f.audit_type === type)).map((f) => [f.id, `${f.code} · ${f.name}`]) },
       { name: "due_at", label: "Límite de entrega", type: "datetime" },
       ...(audit ? [{ name: "status", label: "Estado", type: "select", required: true, options: ["programada", "en_proceso", "completada", "cancelada"].map((s) => [s, AUDIT_STATUS[s][0]]) }] : []),

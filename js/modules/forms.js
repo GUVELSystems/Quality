@@ -18,10 +18,12 @@ async function saveForm(form, head, items) {
   const num = (v) => (v === "" || v === null || v === undefined ? null : parseValue(v));
   for (let idx = 0; idx < items.length; idx++) {
     const it = items[idx], dim = product && isDimension(it);
+    const internal = head.audit_type === "Interna";
     const data = {
       form_id: f.id, position: idx + 1, area_id: it.area_id || null, section: db.get("areas", it.area_id)?.name || null, question: it.question, critical: !!it.critical,
       kind: dim ? "dimension" : "inspeccion", nominal: dim ? num(it.nominal) : null, tol_plus: dim ? num(it.tol_plus) : null, tol_minus: dim ? num(it.tol_minus) : null, unit: dim ? (it.unit || "").trim() || null : null,
       decimals: dim ? Math.min(6, Math.max(typedDecimals(it.nominal, it.tol_plus, it.tol_minus), Number.isInteger(it.decimals) ? it.decimals : 0)) : null,
+      clause: internal ? (it.clause || "").trim() || null : null,
     };
     if (it.id) await db.update("form_items", it.id, data); else await db.insert("form_items", data);
   }
@@ -38,7 +40,9 @@ function editor(form) {
       <label class="field"><span>Tipo de auditoría <i>*</i></span><select class="select" name="audit_type">${typesOf(wsId()).map((t) => `<option ${form?.audit_type === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="field span-2"><span>Nombre <i>*</i></span><input class="input" name="name" required value="${esc(form?.name || "")}"></label>
       <label class="field"><span>Versión</span><input class="input" name="version" value="${esc(form?.version || "1.0")}"></label>
-      <label class="check" style="align-self:end;height:38px"><input type="checkbox" name="active" ${form?.active === false ? "" : "checked"}> Formato activo</label></form>
+      <label class="check" style="align-self:end;height:38px"><input type="checkbox" name="active" ${form?.active === false ? "" : "checked"}> Formato activo</label>
+      <label class="field" id="fm-process-wrap"><span>Proceso a auditar</span><select class="select" name="process_area_id"><option value="">— Proceso —</option>${activeAreas().map((a) => `<option value="${a.id}" ${a.id === form?.process_area_id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></label>
+      <label class="field" id="fm-standard-wrap"><span>Norma aplicable</span><select class="select" name="standard_id"><option value="">— Norma —</option>${db.rows("standards").filter((s) => s.active).map((s) => `<option value="${s.id}" ${s.id === form?.standard_id ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label></form>
       <div class="section-title"><span>Preguntas del checklist</span><button type="button" class="btn sm" id="fm-add">${icon("plus")} Agregar pregunta</button></div>
       <div id="fm-items"></div>
       <p id="fm-note" class="muted hidden" style="margin-top:10px;font-size:13px"><b>Sección «Dimensión»:</b> en la auditoría no se responde Cumple / No cumple, sino que se captura el valor medido; si queda fuera de nominal ± tolerancia se marca en rojo como No cumple. <b>«Inspección»</b> se responde como siempre.</p>
@@ -55,10 +59,12 @@ function editor(form) {
     const P = isProduct();
     box.innerHTML = items.map((it, i) => {
       const dim = P && isDimension(it);
+      const I = isProduct() ? false : head().elements.audit_type.value === "Interna";
       const kindSel = P ? `<select class="select" data-k="kind" data-i="${i}" aria-label="Sección"><option value="" disabled>Sección</option>${Object.entries(KINDS).map(([v, l]) => `<option value="${v}" ${(it.kind || "inspeccion") === v ? "selected" : ""}>${l}</option>`).join("")}</select>` : "";
+      const clauseInput = I ? `<input class="input" data-k="clause" data-i="${i}" placeholder="Cláusula (ej. 8.5.1)" value="${esc(it.clause || "")}">` : "";
       return `<div class="item-row it-row" style="align-items:flex-start;gap:8px">
       <span class="mono muted" style="width:22px;padding-top:9px">${i + 1}</span>
-      <div class="it-main"><div class="it-line ${P ? "prod" : ""}">${kindSel}${areaSelect(it, i)}<input class="input" data-k="question" data-i="${i}" placeholder="${dim ? "Característica (ej. Diámetro exterior)" : "Pregunta"}" value="${esc(it.question || "")}"></div>
+      <div class="it-main"><div class="it-line ${P ? "prod" : I ? "internal" : ""}">${kindSel}${clauseInput}${areaSelect(it, i)}<input class="input" data-k="question" data-i="${i}" placeholder="${dim ? "Característica (ej. Diámetro exterior)" : "Pregunta"}" value="${esc(it.question || "")}"></div>
         ${dim ? `<div class="it-dim"><label class="field"><span>Nominal</span><input class="input" inputmode="decimal" data-k="nominal" data-i="${i}" placeholder="12.000" value="${esc(it.nominal ?? "")}"></label>
           <label class="field"><span>Tolerancia +</span><input class="input" inputmode="decimal" data-k="tol_plus" data-i="${i}" placeholder="0.021" value="${esc(it.tol_plus ?? "")}"></label>
           <label class="field"><span>Tolerancia −</span><input class="input" inputmode="decimal" data-k="tol_minus" data-i="${i}" placeholder="igual a +" value="${esc(it.tol_minus ?? "")}"></label>
@@ -68,6 +74,9 @@ function editor(form) {
       <button type="button" class="btn sm icon" data-mv="-1" data-i="${i}" aria-label="Subir">${icon("arrowUp")}</button><button type="button" class="btn sm icon" data-mv="1" data-i="${i}" aria-label="Bajar">${icon("arrowDown")}</button><button type="button" class="btn sm icon danger" data-rm="${i}" aria-label="Quitar">${icon("trash")}</button></div>`;
     }).join("") || `<div class="muted">Sin preguntas todavía.</div>`;
     dlg.el.querySelector("#fm-note").classList.toggle("hidden", !P);
+    const I = head().elements.audit_type.value === "Interna";
+    dlg.el.querySelector("#fm-process-wrap").classList.toggle("hidden", !I);
+    dlg.el.querySelector("#fm-standard-wrap").classList.toggle("hidden", !I);
   };
 
   paint();

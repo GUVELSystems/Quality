@@ -4,7 +4,7 @@ import { icon } from "../icons.js";
 import { setHead } from "../router.js";
 import { badge, donut, bars, columns, empty } from "../ui.js";
 import { AUDIT_STATUS, FINDING_STATUS } from "../constants.js";
-import { classes, classTag, classTone, classOf, classBadge, overdueKind, stageOf, STAGE_LABEL } from "../workflow.js";
+import { classes, classTag, classTone, classOf, classBadge, overdueKind, stageOf, isInternal, STAGE_LABEL, STAGE_LABEL_INTERNAL } from "../workflow.js";
 import { auditStatus } from "./audits.js";
 import { WS_LABEL, auditWs, findingWs, auditsOf, plansOf, findingsOf, lateActionsOf, lateVerifyOf } from "../scope.js";
 
@@ -43,10 +43,11 @@ export default {
     const minePanel = mine.length ? `<div class="panel"><div class="panel-head"><h2>Mis auditorías pendientes</h2><small>${mine.length} asignada(s) a ti</small></div><div class="table-wrap"><table class="table"><tbody>
       ${mine.slice(0, 5).map((a) => { const p = db.get("audit_plans", a.plan_id); return `<tr><td><a href="#/${auditWs(a)}/audit/${a.id}" class="code">${esc(a.code)}</a><span class="sub">${esc(p?.audit_type || "")}${a.level ? " · Nivel " + a.level : ""}</span></td><td>${esc(p?.name || "")}<span class="sub">${WS_LABEL[auditWs(a)]}</span></td><td>${fmtDate(a.scheduled_date)}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="end"><a class="btn sm primary" href="#/${auditWs(a)}/audit/${a.id}">Realizar</a></td></tr>`; }).join("")}</tbody></table></div></div>` : "";
 
-    const myF = allOpen.filter((f) => f.owner_id === me && ["abierto", "en_accion"].includes(stageOf(f)));
-    const NEXT = { abierto: "Aceptar o trasladar", en_accion: "Registrar acción y evidencia" };
+    const OWNER_STAGES = { generic: ["abierto", "en_accion"], internal: ["abierto", "descripcion", "contencion", "rca", "en_accion"] };
+    const myF = allOpen.filter((f) => f.owner_id === me && OWNER_STAGES[isInternal(f) ? "internal" : "generic"].includes(stageOf(f)));
+    const NEXT = { abierto: "Aceptar o trasladar", descripcion: "Describir el problema", contencion: "Registrar la contención", rca: "Análisis de causa raíz", en_accion: "Registrar acción y evidencia" };
     const myFPanel = myF.length ? `<div class="panel"><div class="panel-head"><h2>Mis hallazgos pendientes</h2><small>${myF.length} a tu cargo</small></div><div class="table-wrap"><table class="table"><tbody>
-      ${myF.slice(0, 6).map((f) => `<tr><td><a href="#/${findingWs(f)}/hallazgos/${f.id}" class="code">${esc(f.code)}</a><span class="sub">${WS_LABEL[findingWs(f)]}</span></td><td>${esc(f.title)}</td><td>${classBadge(f)}</td><td><b>${NEXT[stageOf(f)]}</b><span class="sub">${esc(STAGE_LABEL[stageOf(f)])} · límite ${fmtDate(f.due_date)}</span></td><td class="end"><a class="btn sm primary" href="#/${findingWs(f)}/hallazgos/${f.id}">Abrir</a></td></tr>`).join("")}</tbody></table></div></div>` : "";
+      ${myF.slice(0, 6).map((f) => `<tr><td><a href="#/${findingWs(f)}/hallazgos/${f.id}" class="code">${esc(f.code)}</a><span class="sub">${WS_LABEL[findingWs(f)]}</span></td><td>${esc(f.title)}</td><td>${classBadge(f)}</td><td><b>${NEXT[stageOf(f)]}</b><span class="sub">${esc((isInternal(f) ? STAGE_LABEL_INTERNAL : STAGE_LABEL)[stageOf(f)])} · límite ${fmtDate(f.due_date)}</span></td><td class="end"><a class="btn sm primary" href="#/${findingWs(f)}/hallazgos/${f.id}">Abrir</a></td></tr>`).join("")}</tbody></table></div></div>` : "";
 
     /* Tendencia: hallazgos nuevos por mes */
     const all = db.rows("findings");

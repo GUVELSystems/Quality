@@ -1,7 +1,8 @@
 import * as db from "../db.js";
 import { esc, today, fmtDate, fmtDateTime, downloadCSV } from "../utils.js";
 import { icon } from "../icons.js";
-import { setHead, rerender, replaceHash, wsId } from "../router.js";
+import { setHead, rerender, replaceHash, navigate, wsId } from "../router.js";
+import { renderInternalFinding } from "./findings-internal.js";
 import { findingsOf, auditsOf, auditWs, findingAuditType, typesOf, WS_LABEL } from "../scope.js";
 import { on, onChange, onInput, badge, userCell, empty, openDrawer, openForm, confirmDialog, toast } from "../ui.js";
 import { SOURCE, FINDING_STATUS } from "../constants.js";
@@ -244,6 +245,7 @@ const filtered = () => {
 export default {
   id: "findings", label: "Hallazgos", icon: "finding",
   render(root, params) {
+    if (wsId() === "internas" && params?.[0]) { renderInternalFinding(root, params[0], params[1]); return; }
     setHead({
       title: "Hallazgos", subtitle: `Hallazgos de ${WS_LABEL[wsId()]}: el responsable acepta y registra la acción; un administrador acepta o rechaza la verificación.`,
       actions: `<button class="btn" data-action="f-export">${icon("download")} Exportar CSV</button>${db.can.write ? `<button class="btn primary" data-action="f-new">${icon("plus")} Nuevo hallazgo</button>` : ""}`,
@@ -275,7 +277,7 @@ const fnd = (el) => db.get("findings", el.dataset.id);
 const run = async (fn, nextStage) => { try { await fn(); if (nextStage) viewStage = nextStage; await refresh(); } catch (e) { toast(e.message, "danger"); } };
 const val = (id) => (document.getElementById(id)?.value || "").trim();
 
-on("f-open", (el) => openFinding(el.dataset.id));
+on("f-open", (el) => (wsId() === "internas" ? navigate(`${wsId()}/hallazgos/${el.dataset.id}`) : openFinding(el.dataset.id)));
 on("f-new", () => newFinding());
 on("f-edit", (el) => editFinding(fnd(el)));
 on("f-stage", (el) => { viewStage = el.dataset.stage; paintDrawer(); });

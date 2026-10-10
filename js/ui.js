@@ -120,15 +120,20 @@ export function readForm(form, fields) {
   return out;
 }
 
-export function openForm({ eyebrow, title, fields, values = {}, submitLabel = "Guardar", onSubmit, onDelete, size = "", intro = "" }) {
+export function openForm({ eyebrow, title, fields, values = {}, submitLabel = "Guardar", onSubmit, onDelete, size = "", intro = "", aside }) {
   const id = "form_" + Math.random().toString(36).slice(2, 8);
+  const formHTML = `${intro}<form id="${id}" class="form-grid" novalidate>${fields.map((f) => fieldHTML(f, values)).join("")}</form><div id="${id}_err" class="alert hidden" style="margin-top:16px"></div>`;
   const dlg = openDialog({
     eyebrow, title, size,
-    body: `${intro}<form id="${id}" class="form-grid" novalidate>${fields.map((f) => fieldHTML(f, values)).join("")}</form><div id="${id}_err" class="alert hidden" style="margin-top:16px"></div>`,
+    body: aside ? `<div class="form-with-aside"><div class="form-main">${formHTML}</div><div class="form-aside" id="${id}_aside">${aside(values)}</div></div>` : formHTML,
     footer: `${onDelete ? `<button type="button" class="btn danger" data-del style="margin-right:auto">Eliminar</button>` : ""}<button type="button" class="btn" data-close>Cancelar</button><button type="submit" form="${id}" class="btn primary">${esc(submitLabel)}</button>`,
   });
   const form = dlg.el.querySelector("form");
   const err = dlg.el.querySelector(`#${id}_err`);
+  if (aside) {
+    const paintAside = () => { const el = dlg.el.querySelector(`#${id}_aside`); if (el) el.innerHTML = aside(readForm(form, fields)); };
+    form.addEventListener("input", paintAside); form.addEventListener("change", paintAside);
+  }
   const showErr = (m) => { err.textContent = m; err.classList.remove("hidden"); };
   form.addEventListener("submit", async (e) => {
     e.preventDefault();

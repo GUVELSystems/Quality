@@ -12,6 +12,7 @@ export const TABLES = [
   "audit_plans", "audits", "audit_answers", "findings", "actions",
   "customer_notifications", "risks", "opportunities", "attachments",
   "lpa_levels", "finding_classes", "areas", "area_level_owners", "app_settings", "notifications", "finding_events",
+  "standards", "capa_templates", "rca_templates", "finding_documents",
 ];
 const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP" };
 const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);
@@ -23,7 +24,7 @@ const CASCADE = {
   forms: [["form_items", "form_id"]],
   form_items: [["audit_answers", "item_id"]],
   areas: [["area_level_owners", "area_id"]],
-  findings: [["actions", "finding_id"], ["finding_events", "finding_id"]],
+  findings: [["actions", "finding_id"], ["finding_events", "finding_id"], ["finding_documents", "finding_id"]],
 };
 
 export const state = { session: null, profile: null, data: {}, demo: isDemo, authIntent: null, authError: null, otp: null };
@@ -246,8 +247,9 @@ export async function insert(t, row) {
   if (state.demo) {
     const r = { id: uuid(), created_at: new Date().toISOString(), ...data };
     if (PREFIX[t] && !r.code) {
-      demo.counters[PREFIX[t]] = (demo.counters[PREFIX[t]] || 0) + 1;
-      r.code = `${PREFIX[t]}-${String(demo.counters[PREFIX[t]]).padStart(4, "0")}`;
+      const prefix = t === "findings" && r.module === "internas" ? "IF" : PREFIX[t];   // folio propio para hallazgos internos
+      demo.counters[prefix] = (demo.counters[prefix] || 0) + 1;
+      r.code = `${prefix}-${String(demo.counters[prefix]).padStart(4, "0")}`;
     }
     if (HAS_CREATED_BY.has(t)) r.created_by = state.profile.id;
     derive(t, r);

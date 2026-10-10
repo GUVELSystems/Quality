@@ -77,9 +77,19 @@ export const canTransfer = (f) => canAct(f) && f.status === "abierto" && !(f.tra
 export const canVerify = (f) => db.can.admin && f.status === "verificacion";
 
 /* -------------------------------- Milestones ----------------------------- */
+/** Las auditorías internas usan un flujo más completo (8D-like); el resto, el flujo simple */
 export const STAGES = ["abierto", "en_accion", "verificacion", "cerrado"];
+export const STAGES_INTERNAL = ["abierto", "descripcion", "contencion", "rca", "en_accion", "verificacion", "cerrado"];
+/** Etiquetas del flujo simple (Auditorías, Issues) — sin cambios frente a antes */
 export const STAGE_LABEL = { abierto: "Abierto", en_analisis: "En acción", en_accion: "En acción", verificacion: "Verificación", cerrado: "Cerrado" };
-export const stageOf = (f) => (f.status === "en_analisis" ? "en_accion" : f.status);   // la etapa "En análisis" ya no existe
+/** Etiquetas del flujo ampliado de Auditorías Internas */
+export const STAGE_LABEL_INTERNAL = {
+  abierto: "Abierto", descripcion: "Descripción del problema", contencion: "Acciones de contención", rca: "Análisis causa raíz",
+  en_accion: "Acciones", verificacion: "Verificación", cerrado: "Cierre",
+};
+export const isInternal = (f) => (f?.module || "auditorias") === "internas";
+export const stagesFor = (f) => (isInternal(f) ? STAGES_INTERNAL : STAGES);
+export const stageOf = (f) => (f.status === "en_analisis" ? (isInternal(f) ? "rca" : "en_accion") : f.status);   // compatibilidad con hallazgos antiguos
 
 const startInstant = (f) => {
   const c = f.created_at ? new Date(f.created_at) : new Date();
@@ -139,6 +149,27 @@ export async function transferFinding(f, to, reason) {
   logEvent(f, "transferred", `${db.profileName(f.owner_id)} → ${db.profileName(to)} · ${reason}`); return r;
 }
 export const savePlan = (f, text) => db.update("findings", f.id, { action_plan: text });
+
+/* -------------------------- Flujo ampliado (Auditorías Internas) ---------------------- */
+export async function acceptInternal(f) {
+  const r = await db.update("findings", f.id, { status: "descripcion", accepted_at: nowISO(), accepted_by: db.state.profile.id });
+  logEvent(f, "accepted"); return r;
+}
+export const saveProblem = (f, text) => db.update("findings", f.id, { problem_desc: text });
+export async function advanceProblem(f, text) {
+  const r = await db.update("findings", f.id, { problem_desc: text, problem_at: nowISO(), status: "contencion" });
+  logEvent(f, "problem", "Descripción del problema registrada"); return r;
+}
+export const saveContainment = (f, text) => db.update("findings", f.id, { containment_text: text });
+export async function advanceContainment(f, text) {
+  const r = await db.update("findings", f.id, { containment_text: text, containment_at: nowISO(), status: "rca" });
+  logEvent(f, "containment", "Acciones de contención registradas"); return r;
+}
+export const saveRca = (f, text) => db.update("findings", f.id, { analysis_text: text });
+export async function advanceRca(f, text) {
+  const r = await db.update("findings", f.id, { analysis_text: text, analysis_at: nowISO(), status: "en_accion" });
+  logEvent(f, "rca", "Análisis de causa raíz registrado"); return r;
+}
 export async function closeActions(f, text) {
   const now = new Date(), verifyDue = shiftBusiness(now, verifyDaysFor(f) * DAY_MS), late = businessMs(now, dueInstant(f) || now) < 0;
   const r = await db.update("findings", f.id, {

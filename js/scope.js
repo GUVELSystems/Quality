@@ -29,3 +29,7 @@ export const lateActionsOf = (ws) => findingsOf(ws).filter((f) => overdueKind(f)
 export const lateVerifyOf = (ws) => findingsOf(ws).filter((f) => overdueKind(f) === "verificacion");
 export const formsOf = (ws) => db.rows("forms").filter((f) => typesOf(ws).includes(f.audit_type));
 
+
+/** Tipo de la auditoría que originó un hallazgo (null si no viene de una auditoría) */
+export const findingAuditType = (f) => { const a = db.get("audits", f?.audit_id); return a ? db.get("audit_plans", a.plan_id)?.audit_type || null : null; };
+export const TYPE_ICON = { LPA: "layers", Producto: "box", Proceso: "gear", Sistema: "monitor", Interna: "internal" };

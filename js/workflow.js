@@ -40,7 +40,17 @@ export function deadlineFields(classId, start = new Date()) {
   const c = db.get("finding_classes", classId), due = c ? shiftBusiness(start, c.days * DAY_MS) : null;
   return { start_date: isoDate(start), due_at: due ? due.toISOString() : null, due_date: due ? dueDateOf(due) : null };
 }
+/** Días hábiles de verificación: valor por defecto y, si existe, el definido para el tipo del hallazgo */
+export const VERIFY_TYPES = ["LPA", "Producto", "Proceso", "Sistema", "Interna", "Issues"];
 export const verifyDays = () => Number(db.setting("verification_days", 5)) || 5;
+export const verifyDaysForType = (t) => Number(db.setting(`verification_days_${t}`, verifyDays())) || verifyDays();
+/** Tipo de un hallazgo: el de la auditoría que lo originó; si no, según el módulo */
+export function findingType(f) {
+  const a = db.get("audits", f?.audit_id), p = a && db.get("audit_plans", a.plan_id);
+  if (p) return p.audit_type;
+  return f?.module === "internas" ? "Interna" : f?.module === "issues" ? "Issues" : null;
+}
+export const verifyDaysFor = (f) => { const t = findingType(f); return t ? verifyDaysForType(t) : verifyDays(); };
 
 /* ------------------------------ Niveles y áreas --------------------------- */
 export const levels = () => db.rows("lpa_levels").filter((l) => l.active).sort((a, b) => a.level - b.level);
@@ -130,7 +140,7 @@ export async function transferFinding(f, to, reason) {
 }
 export const savePlan = (f, text) => db.update("findings", f.id, { action_plan: text });
 export async function closeActions(f, text) {
-  const now = new Date(), verifyDue = shiftBusiness(now, verifyDays() * DAY_MS), late = businessMs(now, dueInstant(f) || now) < 0;
+  const now = new Date(), verifyDue = shiftBusiness(now, verifyDaysFor(f) * DAY_MS), late = businessMs(now, dueInstant(f) || now) < 0;
   const r = await db.update("findings", f.id, {
     action_plan: text, actions_closed_at: now.toISOString(), actions_closed_on: isoDate(now), verify_due_at: verifyDue.toISOString(), verify_due: dueDateOf(verifyDue), status: "verificacion",
   });

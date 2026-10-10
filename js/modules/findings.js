@@ -2,20 +2,20 @@ import * as db from "../db.js";
 import { esc, today, fmtDate, fmtDateTime, downloadCSV } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead, rerender, replaceHash, wsId } from "../router.js";
-import { findingsOf, auditsOf, auditWs, WS_LABEL } from "../scope.js";
+import { findingsOf, auditsOf, auditWs, findingAuditType, typesOf, WS_LABEL } from "../scope.js";
 import { on, onChange, onInput, badge, userCell, empty, openDrawer, openForm, confirmDialog, toast } from "../ui.js";
 import { SOURCE, FINDING_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { notifyFindings } from "../notify.js";
 import { catOpts, clientOpts, mapOpts, catName, clientName } from "./shared.js";
 import {
-  classes, classBadge, classOptions, classTag, scopesForWs, classOf, deadlineFields, areaOptions, resolveOwner, milestones, overdueKind, canAct, canTransfer, canVerify, verifyDays,
+  classes, classBadge, classOptions, classTag, scopesForWs, classOf, deadlineFields, areaOptions, resolveOwner, milestones, overdueKind, canAct, canTransfer, canVerify, verifyDaysFor,
   STAGES, STAGE_LABEL, stageOf, eventsOf, acceptFinding, transferFinding, savePlan, closeActions, acceptVerification, rejectVerification,
 } from "../workflow.js";
 
 // Filtros independientes por módulo (Auditorías, Internas, Issues)
 const FS = {};
-const blankF = () => ({ q: "", status: "", cls: "", source: "", mine: "" });
+const blankF = () => ({ q: "", status: "", cls: "", source: "", mine: "", type: "" });
 const F = new Proxy({}, {
   get: (_, k) => (FS[wsId()] ||= blankF())[k],
   set: (_, k, v) => { (FS[wsId()] ||= blankF())[k] = v; return true; },
@@ -100,7 +100,7 @@ function cloudHTML(m, title, soon) {
     <div class="cloud-clock">${dig(m.dur.d, "días")}${dig(pad(m.dur.h), "horas")}${dig(pad(m.dur.m), "min")}</div>
     <div class="cloud-cap"><b>${esc(m.caption)}</b> · límite ${fmtDateTime(m.due)}</div><div class="progress"><i style="width:${m.pct}%"></i></div></div></div>`;
 }
-const cloudsInner = (f) => { const { m1, m2 } = milestones(f); return `${cloudHTML(m1, "Milestone · Cierre de acciones")}${cloudHTML(m2, "Verificación", `Empieza al cerrar las acciones · ${verifyDays()} días hábiles`)}`; };
+const cloudsInner = (f) => { const { m1, m2 } = milestones(f); return `${cloudHTML(m1, "Milestone · Cierre de acciones")}${cloudHTML(m2, "Verificación", `Empieza al cerrar las acciones · ${verifyDaysFor(f)} días hábiles`)}`; };
 
 function removeClouds() { clearInterval(tickTimer); tickTimer = null; document.getElementById("msClouds")?.remove(); }
 function paintClouds(f) {
@@ -181,7 +181,7 @@ function stageHTML(f, st) {
     return `<h3>Acción</h3><span class="q-label">¿Qué se hará para corregir el hallazgo?</span>${act ? `${textArea(f, "plan", f.action_plan, "Describe la acción correctiva…")}${evid(true)}<div class="stage-actions"><button class="btn" data-action="f-plan-save" data-id="${f.id}">Guardar borrador</button><button class="btn primary" data-action="f-actions-close" data-id="${f.id}">Cerrar acciones y enviar a verificación</button></div>${lock("Para cerrar las acciones se requiere la descripción y al menos una evidencia (archivo o foto).")}` : `${f.action_plan ? `<div class="done-text">${esc(f.action_plan)}</div>` : ""}${evid(false)}${lock(`Solo <b>${ownerName}</b> (o un administrador) puede registrar la acción.`)}`}`;
   }
   if (st === "verificacion") {
-    if (idx > cur) return `<h3>Verificación</h3>${lock(`Disponible cuando se cierren las acciones. Un administrador tendrá ${verifyDays()} días hábiles para aceptar o rechazar.`)}`;
+    if (idx > cur) return `<h3>Verificación</h3>${lock(`Disponible cuando se cierren las acciones. Un administrador tendrá ${verifyDaysFor(f)} días hábiles para aceptar o rechazar.`)}`;
     const recap = `<span class="q-label">Acción realizada</span><div class="done-text">${esc(f.action_plan || "—")}</div>${evid(false)}`;
     if (idx < cur) return `<h3>Verificación</h3>${recap}<span class="q-label">Resultado de la verificación</span><div class="done-text">${esc(f.verification_notes || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">Aceptada por ${esc(db.profileName(f.verified_by))} · ${fmtDateTime(f.verified_at)}</div>`;
     return `<h3>Verificación</h3>${recap}${canVerify(f) ? `<span class="q-label">¿Las acciones fueron efectivas? Describe cómo se verificó</span>${textArea(f, "verify", f.verification_notes, "Resultado de la verificación…")}<div class="stage-actions"><button class="btn primary" data-action="f-verify-accept" data-id="${f.id}">${icon("check2")} Aceptar</button><button class="btn danger" data-action="f-verify-reject" data-id="${f.id}">${icon("close")} Rechazar</button></div>${lock("Aceptar cierra el hallazgo. Rechazar lo reabre y el milestone de cierre continúa donde se quedó.")}` : lock("Solo un <b>administrador</b> puede aceptar o rechazar la verificación.")}`;
@@ -236,7 +236,7 @@ const filtered = () => {
   const q = F.q.toLowerCase();
   const rank = (f) => (db.get("finding_classes", f.class_id)?.days ?? 999);
   return findingsOf(wsId())
-    .filter((f) => (!F.status || stageOf(f) === F.status) && (!F.cls || f.class_id === F.cls) && (!F.source || f.source === F.source) && (!F.mine || f.owner_id === db.state.profile.id) &&
+    .filter((f) => (!F.status || stageOf(f) === F.status) && (!F.cls || f.class_id === F.cls) && (!F.source || f.source === F.source) && (!F.mine || f.owner_id === db.state.profile.id) && (!F.type || (F.type === "none" ? !findingAuditType(f) : findingAuditType(f) === F.type)) &&
       (!q || `${f.code} ${f.title} ${f.area || ""}`.toLowerCase().includes(q)))
     .sort((a, b) => (a.status === "cerrado") - (b.status === "cerrado") || (!!overdueKind(b) - !!overdueKind(a)) || rank(a) - rank(b) || (a.due_date || "9").localeCompare(b.due_date || "9"));
 };
@@ -256,6 +256,7 @@ export default {
         <input class="input grow" type="search" placeholder="Buscar por folio, título o área…" value="${esc(F.q)}" data-input="f-q" id="f-q">
         <select class="select" data-change="f-filter" data-key="status"><option value="">Todas las etapas</option>${Object.entries(FINDING_STATUS).filter(([k]) => k !== "en_analisis").map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <select class="select" data-change="f-filter" data-key="cls"><option value="">Toda clasificación</option>${classes(scopesForWs(wsId())).map((c) => `<option value="${c.id}" ${F.cls === c.id ? "selected" : ""}>${esc(classTag(c))}</option>`).join("")}</select>
+        ${wsId() === "auditorias" ? `<select class="select" data-change="f-filter" data-key="type"><option value="">Todo tipo de auditoría</option>${typesOf("auditorias").map((t) => `<option value="${t}" ${F.type === t ? "selected" : ""}>${t}</option>`).join("")}<option value="none" ${F.type === "none" ? "selected" : ""}>Sin auditoría (manuales)</option></select>` : ""}
         <select class="select" data-change="f-filter" data-key="source"><option value="">Todo origen</option>${Object.entries(SOURCE).map(([k, [l]]) => `<option value="${k}" ${F.source === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <select class="select" data-change="f-filter" data-key="mine"><option value="">Todos los responsables</option><option value="1" ${F.mine ? "selected" : ""}>Solo los míos</option></select>
         <span class="count">${list.length} registro(s)</span>
@@ -286,7 +287,7 @@ on("f-actions-close", async (el) => {
   if (text.length < 5) { toast("Describe qué se hará para corregir el hallazgo.", "danger"); return; }
   if (!ev) { toast("Adjunta al menos una evidencia (archivo o foto) de la acción.", "danger"); return; }
   const m1 = milestones(f).m1, late = m1.state === "overdue";
-  if (!(await confirmDialog({ title: "Cerrar acciones", message: `El milestone de cierre se detiene ahora (${late ? "fuera de tiempo: quedará en rojo" : "a tiempo: quedará en verde"}) y empieza la verificación: un administrador tendrá ${verifyDays()} días hábiles para aceptar o rechazar.`, confirmLabel: "Cerrar acciones" }))) return;
+  if (!(await confirmDialog({ title: "Cerrar acciones", message: `El milestone de cierre se detiene ahora (${late ? "fuera de tiempo: quedará en rojo" : "a tiempo: quedará en verde"}) y empieza la verificación: un administrador tendrá ${verifyDaysFor(f)} días hábiles para aceptar o rechazar.`, confirmLabel: "Cerrar acciones" }))) return;
   run(async () => { await closeActions(f, text); delete drafts[`${f.id}:plan`]; toast("Acciones cerradas · en Verificación", "ok"); notifyFindings([db.get("findings", f.id)], "verify"); }, "verificacion");
 });
 on("f-verify-accept", (el) => {

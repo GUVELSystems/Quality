@@ -17,7 +17,7 @@ Las reglas (quién acepta, traslada, acepta o rechaza) las hace cumplir **la bas
 Aparecen **fuera del panel del hallazgo**, arriba a la izquierda (en pantallas angostas pasan dentro del panel). Se actualizan solos cada 15 s.
 
 1. **Cierre de acciones**: empieza al crearse el hallazgo y su plazo son los **días hábiles** de la clasificación (N1 = 3, N2 = 6…, configurable). Al cerrar las acciones queda **verde** (a tiempo) o **rojo** (tarde) y no cambia.
-2. **Verificación**: empieza al cerrar las acciones y dura **5 días hábiles** (configurable). Es una ventana aparte, así no se pierde la trazabilidad del cierre.
+2. **Verificación**: empieza al cerrar las acciones y dura los **días hábiles definidos para el tipo** del hallazgo (LPA, Producto, Proceso, Sistema, Interna, Issues; 5 por defecto, configurable por tipo en Configuración → Clasificaciones y niveles). Es una ventana aparte, así no se pierde la trazabilidad del cierre.
 
 **Tiempo hábil** = 24 h de lunes a viernes. Sábados y domingos no cuentan (los festivos no se descuentan).
 
@@ -44,3 +44,13 @@ Cada clasificación tiene un campo **Aplica a** (LPA, Producto, Proceso, Sistema
 - **Clasificaciones y niveles**: códigos con sus días hábiles y el tipo al que aplican, los días de verificación y los niveles que usa tu LPA.
 - **Áreas**: dueño del área y responsable por cada nivel LPA.
 - **Catálogos**: categorías de hallazgo, causas raíz y tipos de riesgo.
+
+## Auditorías separadas por tipo
+En el módulo **Auditorías**, las pestañas *Planes* y *Auditorías* tienen una sección por tipo (**LPA, Producto, Proceso, Sistema**), cada una con su propia lista, indicadores y botón para crear planes. Las auditorías internas viven en su propio módulo. La dirección incluye el tipo (`#/auditorias/planes/Producto`) y el portal recuerda el último elegido.
+
+## Auditorías de Producto: dimensiones
+En **Formatos**, al elegir el tipo *Producto*, cada punto tiene una **Sección**: *Dimensión* o *Inspección*.
+- **Inspección**: se responde Cumple / No cumple, como siempre.
+- **Dimensión**: se define el **nominal**, la **tolerancia** (+ y −; si la negativa se deja vacía es simétrica) y la **unidad**, por ejemplo `12.000 ± 0.021 mm`. En la auditoría se captura el **valor medido**: si está dentro de nominal ± tolerancia (los límites cumplen) se marca en verde; si está fuera, se marca **en rojo como No cumple** y pide clasificación y comentario, igual que cualquier No cumple, y genera su hallazgo con el valor medido.
+
+Solo aplica a Producto: los demás tipos de formato no tienen estas opciones.

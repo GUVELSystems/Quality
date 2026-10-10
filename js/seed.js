@@ -39,7 +39,7 @@ export function buildSeed() {
   const finding_classes = [["N1", "Clasificación N1", 3, NORMAL], ["N2", "Clasificación N2", 6, NORMAL], ["N3", "Clasificación N3", 10, NORMAL], ["NCM", "No conformidad mayor", 5, ["Interna"]], ["NCm", "No conformidad menor", 10, ["Interna"]]]
     .map(([c, name, days, scopes]) => ({ id: uuid(), code: c, name, days, scopes, active: true, created_at: daysAgoISO(80) }));
   const klass = (c) => finding_classes.find((x) => x.code === c);
-  const app_settings = [{ key: "verification_days", value: 5, updated_at: daysAgoISO(80) }];
+  const app_settings = [{ key: "verification_days", value: 5 }, { key: "verification_days_LPA", value: 5 }, { key: "verification_days_Producto", value: 5 }, { key: "verification_days_Proceso", value: 5 }, { key: "verification_days_Sistema", value: 5 }, { key: "verification_days_Interna", value: 10 }, { key: "verification_days_Issues", value: 5 }].map((r) => ({ ...r, updated_at: daysAgoISO(80) }));
 
   /* Áreas, dueños y responsables por nivel */
   const areaList = [["Calidad", "u-maria"], ["Producción", "u-juan"], ["Almacén", "u-pedro"], ["Logística", "u-ana"], ["Mantenimiento", "u-juan"], ["Ingeniería", "u-carlos"]];
@@ -55,7 +55,7 @@ export function buildSeed() {
   const addForm = (c, name, audit_type, items) => {
     const f = { id: uuid(), code: c, name, audit_type, version: "1.0", active: true, created_at: daysAgoISO(80), updated_at: daysAgoISO(80) };
     forms.push(f);
-    items.forEach(([areaName, question, critical], i) => form_items.push({ id: uuid(), form_id: f.id, position: i + 1, section: areaName, area_id: area(areaName).id, question, critical }));
+    items.forEach(([areaName, question, critical, spec], i) => form_items.push({ id: uuid(), form_id: f.id, position: i + 1, section: areaName, area_id: area(areaName).id, question, critical, kind: spec?.kind || "inspeccion", nominal: spec?.nominal ?? null, tol_plus: spec?.tol_plus ?? null, tol_minus: spec?.tol_minus ?? null, unit: spec?.unit ?? null, decimals: spec?.decimals ?? null }));
     return f;
   };
   const fLPA = addForm("FOR-LPA-001", "Auditoría en capas (LPA) · Línea de producción", "LPA", [
@@ -66,9 +66,14 @@ export function buildSeed() {
     ["Calidad", "¿El producto no conforme está segregado y etiquetado?", true],
     ["Producción", "¿El área cumple con el estándar 5S?", false],
   ]);
+  const D = (nominal, tol_plus, tol_minus, unit, decimals) => ({ kind: "dimension", nominal, tol_plus, tol_minus, unit, decimals });
   const fPRO = addForm("FOR-PRO-001", "Auditoría de producto terminado", "Producto", [
-    ["Calidad", "¿Las dimensiones críticas cumplen con el plano?", true], ["Calidad", "¿El aspecto visual cumple con el criterio de aceptación?", false],
-    ["Logística", "¿El empaque e identificación cumplen con el requisito del cliente?", true], ["Calidad", "¿Los registros de inspección están completos y firmados?", false],
+    ["Calidad", "Diámetro exterior", true, D(12, 0.021, null, "mm", 3)],
+    ["Calidad", "Longitud total", true, D(45, 0.1, 0.05, "mm", 2)],
+    ["Calidad", "Espesor de pared", false, D(2.5, 0.05, null, "mm", 2)],
+    ["Calidad", "¿El aspecto visual cumple con el criterio de aceptación?", false],
+    ["Logística", "¿El empaque e identificación cumplen con el requisito del cliente?", true],
+    ["Calidad", "¿Los registros de inspección están completos y firmados?", false],
   ]);
   const fINT = addForm("FOR-INT-001", "Auditoría interna del sistema de gestión", "Interna", [
     ["Calidad", "¿La documentación del sistema de gestión está vigente y controlada?", false], ["Calidad", "¿Los registros requeridos se conservan y son legibles?", false],
@@ -130,7 +135,8 @@ export function buildSeed() {
         items.forEach((it, idx) => {
           const bad = (k + idx) % 7 === 0;
           const klassN = plan.audit_type === "Interna" ? (it.critical ? klass("NCM") : klass("NCm")) : (it.critical ? klass("N2") : klass("N3"));
-          const ans = { id: uuid(), audit_id: a.id, item_id: it.id, result: bad ? "nok" : "ok", comment: bad ? "Se detectó desviación durante el recorrido." : null, class_id: bad ? klassN.id : null, finding_id: null, created_at: iso(d + "T11:00:00") };
+          const dim = it.kind === "dimension", dv = dim ? Number((bad ? it.nominal + it.tol_plus * 1.8 : it.nominal + (((k + idx) % 3) - 1) * it.tol_plus * 0.4).toFixed(4)) : null;
+          const ans = { id: uuid(), audit_id: a.id, item_id: it.id, result: bad ? "nok" : "ok", value: dv, comment: bad ? (dim ? `Valor medido fuera de tolerancia: ${dv} ${it.unit}.` : "Se detectó desviación durante el recorrido.") : null, class_id: bad ? klassN.id : null, finding_id: null, created_at: iso(d + "T11:00:00") };
           if (bad) {
             nok++;
             const areaName = areas.find((x) => x.id === it.area_id).name;

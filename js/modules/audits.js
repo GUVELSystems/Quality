@@ -1,17 +1,20 @@
 import * as db from "../db.js";
 import { esc, today, addDays, fmtDate, fmtDateTime, toLocalInput, fromLocalInput, periodEnd, eachDay, isWeekend, mondayOf, parseDate, DOW_SHORT, rangeText } from "../utils.js";
 import { icon } from "../icons.js";
-import { setHead, rerender, navigate, H, wsId } from "../router.js";
-import { typesOf, plansOf, auditsOf, findingsOf, lateActionsOf, planWs, WS_LABEL } from "../scope.js";
+import { setHead, rerender, navigate, replaceHash, H, wsId } from "../router.js";
+import { typesOf, plansOf, auditsOf, findingsOf, findingAuditType, planWs, WS_LABEL, TYPE_ICON } from "../scope.js";
 import { on, onChange, onInput, badge, pill, empty, openForm, openDialog, confirmDialog, toast } from "../ui.js";
 import { AUDIT_STATUS } from "../constants.js";
-import { classOptions, dueFor, deadlineFields, resolveOwner, levelOptions, levelLabel, classBadge } from "../workflow.js";
+import { classOptions, dueFor, deadlineFields, resolveOwner, levelOptions, levelLabel, classBadge, overdueKind } from "../workflow.js";
 import { notifyFindings } from "../notify.js";
+import { isDimension, parseValue, dimEval, dimSpec, specText, rangeText as dimRange, fmtNum, KINDS, SECTION_ORDER } from "../dimension.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts } from "./shared.js";
 
 const F = { q: "", status: "", mine: "" };
 let currentPlanId = null;
+const SEL = {};   // tipo de auditoría elegido por módulo (LPA, Producto…)
+
 let draft = null; // { auditId, answers: { itemId: {result, comment, finding_id} } }
 
 const PLAN_STATUS = { borrador: ["Borrador", "warn"], enviado: ["Enviado", "ok"] };
@@ -36,6 +39,28 @@ export function auditStatus(a) {
 const itemsOf = (formId) => db.rows("form_items").filter((i) => i.form_id === formId).sort((a, b) => a.position - b.position);
 const firstName = (id) => (db.get("profiles", id)?.full_name || "Sin asignar").split(" ")[0];
 const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
+/** Tipo activo del módulo: el de la ruta (#/auditorias/planes/LPA), el último elegido o el primero */
+function pickType(ws, tab, params) {
+  const types = typesOf(ws);
+  if (types.length === 1) return types[0];
+  const want = params?.[0], type = types.includes(want) ? want : types.includes(SEL[ws]) ? SEL[ws] : types[0];
+  SEL[ws] = type;
+  if (want !== type) replaceHash(`${ws}/${tab}/${type}`);
+  return type;
+}
+const currentType = (ws) => (typesOf(ws).includes(SEL[ws]) ? SEL[ws] : typesOf(ws)[0]);
+/** Fila de secciones por tipo: cada tipo de auditoría tiene su propio espacio */
+function typeTabs(ws, tab, active) {
+  const types = typesOf(ws);
+  if (types.length < 2) return "";
+  const plans = plansOf(ws), au = auditsOf(ws).filter((a) => a.status !== "cancelada");
+  return `<div class="type-tabs" role="tablist" aria-label="Tipo de auditoría">${types.map((t) => {
+    const ids = new Set(plans.filter((p) => p.audit_type === t).map((p) => p.id)), mine = au.filter((a) => ids.has(a.plan_id));
+    const pend = mine.filter((a) => ["programada", "en_proceso"].includes(a.status)).length, late = mine.filter((a) => auditStatus(a) === "vencida").length;
+    return `<a class="type-tab ${t === active ? "active" : ""}" role="tab" aria-selected="${t === active}" href="#/${ws}/${tab}/${t}">${icon(TYPE_ICON[t])}<span class="tt-txt"><b>${t}</b><small>${ids.size} plan(es) · ${pend} pendiente(s)</small></span>${late ? `<em class="tt-late" title="${late} vencida(s)">${late}</em>` : ""}</a>`;
+  }).join("")}</div>`;
+}
+
 const planName = (p) => p.name || `${p.audit_type} · ${rangeText(p.start_date, p.end_date)}`;
 const isPending = (a) => a.assigned_to && a.status !== "cancelada" && (!a.notified_at || a.notified_to !== a.assigned_to);
 
@@ -56,7 +81,7 @@ function miniCal(start, end) {
 
 function planWizard() {
   const types = typesOf(wsId());
-  const w = { type: types[0], frequency: "Mensual", start: today(), end: addDays(today(), 13) };
+  const w = { type: currentType(wsId()), frequency: "Mensual", start: today(), end: addDays(today(), 13) };
   const body = `
     <div class="wiz-step"><div class="wiz-label"><i>1</i>¿Qué tipo de auditoría es?</div>
       <div class="opt-cards" id="w-types">${types.map((t) => `<button type="button" class="opt-card" data-type="${t}"><b>${t}</b><small>${TYPE_INFO[t]}</small></button>`).join("")}</div></div>
@@ -132,7 +157,7 @@ function scheduleForm(audit, plan, date) {
       else { const r = await db.insert("audits", { ...data, plan_id: plan.id, status: "programada" }); toast(`${r.code} asignada`, "ok"); }
       await rerender();
     },
-    onDelete: audit && db.can.manage ? async () => { const pid = audit.plan_id; await db.remove("audits", audit.id); toast("Auditoría eliminada"); navigate(pid ? `${wsId()}/plan/${pid}` : `${wsId()}/planes`); } : null,
+    onDelete: audit && db.can.manage ? async () => { const pid = audit.plan_id; await db.remove("audits", audit.id); toast("Auditoría eliminada"); navigate(pid ? `${wsId()}/plan/${pid}` : `${wsId()}/planes/${currentType(wsId())}`); } : null,
   });
 }
 
@@ -141,7 +166,7 @@ function editPlan(plan) {
     eyebrow: plan.code, title: "Editar plan", values: plan, submitLabel: "Guardar",
     fields: [{ name: "name", label: "Nombre del plan", required: true, span2: true }, { name: "notes", label: "Notas", type: "textarea", span2: true }],
     onSubmit: async (v) => { await db.update("audit_plans", plan.id, v); toast("Plan actualizado", "ok"); await rerender(); },
-    onDelete: db.can.manage ? async () => { await db.remove("audit_plans", plan.id); toast("Plan eliminado"); navigate(`${wsId()}/planes`); } : null,
+    onDelete: db.can.manage ? async () => { await db.remove("audit_plans", plan.id); toast("Plan eliminado"); navigate(`${wsId()}/planes/${plan.audit_type}`); } : null,
   });
 }
 
@@ -234,47 +259,49 @@ async function sendPlan(plan) {
 /* ===================================================================== */
 /*  Vistas                                                                */
 /* ===================================================================== */
-function moduleKpis(ws) {
-  const t = today(), au = auditsOf(ws).filter((a) => a.status !== "cancelada"), month = au.filter((a) => a.scheduled_date.startsWith(t.slice(0, 7)));
+function moduleKpis(ws, type) {
+  const t = today(), plans = plansOf(ws).filter((p) => !type || p.audit_type === type), ids = new Set(plans.map((p) => p.id));
+  const au = auditsOf(ws).filter((a) => ids.has(a.plan_id) && a.status !== "cancelada"), month = au.filter((a) => a.scheduled_date.startsWith(t.slice(0, 7)));
   const done = month.filter((a) => a.status === "completada").length, pct = month.length ? Math.round((done / month.length) * 100) : 0;
-  const openF = findingsOf(ws).filter((f) => f.status !== "cerrado"), late = lateActionsOf(ws);
-  const live = plansOf(ws).filter((p) => p.end_date >= t).length;
+  const fs = findingsOf(ws).filter((f) => !type || findingAuditType(f) === type), openF = fs.filter((f) => f.status !== "cerrado"), late = fs.filter((f) => overdueKind(f) === "cierre");
+  const live = plans.filter((p) => p.end_date >= t).length;
   return `<div class="kpi-strip">
-    <div class="kpi" data-tone="info"><label>Planes vigentes</label><strong>${live}</strong><small>${plansOf(ws).length} en total</small></div>
+    <div class="kpi" data-tone="info"><label>Planes vigentes</label><strong>${live}</strong><small>${plans.length} en total${type ? " · " + type : ""}</small></div>
     <div class="kpi" data-tone="${!month.length ? "" : pct >= 90 ? "ok" : pct >= 70 ? "warn" : "danger"}"><label>Cumplimiento del mes</label><strong>${pct}%</strong><small>${done} de ${month.length} realizadas</small></div>
-    <a class="kpi" href="${H("hallazgos")}" data-tone="${openF.length ? "warn" : "ok"}"><label>Hallazgos abiertos</label><strong>${openF.length}</strong><small>${openF.filter((f) => f.status === "abierto").length} por aceptar · solo de este módulo</small></a>
+    <a class="kpi" href="${H("hallazgos")}" data-tone="${openF.length ? "warn" : "ok"}"><label>Hallazgos abiertos</label><strong>${openF.length}</strong><small>${openF.filter((f) => f.status === "abierto").length} por aceptar${type ? " · de " + type : ""}</small></a>
     <a class="kpi" href="${H("acciones")}" data-tone="${late.length ? "danger" : "ok"}"><label>Acciones vencidas</label><strong>${late.length}</strong><small>Plazo en días hábiles superado</small></a></div>`;
 }
 
-function renderPlanes(root) {
-  const ws = wsId(), internal = ws === "internas";
+function renderPlanes(root, params) {
+  const ws = wsId(), internal = ws === "internas", type = pickType(ws, "planes", params);
   setHead({
-    title: internal ? "Planes de auditoría interna" : "Planes de auditoría",
-    subtitle: internal ? "Planifica las auditorías internas por periodo, asigna a tu equipo y envía las notificaciones." : "Crea planes por periodo (LPA, producto, proceso, sistema), asigna a tu equipo y envía las notificaciones para que realicen cada auditoría.",
-    actions: db.can.write ? `<button class="btn primary" data-action="au-plan-new">${icon("plus")} Crear plan de auditoría</button>` : "",
+    title: internal ? "Planes de auditoría interna" : `Planes · ${type}`,
+    subtitle: internal ? "Planifica las auditorías internas por periodo, asigna a tu equipo y envía las notificaciones." : `Planes de auditoría ${type}: crea el calendario, asigna a tu equipo y envía las notificaciones para que realicen cada auditoría.`,
+    actions: db.can.write ? `<button class="btn primary" data-action="au-plan-new">${icon("plus")} Crear plan de auditoría${internal ? "" : " " + type}</button>` : "",
   });
-  const plans = plansOf(ws).sort((a, b) => b.start_date.localeCompare(a.start_date)), all = auditsOf(ws);
-  const body = plans.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Plan</th><th>Tipo</th><th>Periodo</th><th style="min-width:170px">Avance</th><th>Envío</th><th></th></tr></thead><tbody>
+  const plans = plansOf(ws).filter((p) => p.audit_type === type).sort((a, b) => b.start_date.localeCompare(a.start_date)), all = auditsOf(ws);
+  const body = plans.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Plan</th><th>Frecuencia</th><th>Periodo</th><th style="min-width:170px">Avance</th><th>Envío</th><th></th></tr></thead><tbody>
       ${plans.map((p) => { const au = all.filter((a) => a.plan_id === p.id && a.status !== "cancelada"), done = au.filter((a) => a.status === "completada").length, pct = au.length ? Math.round((done / au.length) * 100) : 0, st = p.status || "borrador";
-        return `<tr data-action="au-plan-open" data-id="${p.id}"><td><span class="title">${esc(planName(p))}</span><span class="sub mono">${esc(p.code)}</span></td><td>${esc(p.audit_type)}<span class="sub">${p.frequency === "Custom" ? "Personalizado" : esc(p.frequency)}</span></td><td>${rangeText(p.start_date, p.end_date)}</td>
+        return `<tr data-action="au-plan-open" data-id="${p.id}"><td><span class="title">${esc(planName(p))}</span><span class="sub mono">${esc(p.code)}</span></td><td>${p.frequency === "Custom" ? "Personalizado" : esc(p.frequency)}</td><td>${rangeText(p.start_date, p.end_date)}</td>
         <td><div class="progress"><i style="width:${pct}%"></i></div><span class="sub mono">${done}/${au.length} realizadas · ${pct}%</span></td><td>${badge(PLAN_STATUS, st)}${p.sent_at ? `<span class="sub">${fmtDate(p.sent_at.slice(0, 10))}</span>` : ""}</td>
         <td class="end"><a class="btn sm" href="${H("plan/" + p.id)}">${icon("calendar")} Calendario</a> <button class="btn sm icon" data-action="au-export" data-id="${p.id}" title="Exportar PDF" aria-label="Exportar PDF">${icon("download")}</button></td></tr>`; }).join("")}
-      </tbody></table></div>` : empty("Aún no hay planes", "Crea tu primer plan: elige tipo, frecuencia y fecha de inicio; el calendario se genera solo.", "calendar");
-  root.innerHTML = `<div class="stack">${moduleKpis(ws)}<div class="panel">${body}</div></div>`;
+      </tbody></table></div>` : empty(`Aún no hay planes ${internal ? "internos" : "de " + type}`, "Crea el primero: elige frecuencia y fecha de inicio; el calendario se genera solo.", "calendar");
+  root.innerHTML = `<div class="stack">${typeTabs(ws, "planes", type)}${moduleKpis(ws, internal ? null : type)}<div class="panel">${body}</div></div>`;
 }
 
-function renderLista(root) {
-  const ws = wsId();
-  setHead({ title: ws === "internas" ? "Auditorías internas" : "Auditorías", subtitle: "Todas las auditorías programadas, en proceso y completadas. Entra a una para ejecutar su checklist." });
-  const all = auditsOf(ws), q = F.q.toLowerCase();
+function renderLista(root, params) {
+  const ws = wsId(), type = pickType(ws, "lista", params), internal = ws === "internas";
+  setHead({ title: internal ? "Auditorías internas" : `Auditorías · ${type}`, subtitle: `Todas las auditorías ${internal ? "internas" : "de " + type} programadas, en proceso y completadas. Entra a una para ejecutar su checklist.` });
+  const ids = new Set(plansOf(ws).filter((p) => p.audit_type === type).map((p) => p.id)), q = F.q.toLowerCase();
+  const all = auditsOf(ws).filter((a) => ids.has(a.plan_id));
   const list = all.filter((a) => (!F.status || auditStatus(a) === F.status) && (!F.mine || a.assigned_to === db.state.profile.id) && (!q || a.code.toLowerCase().includes(q)))
     .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date));
-  root.innerHTML = `<div class="panel"><div class="toolbar"><input class="input grow" id="au-q" type="search" placeholder="Buscar por folio…" value="${esc(F.q)}" data-input="au-q">
+  root.innerHTML = `<div class="stack">${typeTabs(ws, "lista", type)}<div class="panel"><div class="toolbar"><input class="input grow" id="au-q" type="search" placeholder="Buscar por folio…" value="${esc(F.q)}" data-input="au-q">
       <select class="select" data-change="au-filter" data-key="status"><option value="">Todos los estados</option>${Object.entries(AUDIT_STATUS).map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
       <select class="select" data-change="au-filter" data-key="mine"><option value="">Todos los auditores</option><option value="1" ${F.mine ? "selected" : ""}>Solo mis auditorías</option></select><span class="count">${list.length} auditoría(s)</span></div>
       ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Plan</th><th>Fecha</th><th>Asignado a</th><th>Formato</th><th>Estado</th><th class="num">Resultado</th></tr></thead><tbody>
-      ${list.map((a) => { const p = db.get("audit_plans", a.plan_id), f = db.get("forms", a.form_id); return `<tr data-action="au-open" data-id="${a.id}"><td class="code">${esc(a.code)}</td><td>${esc(p?.audit_type || "—")}${a.level ? ` · N${a.level}` : ""}<span class="sub">${esc(p?.code || "")}</span></td><td>${fmtDate(a.scheduled_date)}</td><td>${esc(db.profileName(a.assigned_to))}</td><td class="mono">${esc(f?.code || "—")}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="num mono">${a.score != null ? Number(a.score).toFixed(0) + "%" : "—"}</td></tr>`; }).join("")}
-      </tbody></table></div>` : empty("Sin auditorías", "No hay auditorías con los filtros actuales.", "audit")}</div>`;
+      ${list.map((a) => { const p = db.get("audit_plans", a.plan_id), f = db.get("forms", a.form_id); return `<tr data-action="au-open" data-id="${a.id}"><td class="code">${esc(a.code)}</td><td>${esc(p?.name || p?.code || "—")}${a.level ? `<span class="sub">${esc(levelLabel(a.level))}</span>` : `<span class="sub">${esc(p?.code || "")}</span>`}</td><td>${fmtDate(a.scheduled_date)}</td><td>${esc(db.profileName(a.assigned_to))}</td><td class="mono">${esc(f?.code || "—")}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="num mono">${a.score != null ? Number(a.score).toFixed(0) + "%" : "—"}</td></tr>`; }).join("")}
+      </tbody></table></div>` : empty(`Sin auditorías ${internal ? "internas" : "de " + type}`, "No hay auditorías con los filtros actuales.", "audit")}</div></div>`;
 }
 
 function calendarView(root, planId) {
@@ -291,7 +318,7 @@ function calendarView(root, planId) {
   setHead({
     eyebrow: `${plan.code} · ${plan.audit_type} · ${plan.frequency === "Custom" ? "Personalizado" : plan.frequency}`, title: planName(plan),
     subtitle: `${rangeText(plan.start_date, plan.end_date)} · ${days.length} días (${hab} hábiles, ${days.length - hab} inhábiles)`,
-    actions: `<a class="btn" href="${H("planes")}">${icon("chevL")} Planes</a>${db.can.write ? `<button class="btn" data-action="au-plan-edit" data-id="${plan.id}">${icon("edit")} Editar</button><button class="btn" data-action="au-bulk" data-id="${plan.id}">${icon("wand")} Asignación rápida</button>` : ""}<button class="btn" data-action="au-export" data-id="${plan.id}">${icon("download")} Exportar PDF</button>${db.can.write ? `<button class="btn primary" data-action="au-send" data-id="${plan.id}">${icon("send")} ${sent ? "Reenviar" : "Terminar y Enviar"}</button>` : ""}`,
+    actions: `<a class="btn" href="${H("planes/" + plan.audit_type)}">${icon("chevL")} Planes · ${esc(plan.audit_type)}</a>${db.can.write ? `<button class="btn" data-action="au-plan-edit" data-id="${plan.id}">${icon("edit")} Editar</button><button class="btn" data-action="au-bulk" data-id="${plan.id}">${icon("wand")} Asignación rápida</button>` : ""}<button class="btn" data-action="au-export" data-id="${plan.id}">${icon("download")} Exportar PDF</button>${db.can.write ? `<button class="btn primary" data-action="au-send" data-id="${plan.id}">${icon("send")} ${sent ? "Reenviar" : "Terminar y Enviar"}</button>` : ""}`,
   });
   const t = today(), weeks = [];
   for (let m = mondayOf(plan.start_date); m <= plan.end_date; m = addDays(m, 7)) weeks.push(eachDay(m, addDays(m, 6)));
@@ -321,10 +348,25 @@ function calendarView(root, planId) {
 function initDraft(audit) {
   if (draft?.auditId === audit.id) return;
   draft = { auditId: audit.id, answers: {} };
-  db.rows("audit_answers").filter((a) => a.audit_id === audit.id).forEach((a) => (draft.answers[a.item_id] = { result: a.result, comment: a.comment || "", class_id: a.class_id || "", finding_id: a.finding_id }));
+  db.rows("audit_answers").filter((a) => a.audit_id === audit.id).forEach((a) => (draft.answers[a.item_id] = { result: a.result, comment: a.comment || "", class_id: a.class_id || "", finding_id: a.finding_id, value: a.value ?? "" }));
 }
 const RES = { ok: "Cumple", nok: "No cumple", na: "N/A" };
 const areaName = (it) => db.get("areas", it.area_id)?.name || it.section || "General";
+const isProductForm = (items) => items.some(isDimension);          // Dimensión solo existe en formatos de Producto
+const sectionName = (it, product) => (product ? KINDS[it.kind] || KINDS.inspeccion : areaName(it));
+
+/** Evalúa un punto de dimensión con el texto capturado: actualiza resultado y devuelve el veredicto */
+function applyDim(it, a) {
+  const v = parseValue(a.value);
+  if (a.result === "na") return null;
+  if (v === null) { a.result = ""; return null; }
+  const e = dimEval(it, v); a.result = e.ok ? "ok" : "nok"; return e;
+}
+const verdictHTML = (it, e) => {
+  if (!e) return "";
+  const dec = e.dec, u = e.unit ? " " + e.unit : "";
+  return e.ok ? `<b>✔ Dentro de tolerancia</b>` : `<b>✖ Fuera de tolerancia</b> · ${e.dev > 0 ? "excede el límite superior" : "por debajo del límite inferior"} (${e.dev > 0 ? "+" : "−"}${fmtNum(Math.abs(e.dev), dec)}${u})`;
+};
 
 /** Texto de ayuda al marcar "No cumple": plazo en días hábiles y responsable automático */
 function nokHint(it, audit, classId) {
@@ -334,9 +376,34 @@ function nokHint(it, audit, classId) {
   return `${plazo}<br>${resp}`;
 }
 
+function dimensionHTML(it, readonly, audit, a, f, nok, copts, ptype) {
+  const sp = dimSpec(it), ev = a.result && a.result !== "na" && parseValue(a.value) !== null ? dimEval(it, parseValue(a.value)) : null, u = sp.unit;
+  const spec = `<div class="dim-spec"><span class="dim-chip">${icon("ruler")} Dimensión</span><b>${esc(specText(it))}</b><span class="dim-range">Rango aceptado: <b>${esc(dimRange(it))}</b></span></div>`;
+  const tag = `<span class="q-area">${esc(areaName(it))}</span>`;
+  if (readonly) {
+    return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}" data-kind="dimension"><div class="q-text"><span>${esc(it.question)}</span>${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}${tag}</div>${spec}
+      <div class="dim-row"><div class="dim-read ${a.result === "nok" ? "bad" : a.result === "ok" ? "good" : ""}">${a.result === "na" ? "N/A" : a.value !== "" && a.value != null ? `${fmtNum(a.value, sp.dec)} ${esc(u)}` : "Sin capturar"}</div><div class="dim-verdict ${a.result === "nok" ? "bad" : "good"}">${verdictHTML(it, ev)}</div></div>
+      ${nok && f ? `<div style="margin-top:8px">${classBadge(f)}</div>` : ""}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado · responsable ${esc(db.profileName(f.owner_id))}</span></div>` : ""}
+      ${attachmentsSection("audit", audit.id, { ref: it.id, compact: true, canEdit: false })}</div>`;
+  }
+  return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}" data-kind="dimension">
+    <div class="q-text"><span>${esc(it.question)}</span>${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}${tag}</div>${spec}
+    <div class="dim-row"><label class="dim-field"><span>Valor medido</span><span class="dim-input-wrap"><input class="input dim-input ${a.result === "nok" ? "bad" : a.result === "ok" ? "good" : ""}" inputmode="decimal" autocomplete="off" placeholder="${fmtNum(sp.nominal, sp.dec)}" data-input="au-dim" data-item="${it.id}" value="${esc(a.value ?? "")}" ${a.result === "na" ? "disabled" : ""}>${u ? `<i>${esc(u)}</i>` : ""}</span></label>
+      <div class="dim-verdict ${a.result === "nok" ? "bad" : "good"}" id="dv_${it.id}" aria-live="polite">${verdictHTML(it, ev)}</div>
+      <button type="button" class="btn sm ghost" data-action="au-ans" data-item="${it.id}" data-v="na" aria-pressed="${a.result === "na"}">N/A</button></div>
+    <div class="q-nok ${nok ? "" : "hidden"}">
+      <label class="field" style="margin-top:12px;max-width:340px"><span>Clasificación <i>*</i></span>
+        <select class="select" data-change="au-class" data-item="${it.id}"><option value="">Seleccionar clasificación</option>${copts.map(([v, l]) => `<option value="${v}" ${v === a.class_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+      ${copts.length ? "" : `<div class="alert" style="margin-top:8px">No hay clasificaciones configuradas para auditorías <b>${esc(ptype)}</b>. Créalas en Configuración → Clasificaciones y niveles.</div>`}
+      <div class="q-hint" id="qh_${it.id}">${nokHint(it, audit, a.class_id)}</div></div>
+    <textarea class="textarea" data-input="au-comment" data-item="${it.id}" placeholder="${nok ? "Comentario obligatorio: describe lo encontrado (aunque adjuntes evidencia)" : "Comentario (opcional)"}">${esc(a.comment || "")}</textarea>
+    ${attachmentsSection("audit", audit.id, { ref: it.id, compact: true, canEdit: true })}</div>`;
+}
+
 function questionHTML(it, readonly, audit) {
   const a = draft.answers[it.id] || {}, f = db.get("findings", a.finding_id), nok = a.result === "nok";
   const ptype = db.get("audit_plans", audit.plan_id)?.audit_type, copts = classOptions([ptype]);
+  if (isDimension(it)) return dimensionHTML(it, readonly, audit, a, f, nok, copts, ptype);
   return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}">
     <div class="q-text"><span>${esc(it.question)}</span>${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}</div>
     ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RES[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${nok && f ? ` ${classBadge(f)}` : ""}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado · responsable ${esc(db.profileName(f.owner_id))}</span></div>` : ""}</div>`
@@ -371,13 +438,14 @@ function auditView(root, id) {
     eyebrow: `${plan?.code || "Auditoría"} · ${plan?.audit_type || ""}`, title: audit.code, subtitle: form ? `${form.code} · ${form.name}` : "Sin formato asignado",
     actions: `<a class="btn" href="${H(plan ? "plan/" + plan.id : "lista")}">${icon("chevL")} ${plan ? "Calendario" : "Auditorías"}</a>${db.can.write ? `<button class="btn" data-action="au-edit" data-id="${audit.id}">${icon("edit")} Programación</button>` : ""}${audit.status === "completada" && db.can.manage ? `<button class="btn" data-action="au-reopen" data-id="${audit.id}">Reabrir</button>` : ""}`,
   });
-  const sections = [...new Set(items.map(areaName))];
+  const product = isProductForm(items);
+  const sections = product ? SECTION_ORDER.map((k) => KINDS[k]).filter((n) => items.some((i) => sectionName(i, true) === n)) : [...new Set(items.map(areaName))];
   const linked = db.rows("findings").filter((f) => f.audit_id === audit.id);
   root.innerHTML = `<div class="grid cols-main" style="align-items:start">
     <div class="panel"><div class="panel-head"><h2>Checklist</h2>${badge(AUDIT_STATUS, st)}</div><div class="panel-body">
       ${!form ? empty("Sin formato", "Asigna un formato en “Programación” para poder ejecutar la auditoría.", "form")
         : !items.length ? empty("El formato no tiene preguntas", "Agrega preguntas en la pestaña Formatos.", "form")
-        : sections.map((s) => `<div class="check-section">${esc(s)}</div>${items.filter((i) => areaName(i) === s).map((i) => questionHTML(i, locked, audit)).join("")}`).join("")}
+        : sections.map((s) => `<div class="check-section">${esc(s)}</div>${items.filter((i) => sectionName(i, product) === s).map((i) => questionHTML(i, locked, audit)).join("")}`).join("")}
     </div>${!locked && items.length ? `<div class="dialog-foot"><button class="btn" data-action="au-save" data-id="${audit.id}">Guardar avance</button><button class="btn primary" data-action="au-finish" data-id="${audit.id}">Finalizar auditoría</button></div>` : ""}</div>
     <div class="stack">
       <div class="panel"><div class="panel-body" id="au-progress">${audit.status === "completada" ? `<div class="score-ring"><strong>${audit.score != null ? Number(audit.score).toFixed(0) + "%" : "—"}</strong><div><div class="eyebrow">Resultado final</div><div class="muted">Completada ${fmtDateTime(audit.completed_at)}</div></div></div>` : progressHTML(items)}</div></div>
@@ -392,7 +460,7 @@ function auditView(root, id) {
 }
 
 async function saveAnswers(audit) {
-  const rowsToSave = Object.entries(draft.answers).filter(([, a]) => a.result).map(([item_id, a]) => ({ audit_id: audit.id, item_id, result: a.result, comment: a.comment || null, class_id: a.class_id || null, finding_id: a.finding_id || null }));
+  const rowsToSave = Object.entries(draft.answers).filter(([, a]) => a.result).map(([item_id, a]) => ({ audit_id: audit.id, item_id, result: a.result, comment: a.comment || null, class_id: a.class_id || null, finding_id: a.finding_id || null, value: a.result === "na" ? null : parseValue(a.value) }));
   await db.upsertMany("audit_answers", rowsToSave, ["audit_id", "item_id"]);
 }
 
@@ -430,16 +498,37 @@ function refreshProgress() {
 }
 const auditOfDraft = () => db.get("audits", draft.auditId);
 const itemById = (id) => db.get("form_items", id);
-on("au-ans", (el) => {
-  const id = el.dataset.item, a = (draft.answers[id] ||= { result: "", comment: "", class_id: "" });
-  a.result = a.result === el.dataset.v ? "" : el.dataset.v;
-  const q = document.getElementById("q_" + id);
-  q.dataset.result = a.result; q.classList.remove("q-error");
+/** Repinta el estado de una pregunta tras cambiar su resultado (botones o valor medido) */
+function paintQuestion(id) {
+  const a = draft.answers[id], it = itemById(id), q = document.getElementById("q_" + id);
+  if (!q) return;
+  q.dataset.result = a.result || ""; q.classList.remove("q-error");
   q.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === a.result)));
   q.querySelector(".q-nok")?.classList.toggle("hidden", a.result !== "nok");
   const ta = q.querySelector("textarea"); if (ta) ta.placeholder = a.result === "nok" ? "Comentario obligatorio: describe lo encontrado (aunque adjuntes evidencia)" : "Comentario (opcional)";
-  const h = document.getElementById("qh_" + id); if (h) h.innerHTML = nokHint(itemById(id), auditOfDraft(), a.class_id);
+  const h = document.getElementById("qh_" + id); if (h) h.innerHTML = nokHint(it, auditOfDraft(), a.class_id);
+  if (isDimension(it)) {
+    const inp = q.querySelector(".dim-input"), ver = document.getElementById("dv_" + id), e = a.result === "na" ? null : parseValue(a.value) !== null ? dimEval(it, parseValue(a.value)) : null;
+    if (inp) { inp.classList.toggle("bad", a.result === "nok"); inp.classList.toggle("good", a.result === "ok"); inp.disabled = a.result === "na"; }
+    if (ver) { ver.className = `dim-verdict ${a.result === "nok" ? "bad" : "good"}`; ver.innerHTML = verdictHTML(it, e); }
+    q.querySelector('[data-v="na"]')?.setAttribute("aria-pressed", String(a.result === "na"));
+  }
   refreshProgress();
+}
+on("au-ans", (el) => {
+  const id = el.dataset.item, a = (draft.answers[id] ||= { result: "", comment: "", class_id: "", value: "" }), it = itemById(id);
+  a.result = a.result === el.dataset.v ? "" : el.dataset.v;
+  if (isDimension(it)) {                                   // N/A limpia el valor; al quitar N/A se vuelve a evaluar el valor capturado
+    if (a.result === "na") { a.value = ""; const inp = document.querySelector(`#q_${id} .dim-input`); if (inp) inp.value = ""; }
+    else applyDim(it, a);
+  }
+  paintQuestion(id);
+});
+/** Valor medido de un punto de dimensión: se compara en vivo con nominal ± tolerancia */
+onInput("au-dim", (el) => {
+  const id = el.dataset.item, a = (draft.answers[id] ||= { result: "", comment: "", class_id: "", value: "" });
+  a.value = el.value; if (a.result === "na") a.result = "";
+  applyDim(itemById(id), a); paintQuestion(id);
 });
 onChange("au-class", (el) => {
   const id = el.dataset.item, a = (draft.answers[id] ||= { result: "nok", comment: "", class_id: "" });
@@ -474,7 +563,8 @@ on("au-finish", async (el) => {
     for (const it of noks) {
       const ans = draft.answers[it.id];
       const f = await db.insert("findings", {
-        title: `${audit.code} · ${it.question.replace(/[¿?]/g, "").trim()}`.slice(0, 160) + " (No cumple)", description: ans.comment,
+        title: isDimension(it) ? `${audit.code} · ${it.question} fuera de tolerancia`.slice(0, 160) : `${audit.code} · ${it.question.replace(/[¿?]/g, "").trim()}`.slice(0, 160) + " (No cumple)",
+        description: isDimension(it) ? `${ans.comment}\nValor medido: ${ans.value} ${dimSpec(it).unit} · especificación ${specText(it)} (rango ${dimRange(it)})` : ans.comment,
         source: "auditoria", module: planWs(db.get("audit_plans", audit.plan_id)), class_id: ans.class_id, area_id: it.area_id || null, area: db.get("areas", it.area_id)?.name || null,
         audit_id: audit.id, owner_id: resolveOwner(it.area_id, audit.level), status: "abierto", ...deadlineFields(ans.class_id),
       });

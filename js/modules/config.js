@@ -5,7 +5,7 @@ import { icon } from "../icons.js";
 import { setHead, rerender } from "../router.js";
 import { on, onInput, empty, openForm, toast, pill } from "../ui.js";
 import { makeCrud } from "./crud.js";
-import { classes, classTone, levels, levelLabel, verifyDays, SCOPES, scopesOf } from "../workflow.js";
+import { classes, classTone, levels, levelLabel, verifyDays, verifyDaysForType, VERIFY_TYPES, SCOPES, scopesOf } from "../workflow.js";
 
 const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
 const yesNo = (v) => (v ? pill("Activo", "ok") : pill("Inactivo", "neutral"));
@@ -27,10 +27,11 @@ export const findingClasses = makeCrud({
     { name: "scopes", label: "Aplica a", type: "multicheck", required: true, span2: true, options: SCOPES.map((s) => [s, s === "Issues" ? "Issues (clientes)" : s]), hint: "Solo se podrá elegir en auditorías de los tipos marcados. Ej.: en Interna usa NCM / NCm en lugar de N1." },
   ],
   beforeSave: (v) => { if (!(v.scopes || []).length) throw new Error("Marca al menos un tipo en «Aplica a»."); return { ...v, code: v.code.trim() }; },
-  intro: () => `<div class="panel"><div class="panel-head"><h2>Verificación</h2><small>Aplica a todos los hallazgos</small></div><div class="panel-body" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
-      <label class="field" style="max-width:300px"><span>Días hábiles para verificar, después de cerrar las acciones</span><input class="input" type="number" min="1" max="365" id="cfg-verify" value="${verifyDays()}" ${db.can.manage ? "" : "disabled"}></label>
-      ${db.can.manage ? `<button class="btn" data-action="cfg-save-verify">Guardar</button>` : ""}
-      <span class="muted" style="font-size:13px">Ejemplo: LPA → N1 = 3 días hábiles · Interna → NCM = 5 días hábiles.</span></div></div>`,
+  intro: () => `<div class="panel"><div class="panel-head"><h2>Días de verificación por tipo</h2><small>Días hábiles que tiene el administrador para aceptar o rechazar, después de cerrar las acciones</small></div><div class="panel-body">
+      <div class="verify-grid">${VERIFY_TYPES.map((t) => `<label class="field"><span>${t === "Issues" ? "Issues (clientes)" : t}</span><input class="input" type="number" min="1" max="365" data-vtype="${t}" value="${verifyDaysForType(t)}" ${db.can.manage ? "" : "disabled"}></label>`).join("")}
+        <label class="field"><span>Por defecto <small class="muted">(sin tipo)</small></span><input class="input" type="number" min="1" max="365" data-vtype="default" value="${verifyDays()}" ${db.can.manage ? "" : "disabled"}></label></div>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:14px">${db.can.manage ? `<button class="btn" data-action="cfg-save-verify">Guardar días de verificación</button>` : ""}
+        <span class="muted" style="font-size:13px">Ejemplo: LPA → 5 días · Interna → 10 días. Se aplica a los hallazgos cuyas acciones se cierren a partir de ahora.</span></div></div></div>`,
   columns: [
     { label: "Código", cell: (r) => `<span class="badge" data-tone="${classTone(r)}" style="text-transform:none">${esc(r.code)}</span>` },
     { label: "Nombre", cell: (r) => `<span class="title">${esc(r.name || r.code)}</span>` },
@@ -41,9 +42,12 @@ export const findingClasses = makeCrud({
   ],
 });
 on("cfg-save-verify", async () => {
-  const v = Number(document.getElementById("cfg-verify").value);
-  if (!(v >= 1)) { toast("Escribe un número de días válido.", "danger"); return; }
-  try { await db.saveSetting("verification_days", v); toast("Días de verificación guardados", "ok"); await rerender(); } catch (e) { toast(e.message, "danger"); }
+  const vals = [...document.querySelectorAll("[data-vtype]")].map((i) => [i.dataset.vtype, Number(i.value)]);
+  if (vals.some(([, v]) => !(v >= 1))) { toast("Escribe un número de días válido (1 o más) en cada tipo.", "danger"); return; }
+  try {
+    for (const [t, v] of vals) await db.saveSetting(t === "default" ? "verification_days" : `verification_days_${t}`, v);
+    toast("Días de verificación guardados", "ok"); await rerender();
+  } catch (e) { toast(e.message, "danger"); }
 });
 
 /* ------------------------------- Niveles de LPA --------------------------------- */

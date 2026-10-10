@@ -56,7 +56,7 @@ Guía completa paso a paso (Auth, SMTP, Resend, Edge Functions, checklist de pru
 
 Resumen:
 
-1. Crea un proyecto en [supabase.com](https://supabase.com) y ejecuta en el **SQL Editor**, en orden: `supabase/01_schema.sql` → `02_policies.sql` → `03_seed.sql` → `04_attachments.sql` → `05_audit_notifications.sql` → `06_modules.sql` → `07_workflow.sql` → `08_milestones_notifications.sql` → `09_class_scopes.sql`.
+1. Crea un proyecto en [supabase.com](https://supabase.com) y ejecuta en el **SQL Editor**, en orden: `supabase/01_schema.sql` → `02_policies.sql` → `03_seed.sql` → `04_attachments.sql` → `05_audit_notifications.sql` → `06_modules.sql` → `07_workflow.sql` → `08_milestones_notifications.sql` → `09_class_scopes.sql` → `10_product_dimensions.sql`.
 2. **Auth**: desactiva el registro libre («Allow new users to sign up»), define *Site URL* y *Redirect URLs* con la URL del portal.
 3. Crea tu usuario en *Authentication → Users*. **El primer usuario es administrador**; a los demás los invitas desde el portal (*Configuración → Usuarios → Invitar usuario*).
 4. Despliega las Edge Functions (`invite-user`, `notify-audit-plan`) y carga los secretos `RESEND_API_KEY`, `FROM_EMAIL`, `SITE_URL`.

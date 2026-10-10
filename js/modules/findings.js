@@ -9,7 +9,7 @@ import { attachmentsSection, hooks } from "./attachments.js";
 import { notifyFindings } from "../notify.js";
 import { catOpts, clientOpts, mapOpts, catName, clientName } from "./shared.js";
 import {
-  classes, classBadge, classOptions, classOf, deadlineFields, areaOptions, resolveOwner, milestones, overdueKind, canAct, canTransfer, canVerify, verifyDays,
+  classes, classBadge, classOptions, classTag, scopesForWs, classOf, deadlineFields, areaOptions, resolveOwner, milestones, overdueKind, canAct, canTransfer, canVerify, verifyDays,
   STAGES, STAGE_LABEL, stageOf, eventsOf, acceptFinding, transferFinding, savePlan, closeActions, acceptVerification, rejectVerification,
 } from "../workflow.js";
 
@@ -27,11 +27,12 @@ let drawer = null, drawerId = null, viewStage = null, tickTimer = null;
 const drafts = {}; // texto escrito y aún no guardado, por hallazgo y etapa
 
 /* ------------------------------- Formularios ------------------------------- */
-const findingFields = (editing) => ([
+const classChoices = (current) => { const o = classOptions(scopesForWs(wsId())); const c = db.get("finding_classes", current); if (c && !o.some(([v]) => v === c.id)) o.push([c.id, `${c.code} · ${c.days} días hábiles (fuera de este módulo)`]); return o; };
+const findingFields = (editing, current) => ([
   { name: "title", label: "Título del hallazgo", required: true, span2: true },
   { name: "description", label: "Descripción", type: "textarea", span2: true },
   { name: "source", label: "Origen", type: "select", required: true, options: mapOpts(SOURCE) },
-  { name: "class_id", label: "Clasificación", type: "select", required: true, options: classOptions(), hint: "Define el plazo en días hábiles para cerrar las acciones." },
+  { name: "class_id", label: "Clasificación", type: "select", required: true, options: classChoices(current), hint: classOptions(scopesForWs(wsId())).length ? "Define el plazo en días hábiles para cerrar las acciones." : "No hay clasificaciones para este módulo: créalas en Configuración → Clasificaciones y niveles." },
   { name: "area_id", label: "Área", type: "select", options: areaOptions() },
   ...(!editing || db.can.admin ? [{ name: "owner_id", label: "Responsable", type: "select", options: staff().map((p) => [p.id, p.full_name]), hint: editing ? "" : "Si lo dejas vacío se asigna el dueño del área." }] : []),
   { name: "classification_id", label: "Categoría", type: "select", options: catOpts("categoria_hallazgo") },
@@ -53,7 +54,7 @@ export function newFinding(defaults = {}) {
 }
 function editFinding(f) {
   openForm({
-    eyebrow: f.code, title: "Editar hallazgo", fields: findingFields(true), values: f, size: "wide",
+    eyebrow: f.code, title: "Editar hallazgo", fields: findingFields(true, f.class_id), values: f, size: "wide",
     onSubmit: async (v) => {
       const patch = { ...v, area: db.get("areas", v.area_id)?.name || null };
       if (v.class_id !== f.class_id && !f.actions_closed_at && f.status !== "cerrado") Object.assign(patch, { due_at: deadlineFields(v.class_id, new Date(f.start_date ? f.start_date + "T00:00:00" : Date.now())).due_at, due_date: deadlineFields(v.class_id, new Date(f.start_date ? f.start_date + "T00:00:00" : Date.now())).due_date });
@@ -93,10 +94,11 @@ const pad = (n) => String(n).padStart(2, "0");
 const STATE_TAG = { ontime: "✔ A tiempo", late: "✖ Tarde", overdue: "● Vencido", running: "● En curso", pending: "" };
 
 function cloudHTML(m, title, soon) {
-  if (!m) return `<div class="cloud off"><div class="cloud-k"><span>${title}</span></div><div class="cloud-clock off"><div><b>—</b><span>días</span></div><div><b>—</b><span>horas</span></div><div><b>—</b><span>min</span></div></div><div class="cloud-cap">${soon}</div></div>`;
-  return `<div class="cloud" data-tone="${m.tone}"><div class="cloud-k"><span>${title}</span><i>${STATE_TAG[m.state]}</i></div>
-    <div class="cloud-clock"><div><b>${m.dur.d}</b><span>días</span></div><div><b>${pad(m.dur.h)}</b><span>horas</span></div><div><b>${pad(m.dur.m)}</b><span>min</span></div></div>
-    <div class="cloud-cap"><b>${esc(m.caption)}</b> · límite ${fmtDateTime(m.due)}</div><div class="progress"><i style="width:${m.pct}%"></i></div></div>`;
+  const dig = (n, l, off) => `<div><b>${off ? "—" : n}</b><span>${l}</span></div>`;
+  if (!m) return `<div class="cloud-wrap"><div class="cloud off"><div class="cloud-k"><span>${title}</span></div><div class="cloud-clock off">${dig(0, "días", 1)}${dig(0, "horas", 1)}${dig(0, "min", 1)}</div><div class="cloud-cap">${soon}</div></div></div>`;
+  return `<div class="cloud-wrap"><div class="cloud" data-tone="${m.tone}"><div class="cloud-k"><span>${title}</span><i>${STATE_TAG[m.state]}</i></div>
+    <div class="cloud-clock">${dig(m.dur.d, "días")}${dig(pad(m.dur.h), "horas")}${dig(pad(m.dur.m), "min")}</div>
+    <div class="cloud-cap"><b>${esc(m.caption)}</b> · límite ${fmtDateTime(m.due)}</div><div class="progress"><i style="width:${m.pct}%"></i></div></div></div>`;
 }
 const cloudsInner = (f) => { const { m1, m2 } = milestones(f); return `${cloudHTML(m1, "Milestone · Cierre de acciones")}${cloudHTML(m2, "Verificación", `Empieza al cerrar las acciones · ${verifyDays()} días hábiles`)}`; };
 
@@ -253,7 +255,7 @@ export default {
       <div class="toolbar">
         <input class="input grow" type="search" placeholder="Buscar por folio, título o área…" value="${esc(F.q)}" data-input="f-q" id="f-q">
         <select class="select" data-change="f-filter" data-key="status"><option value="">Todas las etapas</option>${Object.entries(FINDING_STATUS).filter(([k]) => k !== "en_analisis").map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-        <select class="select" data-change="f-filter" data-key="cls"><option value="">Toda clasificación</option>${classes().map((c) => `<option value="${c.id}" ${F.cls === c.id ? "selected" : ""}>${esc(c.code)} · ${c.days} d</option>`).join("")}</select>
+        <select class="select" data-change="f-filter" data-key="cls"><option value="">Toda clasificación</option>${classes(scopesForWs(wsId())).map((c) => `<option value="${c.id}" ${F.cls === c.id ? "selected" : ""}>${esc(classTag(c))}</option>`).join("")}</select>
         <select class="select" data-change="f-filter" data-key="source"><option value="">Todo origen</option>${Object.entries(SOURCE).map(([k, [l]]) => `<option value="${k}" ${F.source === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <select class="select" data-change="f-filter" data-key="mine"><option value="">Todos los responsables</option><option value="1" ${F.mine ? "selected" : ""}>Solo los míos</option></select>
         <span class="count">${list.length} registro(s)</span>

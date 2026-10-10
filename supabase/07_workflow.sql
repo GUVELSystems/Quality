@@ -53,11 +53,10 @@ create table if not exists public.finding_classes (
   active     boolean not null default true,
   created_at timestamptz not null default now()
 );
-insert into public.finding_classes (code, name, days) values
-  ('N1', 'Clasificación N1', 3),
-  ('N2', 'Clasificación N2', 6),
-  ('N3', 'Clasificación N3', 10)
-on conflict (code) do nothing;
+insert into public.finding_classes (code, name, days)
+select v.code, v.name, v.days
+  from (values ('N1', 'Clasificación N1', 3), ('N2', 'Clasificación N2', 6), ('N3', 'Clasificación N3', 10)) as v(code, name, days)
+ where not exists (select 1 from public.finding_classes c where c.code = v.code);
 
 -- ---------------------------------------------------------------------
 -- Áreas y responsables por nivel

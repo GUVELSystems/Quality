@@ -53,24 +53,29 @@ function mountOverlay(inner, { side = false, onClose } = {}) {
   ov.className = "overlay" + (side ? " side" : "");
   ov.innerHTML = inner;
   const prevFocus = document.activeElement;
-  const close = () => { ov.remove(); document.removeEventListener("keydown", onKey); prevFocus?.focus?.(); try { onClose?.(); } catch { /* sin efecto */ } };
+  const close = () => {
+    ov.remove(); document.removeEventListener("keydown", onKey); prevFocus?.focus?.();
+    if (!side && !document.querySelector(".overlay:not(.side)")) document.body.classList.remove("has-dialog");
+    try { onClose?.(); } catch { /* sin efecto */ }
+  };
   const onKey = (e) => { if (e.key === "Escape" && ov === [...document.querySelectorAll(".overlay")].pop()) close(); };
   ov._close = close; // permite cerrar paneles/diálogos al cambiar de ruta
   ov.addEventListener("mousedown", (e) => { if (e.target === ov) close(); });
   ov.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) close(); });
   document.addEventListener("keydown", onKey);
   document.body.append(ov);
+  if (!side) document.body.classList.add("has-dialog");        // las nubes de milestone se ocultan mientras haya un diálogo
   ov.querySelector("input:not([type=hidden]),select,textarea")?.focus();
   return { el: ov, close };
 }
 
-export function openDialog({ eyebrow = "", title, body, footer = "", size = "" }) {
+export function openDialog({ eyebrow = "", title, body, footer = "", size = "", onClose }) {
   return mountOverlay(`
     <div class="dialog ${size}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <div class="dialog-head"><div><span class="eyebrow">${esc(eyebrow)}</span><h2>${esc(title)}</h2></div>
         <button class="btn ghost icon" data-close aria-label="Cerrar">${icon("close")}</button></div>
       <div class="dialog-body">${body}</div>${footer ? `<div class="dialog-foot">${footer}</div>` : ""}
-    </div>`);
+    </div>`, { onClose });
 }
 
 export function openDrawer(html, opts = {}) {
@@ -90,6 +95,10 @@ export function fieldHTML(f, values) {
   let control;
   if (f.type === "textarea") control = `<textarea class="textarea" ${common}>${esc(v)}</textarea>`;
   else if (f.type === "select") control = `<select class="select" ${common}>${options(typeof f.options === "function" ? f.options(values) : f.options, v, f.required ? undefined : "— Sin seleccionar —")}</select>`;
+  else if (f.type === "multicheck") {
+    const cur = Array.isArray(v) ? v : [];
+    return `<div class="field ${f.span2 ? "span-2" : ""}"><span>${esc(f.label)}${f.required ? " <i>*</i>" : ""}</span><div class="chips-check" data-multi="${f.name}">${f.options.map(([val, lab]) => `<label class="chip-check"><input type="checkbox" name="${f.name}" value="${esc(val)}" ${cur.includes(val) ? "checked" : ""}>${esc(lab)}</label>`).join("")}</div>${f.hint ? `<small class="muted">${esc(f.hint)}</small>` : ""}</div>`;
+  }
   else if (f.type === "checkbox") return `<label class="check ${f.span2 ? "span-2" : ""}"><input type="checkbox" name="${f.name}" ${v === true || v === "true" ? "checked" : ""}> ${esc(f.label)}</label>`;
   else {
     const t = f.type === "datetime" ? "datetime-local" : f.type || "text";
@@ -101,6 +110,7 @@ export function fieldHTML(f, values) {
 export function readForm(form, fields) {
   const out = {};
   for (const f of fields) {
+    if (f.type === "multicheck") { out[f.name] = [...form.querySelectorAll(`input[name="${f.name}"]:checked`)].map((i) => i.value); continue; }
     const el = form.elements[f.name];
     if (!el) continue;
     if (f.type === "checkbox") out[f.name] = el.checked;

@@ -136,7 +136,7 @@ on("n-finding", (el) => {
     intro: `<div class="note" style="margin-bottom:14px">El plazo para cerrar las acciones se cuenta en <b>días hábiles</b> a partir de hoy, según la clasificación.</div>`,
     values: { owner_id: n.owner_id || db.state.profile.id },
     fields: [
-      { name: "class_id", label: "Seleccionar clasificación", type: "select", required: true, options: classOptions(), span2: true },
+      { name: "class_id", label: "Seleccionar clasificación", type: "select", required: true, options: classOptions(["Issues"]), span2: true, hint: classOptions(["Issues"]).length ? "" : "No hay clasificaciones para Issues: créalas en Configuración → Clasificaciones y niveles." },
       { name: "area_id", label: "Área", type: "select", options: areaOptions() },
       { name: "owner_id", label: "Responsable", type: "select", options: userOpts(), hint: "Si eliges un área con responsable, se usa el dueño del área." },
     ],

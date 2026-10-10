@@ -13,15 +13,26 @@ import * as db from "./db.js";
 import { esc, today, addBusinessDays, businessMs, shiftBusiness, fmtDuration, fmtDate, fmtDateTime, DAY_MS, endOfDay, isoDate, dueDateOf } from "./utils.js";
 
 /* ------------------------------ Clasificaciones ---------------------------- */
-export const classes = () => db.rows("finding_classes").filter((c) => c.active).sort((a, b) => a.days - b.days || a.code.localeCompare(b.code));
+/** Tipos a los que puede aplicar una clasificación (Issues = notificaciones de clientes) */
+export const SCOPES = ["LPA", "Producto", "Proceso", "Sistema", "Interna", "Issues"];
+export const scopesOf = (c) => (Array.isArray(c?.scopes) && c.scopes.length ? c.scopes : SCOPES);
+export const WS_SCOPES = { auditorias: ["LPA", "Producto", "Proceso", "Sistema"], internas: ["Interna"], issues: ["Issues"] };
+export const scopesForWs = (ws) => WS_SCOPES[ws] || SCOPES;
+/** Clasificaciones activas; si se indican tipos, solo las que aplican a alguno de ellos */
+export const classes = (scopes) => {
+  const list = db.rows("finding_classes").filter((c) => c.active);
+  return (scopes ? list.filter((c) => scopesOf(c).some((x) => scopes.includes(x))) : list).sort((a, b) => a.days - b.days || a.code.localeCompare(b.code));
+};
 export const classOf = (f) => db.get("finding_classes", f?.class_id);
-/** La clasificación con menos días es la más urgente (rojo), luego ámbar y azul */
-export const classTone = (c) => { const i = classes().findIndex((x) => x.id === c?.id); return i === 0 ? "danger" : i === 1 ? "warn" : "info"; };
+/** Dentro de los mismos tipos, la clasificación con menos días es la más urgente (rojo), luego ámbar y azul */
+export const classTone = (c) => { const i = classes(scopesOf(c)).findIndex((x) => x.id === c?.id); return i === 0 ? "danger" : i === 1 ? "warn" : "info"; };
 export const classBadge = (f) => {
   const c = classOf(f);
-  return c ? `<span class="badge" data-tone="${classTone(c)}" style="text-transform:none" title="${esc(c.name || c.code)} · ${c.days} días hábiles">${esc(c.code)} · ${c.days} d</span>` : `<span class="badge" data-tone="neutral">Sin clasificación</span>`;
+  return c ? `<span class="badge" data-tone="${classTone(c)}" style="text-transform:none" title="${esc(c.name || c.code)} · ${c.days} días hábiles · aplica a ${esc(scopesOf(c).join(", "))}">${esc(c.code)} · ${c.days} d</span>` : `<span class="badge" data-tone="neutral">Sin clasificación</span>`;
 };
-export const classOptions = () => classes().map((c) => [c.id, `${c.code} · ${c.days} días hábiles`]);
+/** "N1 · 3 d" y, si el mismo código existe para varios tipos, se añade a cuáles aplica */
+export const classTag = (c) => `${c.code} · ${c.days} d${classes().filter((x) => x.code === c.code).length > 1 ? ` (${scopesOf(c).join(", ")})` : ""}`;
+export const classOptions = (scopes) => classes(scopes).map((c) => [c.id, `${c.code} · ${c.days} días hábiles${c.name && c.name !== c.code && c.name !== `Clasificación ${c.code}` ? " · " + c.name : ""}`]);
 /** Fecha límite (YYYY-MM-DD) para una clasificación, contando desde ahora: sirve para mostrar avisos */
 export const dueFor = (classId, from = new Date()) => { const c = db.get("finding_classes", classId); return c ? dueDateOf(shiftBusiness(new Date(from), c.days * DAY_MS)) : null; };
 /** Campos de inicio y límite (con hora) de un hallazgo nuevo */

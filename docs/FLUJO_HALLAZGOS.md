@@ -37,7 +37,10 @@ Al marcar *No cumple* se elige la **Clasificación** y, al finalizar:
 1. Se toma el **Área** de la pregunta (se define en *Formatos*).
 2. Si el área tiene responsable para el **nivel LPA** de la auditoría, se asigna a esa persona; si no, al **dueño del área**; si tampoco, queda *sin responsable* para que un administrador lo asigne.
 
+## Clasificaciones por tipo de auditoría
+Cada clasificación tiene un campo **Aplica a** (LPA, Producto, Proceso, Sistema, Interna, Issues). Al marcar *No cumple* solo se ofrecen las clasificaciones del tipo de esa auditoría; por ejemplo, las **internas** pueden usar **NCM** (no conformidad mayor) y **NCm** (menor) con sus propios plazos, y LPA/Producto usar N1, N2, N3. Si un tipo no tiene clasificaciones, el portal lo avisa y dice dónde crearlas.
+
 ## Configuración (menú de iconos → Configuración)
-- **Clasificaciones y niveles**: N1, N2… con sus días hábiles, los días de verificación y los niveles que usa tu LPA.
+- **Clasificaciones y niveles**: códigos con sus días hábiles y el tipo al que aplican, los días de verificación y los niveles que usa tu LPA.
 - **Áreas**: dueño del área y responsable por cada nivel LPA.
 - **Catálogos**: categorías de hallazgo, causas raíz y tipos de riesgo.

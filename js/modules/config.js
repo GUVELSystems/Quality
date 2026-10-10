@@ -5,7 +5,7 @@ import { icon } from "../icons.js";
 import { setHead, rerender } from "../router.js";
 import { on, onInput, empty, openForm, toast, pill } from "../ui.js";
 import { makeCrud } from "./crud.js";
-import { classes, classTone, levels, levelLabel, verifyDays } from "../workflow.js";
+import { classes, classTone, levels, levelLabel, verifyDays, SCOPES, scopesOf } from "../workflow.js";
 
 const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
 const yesNo = (v) => (v ? pill("Activo", "ok") : pill("Inactivo", "neutral"));
@@ -13,23 +13,28 @@ const yesNo = (v) => (v ? pill("Activo", "ok") : pill("Inactivo", "neutral"));
 /* ------------------- Clasificaciones (N1, N2… con días hábiles) ------------------- */
 export const findingClasses = makeCrud({
   id: "fclasses", label: "Clasificaciones", icon: "tag", singular: "clasificación",
-  title: "Clasificaciones de hallazgo", subtitle: "Cada clasificación define cuántos días hábiles hay para cerrar las acciones. El plazo se cuenta desde el día de la auditoría (o del registro) y no incluye sábados ni domingos.",
+  title: "Clasificaciones de hallazgo", subtitle: "Cada clasificación define cuántos días hábiles hay para cerrar las acciones y a qué tipo de auditoría aplica.",
   table: "finding_classes", newLabel: "Nueva clasificación", canWrite: () => db.can.manage,
-  defaults: () => ({ active: true, days: 5 }),
-  search: (r) => `${r.code} ${r.name || ""}`, sort: (a, b) => a.days - b.days,
+  defaults: () => ({ active: true, days: 5, scopes: [...SCOPES.filter((s) => s !== "Interna")] }),
+  search: (r) => `${r.code} ${r.name || ""} ${scopesOf(r).join(" ")}`,
+  sort: (a, b) => scopesOf(a).join().localeCompare(scopesOf(b).join()) || a.days - b.days,
+  filters: [{ key: "scope", label: "Todos los tipos", options: SCOPES.map((s) => [s, s === "Issues" ? "Issues (clientes)" : s]), test: (r, v) => scopesOf(r).includes(v) }],
   fields: () => [
-    { name: "code", label: "Código", required: true, placeholder: "N1", hint: "Es lo que se verá en el hallazgo." },
-    { name: "name", label: "Nombre", placeholder: "Clasificación N1" },
+    { name: "code", label: "Código", required: true, placeholder: "N1, NCM, NCm…", hint: "Es lo que se verá en el hallazgo." },
+    { name: "name", label: "Nombre", placeholder: "Clasificación N1 / No conformidad mayor" },
     { name: "days", label: "Días hábiles para cerrar acciones", type: "number", required: true, min: 0, max: 365 },
     { name: "active", label: "Activa", type: "checkbox" },
+    { name: "scopes", label: "Aplica a", type: "multicheck", required: true, span2: true, options: SCOPES.map((s) => [s, s === "Issues" ? "Issues (clientes)" : s]), hint: "Solo se podrá elegir en auditorías de los tipos marcados. Ej.: en Interna usa NCM / NCm en lugar de N1." },
   ],
+  beforeSave: (v) => { if (!(v.scopes || []).length) throw new Error("Marca al menos un tipo en «Aplica a»."); return { ...v, code: v.code.trim() }; },
   intro: () => `<div class="panel"><div class="panel-head"><h2>Verificación</h2><small>Aplica a todos los hallazgos</small></div><div class="panel-body" style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
       <label class="field" style="max-width:300px"><span>Días hábiles para verificar, después de cerrar las acciones</span><input class="input" type="number" min="1" max="365" id="cfg-verify" value="${verifyDays()}" ${db.can.manage ? "" : "disabled"}></label>
       ${db.can.manage ? `<button class="btn" data-action="cfg-save-verify">Guardar</button>` : ""}
-      <span class="muted" style="font-size:13px">Ejemplo: N1 → 3 días hábiles, N2 → 6 días hábiles.</span></div></div>`,
+      <span class="muted" style="font-size:13px">Ejemplo: LPA → N1 = 3 días hábiles · Interna → NCM = 5 días hábiles.</span></div></div>`,
   columns: [
-    { label: "Código", cell: (r) => `<span class="badge" data-tone="${classTone(r)}">${esc(r.code)}</span>` },
+    { label: "Código", cell: (r) => `<span class="badge" data-tone="${classTone(r)}" style="text-transform:none">${esc(r.code)}</span>` },
     { label: "Nombre", cell: (r) => `<span class="title">${esc(r.name || r.code)}</span>` },
+    { label: "Aplica a", cell: (r) => (scopesOf(r).length === SCOPES.length ? '<span class="muted">Todos los tipos</span>' : scopesOf(r).map((s) => `<span class="badge" data-tone="info" style="margin:2px 10px 2px 0;text-transform:none">${esc(s === "Issues" ? "Issues" : s)}</span>`).join("")) },
     { label: "Días hábiles", cls: "num", cell: (r) => `<b class="mono">${r.days}</b> días` },
     { label: "En uso", cls: "num", cell: (r) => `<span class="mono">${db.rows("findings").filter((f) => f.class_id === r.id).length}</span> hallazgos` },
     { label: "Estado", cell: (r) => yesNo(r.active) },

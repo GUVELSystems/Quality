@@ -35,7 +35,9 @@ export function buildSeed() {
 
   /* Niveles LPA, clasificaciones (días hábiles) y parámetros */
   const lpa_levels = [1, 2, 3, 4, 5].map((level) => ({ id: uuid(), level, name: `Nivel ${level}`, active: true, created_at: daysAgoISO(80) }));
-  const finding_classes = [["N1", 3], ["N2", 6], ["N3", 10]].map(([c, days]) => ({ id: uuid(), code: c, name: `Clasificación ${c}`, days, active: true, created_at: daysAgoISO(80) }));
+  const NORMAL = ["LPA", "Producto", "Proceso", "Sistema", "Issues"];
+  const finding_classes = [["N1", "Clasificación N1", 3, NORMAL], ["N2", "Clasificación N2", 6, NORMAL], ["N3", "Clasificación N3", 10, NORMAL], ["NCM", "No conformidad mayor", 5, ["Interna"]], ["NCm", "No conformidad menor", 10, ["Interna"]]]
+    .map(([c, name, days, scopes]) => ({ id: uuid(), code: c, name, days, scopes, active: true, created_at: daysAgoISO(80) }));
   const klass = (c) => finding_classes.find((x) => x.code === c);
   const app_settings = [{ key: "verification_days", value: 5, updated_at: daysAgoISO(80) }];
 
@@ -127,7 +129,7 @@ export function buildSeed() {
         let ok = 0, nok = 0;
         items.forEach((it, idx) => {
           const bad = (k + idx) % 7 === 0;
-          const klassN = it.critical ? klass("N2") : klass("N3");
+          const klassN = plan.audit_type === "Interna" ? (it.critical ? klass("NCM") : klass("NCm")) : (it.critical ? klass("N2") : klass("N3"));
           const ans = { id: uuid(), audit_id: a.id, item_id: it.id, result: bad ? "nok" : "ok", comment: bad ? "Se detectó desviación durante el recorrido." : null, class_id: bad ? klassN.id : null, finding_id: null, created_at: iso(d + "T11:00:00") };
           if (bad) {
             nok++;
@@ -165,7 +167,7 @@ export function buildSeed() {
   stage(eti, "cerrado"); closeAt(eti, new Date(addBusinessDays(eti.start_date, 8) + "T15:00:00")); eti.verified_at = shiftBusiness(new Date(eti.actions_closed_at), 3 * DAY_MS).toISOString(); eti.verified_on = isoDate(new Date(eti.verified_at)); eti.verified_by = "u-carlos"; eti.verification_notes = "Cierre fuera de tiempo; acciones efectivas."; eti.closed_at = eti.verified_at;
   mkFinding({ title: "Falta de trazabilidad de lote en material de proveedor", source: "proveedor", class_id: klass("N1").id, area_id: A("Almacén"), owner_id: "u-carlos", classification_id: catId("Calidad de producto"), start_date: bd(7), created_at: daysAgoISO(10), transfer_count: 1, transferred_from: "u-pedro", transferred_at: daysAgoISO(8), transfer_reason: "El proveedor lo gestiona Calidad, no Almacén." });
   mkFinding({ title: "Delimitaciones 5S deterioradas en almacén", source: "interno", class_id: klass("N3").id, area_id: A("Almacén"), owner_id: "u-pedro", classification_id: catId("Ambiental"), start_date: bd(1), created_at: daysAgoISO(1) });
-  mkFinding({ module: "internas", title: "Falta evidencia de competencia del personal de turno B", source: "auditoria", class_id: klass("N2").id, area_id: A("Producción"), owner_id: "u-maria", start_date: bd(2), created_at: daysAgoISO(3) });
+  mkFinding({ module: "internas", title: "Falta evidencia de competencia del personal de turno B", source: "auditoria", class_id: klass("NCM").id, area_id: A("Producción"), owner_id: "u-maria", start_date: bd(2), created_at: daysAgoISO(3) });
 
   // Rechazado en la verificación: se reabrió y su milestone de cierre CONTINÚA (le quedaba tiempo)
   const rech = mkFinding({ title: "Contenedor de producto no conforme sin identificación en línea 3", class_id: klass("N2").id, area_id: A("Calidad"), owner_id: "u-juan", start_date: bd(3), classification_id: catId("Calidad de producto") });

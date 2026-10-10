@@ -336,13 +336,15 @@ function nokHint(it, audit, classId) {
 
 function questionHTML(it, readonly, audit) {
   const a = draft.answers[it.id] || {}, f = db.get("findings", a.finding_id), nok = a.result === "nok";
+  const ptype = db.get("audit_plans", audit.plan_id)?.audit_type, copts = classOptions([ptype]);
   return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}">
     <div class="q-text"><span>${esc(it.question)}</span>${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}</div>
     ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RES[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${nok && f ? ` ${classBadge(f)}` : ""}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado · responsable ${esc(db.profileName(f.owner_id))}</span></div>` : ""}</div>`
     : `<div class="seg" role="group">${Object.entries(RES).map(([v, l]) => `<button type="button" data-action="au-ans" data-item="${it.id}" data-v="${v}" aria-pressed="${a.result === v}">${l}</button>`).join("")}</div>
        <div class="q-nok ${nok ? "" : "hidden"}">
          <label class="field" style="margin-top:12px;max-width:340px"><span>Clasificación <i>*</i></span>
-           <select class="select" data-change="au-class" data-item="${it.id}"><option value="">Seleccionar clasificación</option>${classOptions().map(([v, l]) => `<option value="${v}" ${v === a.class_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+           <select class="select" data-change="au-class" data-item="${it.id}"><option value="">Seleccionar clasificación</option>${copts.map(([v, l]) => `<option value="${v}" ${v === a.class_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+         ${copts.length ? "" : `<div class="alert" style="margin-top:8px">No hay clasificaciones configuradas para auditorías <b>${esc(ptype)}</b>. Créalas en Configuración → Clasificaciones y niveles.</div>`}
          <div class="q-hint" id="qh_${it.id}">${nokHint(it, audit, a.class_id)}</div>
        </div>
        <textarea class="textarea" data-input="au-comment" data-item="${it.id}" placeholder="${nok ? "Comentario obligatorio: describe lo encontrado (aunque adjuntes evidencia)" : "Comentario (opcional)"}">${esc(a.comment || "")}</textarea>`}
@@ -463,7 +465,8 @@ on("au-finish", async (el) => {
   const noComment = items.filter((i) => draft.answers[i.id].result === "nok" && !draft.answers[i.id].comment?.trim());
   if (noComment.length) return flag(noComment, "Cada pregunta que no cumple necesita un comentario, aunque tenga evidencia adjunta.");
   const noClass = items.filter((i) => draft.answers[i.id].result === "nok" && !draft.answers[i.id].class_id);
-  if (noClass.length) return flag(noClass, "Selecciona la clasificación en cada pregunta que no cumple.");
+  const ptype = db.get("audit_plans", audit.plan_id)?.audit_type;
+  if (noClass.length) return flag(noClass, classOptions([ptype]).length ? "Selecciona la clasificación en cada pregunta que no cumple." : `No hay clasificaciones configuradas para auditorías ${ptype}: créalas en Configuración → Clasificaciones y niveles.`);
   const noks = items.filter((i) => draft.answers[i.id].result === "nok" && !draft.answers[i.id].finding_id);
   if (!(await confirmDialog({ title: "Finalizar auditoría", message: `Se calculará el resultado y se generarán ${noks.length} hallazgo(s) por los puntos que no cumplen, con su plazo en días hábiles y su responsable. Después no podrás editar las respuestas.`, confirmLabel: "Finalizar" }))) return;
   try {

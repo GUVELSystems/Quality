@@ -4,7 +4,7 @@ import { icon } from "../icons.js";
 import { setHead } from "../router.js";
 import { badge, donut, bars, columns, empty } from "../ui.js";
 import { AUDIT_STATUS, FINDING_STATUS } from "../constants.js";
-import { classes, classTone, classOf, classBadge, overdueKind, stageOf, STAGE_LABEL } from "../workflow.js";
+import { classes, classTag, classTone, classOf, classBadge, overdueKind, stageOf, STAGE_LABEL } from "../workflow.js";
 import { auditStatus } from "./audits.js";
 import { WS_LABEL, auditWs, findingWs, auditsOf, plansOf, findingsOf, lateActionsOf, lateVerifyOf } from "../scope.js";
 
@@ -92,7 +92,7 @@ export default {
           ${bars([{ label: "Auditorías", value: open("auditorias").length, color: "var(--flow)" }, { label: "Internas", value: open("internas").length, color: "var(--watch)" }, { label: "Issues", value: open("issues").length, color: "var(--stop)" }])}
         </div></div>
         <div class="panel"><div class="panel-head"><h2>Clasificación</h2><small>Hallazgos abiertos</small></div><div class="panel-body">
-          ${donut([...classes().map((c) => ({ label: `${c.code} · ${c.days} d hábiles`, color: { danger: "var(--stop)", warn: "var(--watch)", info: "var(--flow)" }[classTone(c)], value: allOpen.filter((f) => f.class_id === c.id).length })), { label: "Sin clasificar", color: "var(--idle)", value: allOpen.filter((f) => !classOf(f)).length }].filter((x) => x.value || x.label !== "Sin clasificar"), "Abiertos")}
+          ${donut([...classes().map((c) => ({ label: classTag(c), color: { danger: "var(--stop)", warn: "var(--watch)", info: "var(--flow)" }[classTone(c)], value: allOpen.filter((f) => f.class_id === c.id).length })), { label: "Sin clasificar", color: "var(--idle)", value: allOpen.filter((f) => !classOf(f)).length }].filter((x) => x.value || x.label !== "Sin clasificar"), "Abiertos")}
         </div></div>
         <div class="panel"><div class="panel-head"><h2>Hallazgos nuevos</h2><small>Últimos 6 meses</small></div><div class="panel-body">${columns(trend)}</div></div>
       </div>

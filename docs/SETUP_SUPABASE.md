@@ -27,6 +27,7 @@ Tiempo estimado: 30–40 min la primera vez.
    6. `supabase/06_modules.sql` (separa los hallazgos por módulo; ejecútalo **antes** de publicar la versión con módulos independientes)
    7. `supabase/07_workflow.sql` (clasificaciones con días hábiles, niveles LPA, áreas y flujo del hallazgo; ejecútalo **antes** de publicar la versión con el nuevo flujo)
    8. `supabase/08_milestones_notifications.sql` (milestones con hora, verificación aceptar/rechazar, bandeja de notificaciones)
+   9. `supabase/09_class_scopes.sql` (clasificaciones por tipo de auditoría: N1/N2 para LPA, NCM/NCm para internas…)
 
 > Todos son re-ejecutables. Si ya habías corrido una versión anterior, vuelve a ejecutar los 5 en orden (migra sin perder datos).
 

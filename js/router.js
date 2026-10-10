@@ -3,7 +3,7 @@
 import { esc } from "./utils.js";
 import { icon } from "./icons.js";
 import * as db from "./db.js";
-import { planWs, auditWs, findingWs } from "./scope.js";
+import { planWs, auditWs, findingWs, WS_ICON } from "./scope.js";
 
 /** Módulo: { id, label, tabs:[{ id, label, render(root, params), hidden?, activeAs?, count?() }], hideTabs? } */
 const workspaces = new Map();
@@ -25,9 +25,10 @@ let afterRender = () => {};
 export const onAfterRender = (fn) => { afterRender = fn; };
 
 export function setHead({ eyebrow, title, subtitle = "", actions = "" }) {
-  const eb = eyebrow ?? (getWs(cur.ws)?.label || "GUVEL Quality");
+  const w = getWs(cur.ws), tab = w?.tabs.find((t) => t.id === cur.tab);
+  const eb = eyebrow ?? (w?.label || "GUVEL Quality"), ico = tab?.icon || WS_ICON[cur.ws];
   document.getElementById("pageHead").innerHTML = `
-    <div><span class="eyebrow">${esc(eb)}</span><h1>${esc(title)}</h1>${subtitle ? `<p>${esc(subtitle)}</p>` : ""}</div>
+    <div class="head-title">${ico ? `<span class="head-ico">${icon(ico)}</span>` : ""}<div><span class="eyebrow">${esc(eb)}</span><h1>${esc(title)}</h1>${subtitle ? `<p>${esc(subtitle)}</p>` : ""}</div></div>
     ${actions ? `<div class="head-actions">${actions}</div>` : ""}`;
   document.title = `${title} · GUVEL Quality`;
 }
@@ -60,12 +61,15 @@ export async function rerender() { await renderRoute(false); }
 export async function renderRoute(scroll = true) {
   if (scroll) document.querySelectorAll(".overlay").forEach((o) => o._close?.()); // navegar cierra paneles y diálogos abiertos
   let parts = location.hash.replace(/^#\/?/, "").split("?")[0].split("/").filter(Boolean);
+  let aliased = false;
+  if (parts[0] === "config" && parts[1] === "niveles") { parts[1] = "clasificaciones"; aliased = true; }   // los niveles ahora viven con las clasificaciones
   const to = parts.length ? legacy(parts) : null;
   if (to) { replaceHash(to); parts = to.split("/"); }
   const w = getWs(parts[0]) || getWs("dashboard");
   const tab = w.tabs.find((t) => t.id === parts[1]) || w.tabs[0];
   const canonical = w.hideTabs ? parts[0] === w.id : parts[0] === w.id && parts[1] === tab.id;
   if (!canonical) replaceHash(w.hideTabs ? w.id : `${w.id}/${tab.id}`);
+  else if (aliased) replaceHash(parts.join("/"));
   cur = { ws: w.id, tab: tab.id, params: !canonical ? [] : parts.slice(w.hideTabs ? 1 : 2) };
   const root = document.getElementById("view");
   const keepY = window.scrollY;

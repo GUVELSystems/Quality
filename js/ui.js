@@ -48,12 +48,12 @@ export function toast(message, tone = "info") {
 }
 
 /* ------------------------- Modal / Drawer base ----------------------- */
-function mountOverlay(inner, { side = false } = {}) {
+function mountOverlay(inner, { side = false, onClose } = {}) {
   const ov = document.createElement("div");
   ov.className = "overlay" + (side ? " side" : "");
   ov.innerHTML = inner;
   const prevFocus = document.activeElement;
-  const close = () => { ov.remove(); document.removeEventListener("keydown", onKey); prevFocus?.focus?.(); };
+  const close = () => { ov.remove(); document.removeEventListener("keydown", onKey); prevFocus?.focus?.(); try { onClose?.(); } catch { /* sin efecto */ } };
   const onKey = (e) => { if (e.key === "Escape" && ov === [...document.querySelectorAll(".overlay")].pop()) close(); };
   ov._close = close; // permite cerrar paneles/diálogos al cambiar de ruta
   ov.addEventListener("mousedown", (e) => { if (e.target === ov) close(); });
@@ -73,8 +73,8 @@ export function openDialog({ eyebrow = "", title, body, footer = "", size = "" }
     </div>`);
 }
 
-export function openDrawer(html) {
-  const d = mountOverlay(`<aside class="drawer" role="dialog" aria-modal="true">${html}</aside>`, { side: true });
+export function openDrawer(html, opts = {}) {
+  const d = mountOverlay(`<aside class="drawer" role="dialog" aria-modal="true">${html}</aside>`, { side: true, onClose: opts.onClose });
   d.set = (h) => { d.el.querySelector(".drawer").innerHTML = h; };
   return d;
 }

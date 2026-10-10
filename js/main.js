@@ -13,45 +13,45 @@ import actions from "./modules/actions.js";
 import notifications from "./modules/notifications.js";
 import { risks, opportunities, clients, classifications, users } from "./modules/catalogs.js";
 import forms from "./modules/forms.js";
-import { findingClasses, lpaLevels, areas } from "./modules/config.js";
+import { classesAndLevels, areas } from "./modules/config.js";
+import { updateBell, showReminder, closeInbox, inboxCounts } from "./inbox.js";
 import "./modules/attachments.js";
-import { findingsOf, lateActionsOf, WS_LABEL, auditWs, findingWs } from "./scope.js";
+import { findingsOf, lateActionsOf, WS_LABEL, WS_ICON, auditWs, findingWs } from "./scope.js";
 
 /* ------------------- Módulos (portales dentro del portal) ------------------- */
 const openF = (ws) => ({ n: findingsOf(ws).filter((f) => f.status !== "cerrado").length });
 const lateA = (ws) => ({ n: lateActionsOf(ws).length, hot: true });
 const auditTabs = () => [
-  { id: "planes", label: "Planes", render: audits.renderPlanes },
-  { id: "lista", label: "Auditorías", render: audits.renderLista },
-  { id: "hallazgos", label: "Hallazgos", render: findings.render, count: openF },
-  { id: "acciones", label: "Acciones", render: actions.render, count: lateA },
-  { id: "formatos", label: "Formatos", render: forms.render },
-  { id: "plan", hidden: true, activeAs: "planes", render: audits.renderPlan },
-  { id: "audit", hidden: true, activeAs: "lista", render: audits.renderAudit },
+  { id: "planes", label: "Planes", icon: "calendar", render: audits.renderPlanes },
+  { id: "lista", label: "Auditorías", icon: "audit", render: audits.renderLista },
+  { id: "hallazgos", label: "Hallazgos", icon: "finding", render: findings.render, count: openF },
+  { id: "acciones", label: "Acciones", icon: "action", render: actions.render, count: lateA },
+  { id: "formatos", label: "Formatos", icon: "form", render: forms.render },
+  { id: "plan", hidden: true, icon: "calendar", activeAs: "planes", render: audits.renderPlan },
+  { id: "audit", hidden: true, icon: "audit", activeAs: "lista", render: audits.renderAudit },
 ];
 registerWs({ id: "dashboard", label: "Dashboard", hideTabs: true, tabs: [{ id: "inicio", render: dashboard.render }] });
 registerWs({ id: "auditorias", label: WS_LABEL.auditorias, tabs: auditTabs() });
 registerWs({ id: "internas", label: WS_LABEL.internas, tabs: auditTabs() });
 registerWs({ id: "issues", label: WS_LABEL.issues, tabs: [
-  { id: "notificaciones", label: "Notificaciones", render: notifications.render, count: () => ({ n: db.rows("customer_notifications").filter((n) => n.status !== "cerrada").length }) },
-  { id: "hallazgos", label: "Hallazgos", render: findings.render, count: openF },
-  { id: "acciones", label: "Acciones", render: actions.render, count: lateA },
+  { id: "notificaciones", label: "Notificaciones", icon: "bell", render: notifications.render, count: () => ({ n: db.rows("customer_notifications").filter((n) => n.status !== "cerrada").length }) },
+  { id: "hallazgos", label: "Hallazgos", icon: "finding", render: findings.render, count: openF },
+  { id: "acciones", label: "Acciones", icon: "action", render: actions.render, count: lateA },
 ] });
 registerWs({ id: "riesgos", label: WS_LABEL.riesgos, hideTabs: true, tabs: [{ id: "riesgos", render: risks.render }] });
 registerWs({ id: "oportunidades", label: WS_LABEL.oportunidades, hideTabs: true, tabs: [{ id: "oportunidades", render: opportunities.render }] });
 registerWs({ id: "config", label: WS_LABEL.config, tabs: [
-  { id: "clientes", label: "Clientes", render: clients.render },
-  { id: "clasificaciones", label: "Clasificaciones", render: findingClasses.render },
-  { id: "niveles", label: "Niveles LPA", render: lpaLevels.render },
-  { id: "areas", label: "Áreas", render: areas.render },
-  { id: "catalogos", label: "Catálogos", render: classifications.render },
-  { id: "usuarios", label: "Usuarios", render: users.render },
+  { id: "clientes", label: "Clientes", icon: "client", render: clients.render },
+  { id: "clasificaciones", label: "Clasificaciones y niveles", icon: "tag", render: classesAndLevels.render },
+  { id: "areas", label: "Áreas", icon: "area", render: areas.render },
+  { id: "catalogos", label: "Catálogos", icon: "list", render: classifications.render },
+  { id: "usuarios", label: "Usuarios", icon: "users", render: users.render },
 ] });
 
 const app = document.getElementById("app");
 const MENU = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades"];
-const CONFIG_MENU = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones N1/N2", "tag"], ["niveles", "Niveles LPA", "layers"], ["areas", "Áreas", "area"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"]];
-const MENU_ICON = { dashboard: "dashboard", auditorias: "audit", internas: "internal", issues: "finding", riesgos: "risk", oportunidades: "opportunity" };
+const CONFIG_MENU = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas", "area"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"]];
+const MENU_ICON = WS_ICON;
 let appShown = false;
 
 /* ------------------------------- Tema -------------------------------- */
@@ -65,7 +65,9 @@ on("theme", (el) => {
 });
 
 /* ------------------------------ Pantallas de acceso ------------------ */
-const authBrand = `<div class="auth-brand"><img src="assets/guvel-logo.png" alt=""><strong>GUVEL</strong><small>Quality</small></div>`;
+/** Marca "GUVEL / QUALITY" geométrica: las dos palabras miden exactamente lo mismo (textLength); GUVEL domina */
+const brandSvg = () => `<svg class="brand-svg" viewBox="0 0 120 44" role="img" aria-label="GUVEL Quality"><text x="0" y="28" textLength="120" lengthAdjust="spacing" class="bs-main">GUVEL</text><text x="0" y="41.5" textLength="120" lengthAdjust="spacing" class="bs-sub">QUALITY</text></svg>`;
+const authBrand = `<div class="auth-brand"><img src="assets/guvel-logo.png" alt="">${brandSvg()}</div>`;
 const msg = (m, err) => (m ? `<div class="auth-msg ${err ? "error" : ""}" role="${err ? "alert" : "status"}">${esc(m)}</div>` : "");
 
 function showLogin(error = "", info = "") {
@@ -154,14 +156,15 @@ function shell() {
   const p = db.state.profile;
   app.innerHTML = `
   <header class="topbar">
-    <a class="brand" href="#/dashboard"><img src="assets/guvel-logo.png" alt=""><span class="brand-word"><strong>GUVEL</strong><small>Quality</small></span></a>
+    <a class="brand" href="#/dashboard" aria-label="GUVEL Quality"><img src="assets/guvel-logo.png" alt="">${brandSvg()}</a>
     <nav class="top-nav" aria-label="Principal">
       <button class="ws-chip" id="wsBtn" data-action="ws-menu" aria-haspopup="true" aria-expanded="false"></button>
       <span class="nav-tabs" id="navTabs"></span>
     </nav>
-    <div class="ws-menu hidden" id="wsMenu" role="menu"></div>
+    <div class="ws-menu hidden" id="wsMenu" role="menu"></div><div class="inbox hidden" id="inbox" role="dialog" aria-label="Notificaciones"></div>
     <div class="top-actions">
       <label class="search">${icon("search")}<input id="gsearch" type="search" placeholder="Buscar folio o título…" data-input="gsearch" autocomplete="off" aria-label="Búsqueda global"><div id="sresults"></div></label>
+      <span class="bell-wrap"><button class="top-btn" id="bellBtn" data-action="inbox-toggle" title="Notificaciones" aria-label="Notificaciones" aria-expanded="false">${icon("bell")}</button><span class="bell-badge hidden" id="bellBadge"></span></span>
       <button class="top-btn" data-action="theme" title="Cambiar tema" aria-label="Cambiar tema">${icon(currentTheme() === "dark" ? "sun" : "moon")}</button>
       ${db.state.demo ? "" : `<button class="top-btn" data-action="reload" title="Actualizar datos" aria-label="Actualizar datos">${icon("refresh")}</button>`}
       <div class="user-chip"><div class="user-meta"><strong>${esc(p.full_name)}</strong><small>${esc(ROLES[p.role])}${db.state.demo ? " · demo" : ""}</small></div><div class="avatar">${esc(initials(p.full_name))}</div></div>
@@ -183,6 +186,21 @@ on("ws-menu", (el) => {
 document.addEventListener("click", (e) => { if (!e.target.closest("#wsMenu, #wsBtn") || e.target.closest(".ws-tile")) document.getElementById("wsMenu")?.classList.add("hidden"); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.getElementById("wsMenu")?.classList.add("hidden"); });
 
+/* Tooltip de los iconos: un único elemento flotante (z-index alto) para que siempre se lea */
+(() => {
+  let tip = null;
+  const show = (el) => {
+    tip ||= Object.assign(document.createElement("div"), { id: "wsTip", className: "ws-tooltip", role: "tooltip" }); if (!tip.isConnected) document.body.append(tip);
+    tip.textContent = el.getAttribute("aria-label"); tip.style.display = "block";
+    const r = el.getBoundingClientRect(), w = tip.offsetWidth;
+    tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + "px"; tip.style.top = r.bottom + 8 + "px";
+  };
+  const hide = () => { if (tip) tip.style.display = "none"; };
+  document.addEventListener("mouseover", (e) => { const t = e.target.closest?.(".ws-tile"); t ? show(t) : hide(); });
+  document.addEventListener("focusin", (e) => { const t = e.target.closest?.(".ws-tile"); t ? show(t) : hide(); });
+  document.addEventListener("focusout", hide); document.addEventListener("click", hide);
+})();
+
 function renderNav() {
   const c = current(), w = getWs(c.ws);
   if (!w || !document.getElementById("wsBtn")) return;
@@ -193,10 +211,10 @@ function renderNav() {
   document.getElementById("wsMenu").classList.add("hidden");
   document.getElementById("navTabs").innerHTML = w.hideTabs ? "" : w.tabs.filter((t) => !t.hidden).map((t) => {
     const k = t.count?.(w.id), active = t.id === c.tab || t.activeAs === c.tab;
-    return `<a class="nav-item ${active ? "active" : ""}" href="#/${w.id}/${t.id}">${esc(t.label)}${k && k.n ? `<span class="nav-count ${k.hot ? "hot" : ""}">${k.n}</span>` : ""}</a>`;
+    return `<a class="nav-item ${active ? "active" : ""}" href="#/${w.id}/${t.id}">${t.icon ? icon(t.icon) : ""}<span>${esc(t.label)}</span>${k && k.n ? `<span class="nav-count ${k.hot ? "hot" : ""}">${k.n}</span>` : ""}</a>`;
   }).join("");
 }
-onAfterRender(renderNav);
+onAfterRender(() => { renderNav(); updateBell(); closeInbox(); });
 
 /* --------------------------- Búsqueda global ------------------------- */
 onInput("gsearch", (el) => {
@@ -231,6 +249,8 @@ async function start() {
     shell();
     if (!hashListener) { window.addEventListener("hashchange", () => appShown && renderRoute()); hashListener = true; }
     await renderRoute();
+    updateBell(); showReminder();
+    if (!db.state.demo) setInterval(async () => { if (document.hidden) return; try { await db.reload("notifications"); updateBell(); } catch { /* sin conexión */ } }, 60000);
   } catch (e) {
     console.error(e);
     await db.signOut().catch(() => {});

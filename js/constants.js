@@ -16,10 +16,10 @@ export const SOURCE = {
   interno: ["Interno", "neutral"],
 };
 
-export const FINDING_FLOW = ["abierto", "en_analisis", "en_accion", "verificacion", "cerrado"];
+export const FINDING_FLOW = ["abierto", "en_accion", "verificacion", "cerrado"];
 export const FINDING_STATUS = {
   abierto: ["Abierto", "danger"],
-  en_analisis: ["En análisis", "warn"],
+  en_analisis: ["En acción", "info"],   // etapa eliminada: los hallazgos antiguos se muestran como En acción
   en_accion: ["En acción", "info"],
   verificacion: ["Verificación", "info"],
   cerrado: ["Cerrado", "ok"],

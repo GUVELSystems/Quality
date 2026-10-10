@@ -12,6 +12,7 @@ export const WS_LABEL = {
   dashboard: "Dashboard", auditorias: "Auditorías", internas: "Auditorías Internas", issues: "Issues",
   riesgos: "Riesgos", oportunidades: "Oportunidades", config: "Configuración",
 };
+export const WS_ICON = { dashboard: "dashboard", auditorias: "audit", internas: "internal", issues: "finding", riesgos: "risk", oportunidades: "opportunity", config: "tag" };
 export const AUDIT_TYPES_BY_WS = { auditorias: ["LPA", "Producto", "Proceso", "Sistema"], internas: ["Interna"] };
 export const isAuditWs = (ws) => ws in AUDIT_TYPES_BY_WS;
 export const typesOf = (ws) => AUDIT_TYPES_BY_WS[ws] || [];

@@ -382,3 +382,66 @@ a.kpi:hover { background: var(--surface-2); }
 .stage .done-text { padding: 10px 12px; background: var(--surface); border-left: 3px solid var(--ok); white-space: pre-wrap; }
 .stage-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .lock-note { margin-top: 12px; padding: 9px 12px; font-size: 13.5px; color: var(--text-2); background: var(--surface); border-left: 3px solid var(--idle); }
+
+/* =========================== Milestones: nubes flotantes ============ */
+.ms-clouds { position: fixed; z-index: 1010; top: 92px; right: calc(min(620px, 100vw) + 26px); width: 286px; display: grid; gap: 22px; pointer-events: none; }
+.cloud { position: relative; pointer-events: auto; padding: 12px 16px 13px; background: var(--surface); color: var(--ink); border: 2px solid var(--m, var(--idle)); border-radius: 26px 26px 26px 10px; box-shadow: var(--shadow-float); animation: floaty 5s ease-in-out infinite; }
+.cloud:nth-child(2) { animation-delay: -2.5s; }
+.cloud[data-tone="ok"] { --m: var(--ok); } .cloud[data-tone="danger"] { --m: var(--stop); } .cloud[data-tone="info"] { --m: var(--flow); }
+.cloud.off { --m: var(--idle); border-style: dashed; }
+.cloud.off .cloud-clock b { color: var(--text-3); }
+/* burbujas que "salen" de la nube hacia el panel */
+.cloud::before, .cloud::after { content: ""; position: absolute; background: var(--surface); border: 2px solid var(--m, var(--idle)); border-radius: 50%; }
+.cloud::before { right: -15px; bottom: 16px; width: 15px; height: 15px; }
+.cloud::after { right: -26px; bottom: 7px; width: 8px; height: 8px; }
+.cloud-k { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+.cloud-k i { font-style: normal; color: var(--m, var(--text-3)); white-space: nowrap; }
+.cloud[data-tone="ok"] .cloud-k i { color: var(--ok-ink); } .cloud[data-tone="danger"] .cloud-k i { color: var(--stop-ink); }
+.cloud-clock { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 9px 0 7px; }
+.cloud-clock div { padding: 6px 4px 5px; text-align: center; background: var(--surface-2); border: 1px solid var(--line-soft); }
+.cloud-clock b { display: block; font: 700 25px/1.05 var(--fig); font-variant-numeric: tabular-nums; color: var(--ink); }
+.cloud[data-tone="ok"] .cloud-clock b { color: var(--ok-ink); } .cloud[data-tone="danger"] .cloud-clock b { color: var(--stop-ink); }
+.cloud-clock span { display: block; margin-top: 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.cloud-cap { font-size: 12.5px; color: var(--text-2); line-height: 1.35; }
+.cloud-cap b { color: var(--ink); }
+.cloud .progress { margin-top: 8px; height: 5px; } .cloud .progress > i { background: var(--m, var(--idle)); }
+@keyframes floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+/* En pantallas angostas no hay espacio fuera del panel: las nubes van dentro, arriba */
+.ms-row { display: none; gap: 12px; margin-bottom: 18px; }
+.ms-row .cloud { flex: 1 1 250px; max-width: 330px; animation: none; border-radius: 18px; }
+.ms-row .cloud::before, .ms-row .cloud::after { display: none; }
+@media (max-width: 1239px) { .ms-clouds { display: none; } .ms-row { display: flex; flex-wrap: wrap; } }
+.reject-note { margin-bottom: 14px; padding: 11px 14px; background: var(--stop-soft); border-left: 3px solid var(--stop); font-size: 14px; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) { .cloud { animation: none; } }
+
+/* =========================== Bandeja de notificaciones ============== */
+.bell-wrap { position: relative; display: inline-flex; }
+.bell-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center; font: 700 10.5px var(--fig); background: var(--cyan); color: var(--navy); border-radius: 9px; }
+.bell-badge.hot { background: var(--stop); color: #fff; }
+.inbox { position: fixed; z-index: 750; width: 390px; max-width: calc(100vw - 16px); max-height: 74vh; overflow: auto; background: var(--surface); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--shadow-float); }
+.inbox.hidden { display: none; }
+.inbox-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.inbox-head strong { display: block; font-size: 16px; } .inbox-head small { color: var(--text-2); font-size: 13px; }
+.inbox-mods { display: grid; }
+.inbox-mod { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; text-align: left; background: var(--surface); border: 0; border-bottom: 1px solid var(--line-soft); border-radius: 0; color: var(--ink); }
+.inbox-mod:hover { background: var(--flow-soft); }
+.inbox-mod > svg { width: 16px; height: 16px; color: var(--text-3); }
+.im-ico { width: 38px; height: 38px; display: grid; place-items: center; flex: none; background: var(--surface-2); border: 1px solid var(--line-soft); color: var(--flow-ink); }
+.im-ico svg { width: 20px; height: 20px; }
+.im-txt { flex: 1; min-width: 0; display: grid; } .im-txt small { color: var(--text-2); font-size: 12.5px; }
+.im-n { min-width: 26px; padding: 2px 8px; text-align: center; font: 700 13px var(--fig); background: var(--surface-3); color: var(--text-3); }
+.im-n.on { background: var(--flow-soft); color: var(--flow-ink); } .im-n.hot { background: var(--stop); color: #fff; }
+.inbox-list { display: grid; }
+.inbox-item { display: flex; gap: 11px; width: 100%; padding: 12px 16px; text-align: left; background: var(--surface); border: 0; border-bottom: 1px solid var(--line-soft); border-left: 3px solid var(--idle); border-radius: 0; color: var(--ink); }
+.inbox-item[data-tone="danger"] { border-left-color: var(--stop); } .inbox-item[data-tone="warn"] { border-left-color: var(--watch); } .inbox-item[data-tone="info"] { border-left-color: var(--flow); }
+button.inbox-item:hover { background: var(--flow-soft); } .inbox-item.static { background: var(--surface-2); margin-bottom: 6px; border-bottom: 0; }
+.ii-ico { flex: none; width: 24px; color: var(--text-2); } .ii-ico svg { width: 20px; height: 20px; }
+.inbox-item[data-tone="danger"] .ii-ico { color: var(--stop-ink); }
+.ii-txt { min-width: 0; display: grid; gap: 1px; } .ii-txt b { font-size: 14px; } .ii-txt small { color: var(--text-2); font-size: 12.5px; line-height: 1.35; } .ii-txt time { color: var(--text-3); font-size: 11.5px; }
+.ii-txt em { font-style: normal; justify-self: start; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--navy); background: var(--cyan); padding: 1px 6px; }
+.inbox-foot { padding: 10px 14px; text-align: right; }
+.inbox-mods.in-dialog .inbox-mod { border: 1px solid var(--line-soft); margin-bottom: 6px; background: var(--surface-2); }
+
+/* =========================== Tooltip de iconos (siempre legible) ==== */
+.ws-tooltip { position: fixed; z-index: 3000; display: none; padding: 6px 11px; background: var(--navy); color: #fff; font-size: 13px; font-weight: 700; line-height: 1.2; white-space: nowrap; box-shadow: var(--shadow-float); pointer-events: none; border-left: 3px solid var(--cyan); }
+@media (hover: hover) { .ws-tip { display: none; } }

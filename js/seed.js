@@ -1,5 +1,5 @@
 /* Datos de ejemplo para el MODO DEMO (relativos a la fecha actual) */
-import { uuid, isoDate, addDays, today, addBusinessDays } from "./utils.js";
+import { uuid, isoDate, addDays, today, addBusinessDays, shiftBusiness, DAY_MS, dueDateOf } from "./utils.js";
 
 export function buildSeed() {
   const T = today();
@@ -37,7 +37,7 @@ export function buildSeed() {
   const lpa_levels = [1, 2, 3, 4, 5].map((level) => ({ id: uuid(), level, name: `Nivel ${level}`, active: true, created_at: daysAgoISO(80) }));
   const finding_classes = [["N1", 3], ["N2", 6], ["N3", 10]].map(([c, days]) => ({ id: uuid(), code: c, name: `Clasificación ${c}`, days, active: true, created_at: daysAgoISO(80) }));
   const klass = (c) => finding_classes.find((x) => x.code === c);
-  const app_settings = [{ key: "verification_days", value: 15, updated_at: daysAgoISO(80) }];
+  const app_settings = [{ key: "verification_days", value: 5, updated_at: daysAgoISO(80) }];
 
   /* Áreas, dueños y responsables por nivel */
   const areaList = [["Calidad", "u-maria"], ["Producción", "u-juan"], ["Almacén", "u-pedro"], ["Logística", "u-ana"], ["Mantenimiento", "u-juan"], ["Ingeniería", "u-carlos"]];
@@ -85,21 +85,22 @@ export function buildSeed() {
       id: uuid(), code: code("HAL"), module: "auditorias", title: "", description: null, source: "auditoria", severity: "menor", status: "abierto",
       classification_id: null, class_id: null, area: null, area_id: null, owner_id: null, audit_id: null, client_id: null, root_cause: null,
       start_date: T, due_date: null, closed_at: null, accepted_at: null, accepted_by: null, transfer_count: 0, transferred_from: null, transferred_at: null, transfer_reason: null,
-      analysis_text: null, analysis_at: null, action_plan: null, actions_closed_on: null, verify_due: null, verified_at: null, verified_by: null, verified_on: null, verification_notes: null,
+      analysis_text: null, analysis_at: null, action_plan: null, actions_closed_on: null, actions_closed_at: null, verify_due: null, verify_due_at: null, due_at: null, reject_count: 0, rejected_at: null, rejection_reason: null, verified_at: null, verified_by: null, verified_on: null, verification_notes: null,
       created_by: "u-maria", created_at: daysAgoISO(2), updated_at: daysAgoISO(1), ...o,
     };
-    if (f.class_id && !o.due_date) f.due_date = addBusinessDays(f.start_date, finding_classes.find((c) => c.id === f.class_id).days);
+    if (isoDate(new Date(f.created_at)) !== f.start_date) f.created_at = new Date(f.start_date + "T09:00:00").toISOString();
+    if (f.class_id && !o.due_date) { const due = shiftBusiness(new Date(f.created_at), finding_classes.find((c) => c.id === f.class_id).days * DAY_MS); f.due_at = due.toISOString(); f.due_date = dueDateOf(due); }
     if (f.area_id && !f.area) f.area = areas.find((a) => a.id === f.area_id).name;
     findings.push(f); return f;
   };
   // Etapas ya recorridas (para que cada hallazgo de ejemplo sea coherente)
   const stage = (f, name) => {
     const ag = (n) => daysAgoISO(n);
-    if (["en_analisis", "en_accion", "verificacion", "cerrado"].includes(name)) { f.accepted_at = ag(2); f.accepted_by = f.owner_id; }
-    if (["en_accion", "verificacion", "cerrado"].includes(name)) { f.analysis_text ||= "No se verificaba el estado de la instrucción al inicio de turno; falta un responsable de revisión."; f.analysis_at = ag(1); }
-    if (["verificacion", "cerrado"].includes(name)) { f.action_plan ||= "Actualizar el documento, retirar copias obsoletas y capacitar al personal del turno."; }
+    if (["en_accion", "verificacion", "cerrado"].includes(name)) { f.accepted_at = ag(2); f.accepted_by = f.owner_id; }
+    if (["verificacion", "cerrado"].includes(name)) f.action_plan ||= "Actualizar el documento, retirar copias obsoletas y capacitar al personal del turno.";
     f.status = name; return f;
   };
+  const closeAt = (f, instant) => { f.actions_closed_at = instant.toISOString(); f.actions_closed_on = isoDate(instant); const v = shiftBusiness(instant, 5 * DAY_MS); f.verify_due_at = v.toISOString(); f.verify_due = dueDateOf(v); return f; };
 
   /* Planes y auditorías */
   const now = new Date();
@@ -132,7 +133,7 @@ export function buildSeed() {
             nok++;
             const areaName = areas.find((x) => x.id === it.area_id).name;
             const f = mkFinding({ title: it.question.replace(/[¿?]/g, "").replace(/^./, (c) => c.toUpperCase()).slice(0, 90) + " · NO CUMPLE", description: ans.comment, module: plan.audit_type === "Interna" ? "internas" : "auditorias", class_id: klassN.id, area_id: it.area_id, owner_id: ownerFor(areaName, level), audit_id: a.id, start_date: d, created_at: iso(d + "T11:00:00") });
-            stage(f, k % 2 ? "en_analisis" : "abierto");
+            stage(f, k % 2 ? "en_accion" : "abierto");
             ans.finding_id = f.id;
           } else ok++;
           audit_answers.push(ans);
@@ -153,18 +154,29 @@ export function buildSeed() {
   const [cNorte, cDelta, cAurora, cMetal] = clients;
   const A = (n) => area(n).id;
   mkFinding({ title: "Producto no conforme sin segregar en línea 2", description: "Se encontraron 14 piezas con rebaba en contenedor de producto bueno.", class_id: klass("N1").id, area_id: A("Calidad"), owner_id: "u-carlos", classification_id: catId("Calidad de producto"), start_date: bd(1), created_at: daysAgoISO(1) });
-  stage(mkFinding({ title: "Instrucción de trabajo obsoleta en estación de ensamble 3", source: "proceso", class_id: klass("N2").id, area_id: A("Producción"), owner_id: "u-juan", classification_id: catId("Documentación"), start_date: bd(2), created_at: daysAgoISO(3) }), "en_analisis");
+  stage(mkFinding({ title: "Instrucción de trabajo obsoleta en estación de ensamble 3", source: "proceso", class_id: klass("N2").id, area_id: A("Producción"), owner_id: "u-juan", classification_id: catId("Documentación"), start_date: bd(2), created_at: daysAgoISO(3) }), "en_accion");
   const calib = mkFinding({ title: "Calibrador vernier sin etiqueta de calibración vigente", source: "interno", class_id: klass("N2").id, area_id: A("Calidad"), owner_id: "u-maria", classification_id: catId("Mantenimiento"), start_date: bd(10), created_at: daysAgoISO(14) });
   stage(calib, "en_accion"); calib.action_plan = "Enviar el vernier a calibración externa y etiquetar con la nueva fecha.";
   const fuga = mkFinding({ title: "Fuga de aceite en prensa hidráulica P-07", source: "interno", class_id: klass("N3").id, area_id: A("Mantenimiento"), owner_id: "u-juan", classification_id: catId("Ambiental"), start_date: bd(8), created_at: daysAgoISO(11) });
-  stage(fuga, "verificacion"); fuga.actions_closed_on = bd(3); fuga.verify_due = addBusinessDays(fuga.actions_closed_on, 15); fuga.action_plan = "Reemplazar el sello del cilindro principal y verificar presión.";
+  stage(fuga, "verificacion"); closeAt(fuga, new Date(bd(3) + "T15:00:00")); fuga.action_plan = "Reemplazar el sello del cilindro principal y verificar presión.";
   const reg = mkFinding({ title: "Registros de inspección sin firma de supervisor", class_id: klass("N2").id, area_id: A("Calidad"), owner_id: "u-maria", classification_id: catId("Documentación"), start_date: bd(20), created_at: daysAgoISO(28) });
-  stage(reg, "cerrado"); reg.actions_closed_on = addBusinessDays(reg.start_date, 4); reg.verify_due = addBusinessDays(reg.actions_closed_on, 15); reg.verified_on = addBusinessDays(reg.actions_closed_on, 6); reg.verified_at = iso(reg.verified_on + "T10:00:00"); reg.verified_by = "u-carlos"; reg.verification_notes = "Se revisó una muestra de 20 registros: todos firmados."; reg.closed_at = reg.verified_at;
+  stage(reg, "cerrado"); closeAt(reg, new Date(addBusinessDays(reg.start_date, 4) + "T15:00:00")); reg.verified_at = shiftBusiness(new Date(reg.actions_closed_at), 3 * DAY_MS).toISOString(); reg.verified_on = isoDate(new Date(reg.verified_at)); reg.verified_by = "u-carlos"; reg.verification_notes = "Se revisó una muestra de 20 registros: todos firmados."; reg.closed_at = reg.verified_at;
   const eti = mkFinding({ title: "Etiquetas ilegibles en estación de empaque", class_id: klass("N1").id, area_id: A("Logística"), owner_id: "u-pedro", classification_id: catId("Calidad de producto"), start_date: bd(30), created_at: daysAgoISO(43) });
-  stage(eti, "cerrado"); eti.actions_closed_on = addBusinessDays(eti.start_date, 8); eti.verify_due = addBusinessDays(eti.actions_closed_on, 15); eti.verified_on = addBusinessDays(eti.actions_closed_on, 10); eti.verified_at = iso(eti.verified_on + "T10:00:00"); eti.verified_by = "u-carlos"; eti.verification_notes = "Cierre fuera de tiempo; acciones efectivas."; eti.closed_at = eti.verified_at;
+  stage(eti, "cerrado"); closeAt(eti, new Date(addBusinessDays(eti.start_date, 8) + "T15:00:00")); eti.verified_at = shiftBusiness(new Date(eti.actions_closed_at), 3 * DAY_MS).toISOString(); eti.verified_on = isoDate(new Date(eti.verified_at)); eti.verified_by = "u-carlos"; eti.verification_notes = "Cierre fuera de tiempo; acciones efectivas."; eti.closed_at = eti.verified_at;
   mkFinding({ title: "Falta de trazabilidad de lote en material de proveedor", source: "proveedor", class_id: klass("N1").id, area_id: A("Almacén"), owner_id: "u-carlos", classification_id: catId("Calidad de producto"), start_date: bd(7), created_at: daysAgoISO(10), transfer_count: 1, transferred_from: "u-pedro", transferred_at: daysAgoISO(8), transfer_reason: "El proveedor lo gestiona Calidad, no Almacén." });
   mkFinding({ title: "Delimitaciones 5S deterioradas en almacén", source: "interno", class_id: klass("N3").id, area_id: A("Almacén"), owner_id: "u-pedro", classification_id: catId("Ambiental"), start_date: bd(1), created_at: daysAgoISO(1) });
   mkFinding({ module: "internas", title: "Falta evidencia de competencia del personal de turno B", source: "auditoria", class_id: klass("N2").id, area_id: A("Producción"), owner_id: "u-maria", start_date: bd(2), created_at: daysAgoISO(3) });
+
+  // Rechazado en la verificación: se reabrió y su milestone de cierre CONTINÚA (le quedaba tiempo)
+  const rech = mkFinding({ title: "Contenedor de producto no conforme sin identificación en línea 3", class_id: klass("N2").id, area_id: A("Calidad"), owner_id: "u-juan", start_date: bd(3), classification_id: catId("Calidad de producto") });
+  stage(rech, "abierto"); rech.accepted_at = daysAgoISO(2); rech.accepted_by = "u-juan"; rech.action_plan = "Identificar el contenedor con etiqueta roja.";
+  rech.reject_count = 1; rech.rejected_at = daysAgoISO(1); rech.rejection_reason = "La evidencia no muestra el contenedor identificado; adjunta una foto clara.";
+  rech.due_at = new Date(Date.now() + (1 * 24 + 6) * 3600000).toISOString(); rech.due_date = dueDateOf(new Date(rech.due_at));
+  const finding_events = [
+    { id: uuid(), finding_id: rech.id, kind: "accepted", detail: null, actor: "u-juan", created_at: daysAgoISO(3, 11) },
+    { id: uuid(), finding_id: rech.id, kind: "actions_closed", detail: "Cerradas a tiempo", actor: "u-juan", created_at: daysAgoISO(2, 16) },
+    { id: uuid(), finding_id: rech.id, kind: "rejected", detail: rech.rejection_reason, actor: "u-carlos", created_at: daysAgoISO(1, 9) },
+  ];
 
   /* Notificaciones de cliente (Issues) */
   const notifs = [];
@@ -175,9 +187,17 @@ export function buildSeed() {
   mkNotif({ client_id: cMetal.id, notification_type: "alerta", subject: "Alerta de calidad por variación de dureza", part_number: "GM-3310", severity: "mayor", received_at: addDays(T, -1), response_due: addDays(T, 4), status: "recibida" });
   mkNotif({ client_id: cNorte.id, notification_type: "auditoria_cliente", subject: "Auditoría de segunda parte · Resultados", severity: "observacion", received_at: addDays(T, -45), response_due: addDays(T, -30), status: "cerrada", closed_at: daysAgoISO(30) });
   const linked = mkFinding({ module: "issues", title: "Etiqueta de embarque con número de parte incorrecto", source: "cliente", class_id: klass("N2").id, client_id: cAurora.id, area_id: A("Logística"), owner_id: "u-maria", classification_id: catId("Calidad de producto"), start_date: bd(4), created_at: daysAgoISO(6) });
-  stage(linked, "en_analisis"); notifs[2].finding_id = linked.id;
+  stage(linked, "en_accion"); notifs[2].finding_id = linked.id;
   const rebaba = mkFinding({ module: "issues", title: "[Queja] Rebaba excesiva en pieza AN-4471", description: "El cliente reporta rebaba fuera de tolerancia.", source: "cliente", class_id: klass("N1").id, client_id: cNorte.id, area_id: A("Producción"), owner_id: "u-maria", start_date: bd(2), created_at: daysAgoISO(3) });
   stage(rebaba, "en_accion"); rebaba.action_plan = "Selección 100% del inventario en planta y en tránsito; ajustar el herramental de desbarbado."; notifs[0].finding_id = rebaba.id;
+
+  /* Bandeja del usuario (avisos guardados) */
+  const mine1 = findings.find((f) => f.owner_id === "u-carlos" && f.status === "abierto");
+  const notifications = [
+    mine1 && { id: uuid(), user_id: "u-carlos", module: mine1.module, kind: "finding_assigned", title: `Se te asignó el hallazgo ${mine1.code}`, body: `${mine1.title}. Acéptalo o trasládalo y registra la acción para cerrarlo a tiempo.`, href: `${mine1.module}/hallazgos/${mine1.id}`, ref_id: mine1.id, created_at: daysAgoISO(0, 8), read_at: null },
+    { id: uuid(), user_id: "u-carlos", module: "auditorias", kind: "finding_verify", title: `Hallazgo ${fuga.code} listo para verificar`, body: "El responsable cerró las acciones; acepta o rechaza la verificación.", href: `auditorias/hallazgos/${fuga.id}`, ref_id: fuga.id, created_at: daysAgoISO(0, 7), read_at: null },
+    { id: uuid(), user_id: "u-juan", module: "auditorias", kind: "finding_rejected", title: `Verificación rechazada: ${rech.code}`, body: rech.rejection_reason, href: `auditorias/hallazgos/${rech.id}`, ref_id: rech.id, created_at: daysAgoISO(1, 9), read_at: null },
+  ].filter(Boolean);
 
   /* Riesgos y oportunidades */
   const rk = (title, category, probability, impact, status, owner_id, mitigation) => ({ id: uuid(), code: code("RSK"), title, description: null, category, probability, impact, score: probability * impact, owner_id, mitigation, status, review_date: addDays(T, 30), created_by: "u-maria", created_at: daysAgoISO(40), updated_at: daysAgoISO(5) });
@@ -200,6 +220,6 @@ export function buildSeed() {
   return {
     currentUser: "u-carlos",
     counters,
-    tables: { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions: [], customer_notifications: notifs, risks, opportunities, attachments: [], lpa_levels, finding_classes, areas, area_level_owners, app_settings },
+    tables: { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions: [], customer_notifications: notifs, risks, opportunities, attachments: [], lpa_levels, finding_classes, areas, area_level_owners, app_settings, notifications, finding_events },
   };
 }

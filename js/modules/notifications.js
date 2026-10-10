@@ -5,7 +5,8 @@ import { setHead, rerender, replaceHash, navigate } from "../router.js";
 import { on, onChange, onInput, badge, empty, openDrawer, openForm, toast } from "../ui.js";
 import { SEVERITY, NOTIF_TYPE, NOTIF_FLOW, NOTIF_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
-import { classOptions, areaOptions, resolveOwner, dueFor } from "../workflow.js";
+import { classOptions, areaOptions, resolveOwner, deadlineFields } from "../workflow.js";
+import { notifyFindings } from "../notify.js";
 import { userOpts, clientOpts, mapOpts, clientName } from "./shared.js";
 
 const F = { q: "", status: "", type: "", client: "" };
@@ -140,13 +141,14 @@ on("n-finding", (el) => {
       { name: "owner_id", label: "Responsable", type: "select", options: userOpts(), hint: "Si eliges un área con responsable, se usa el dueño del área." },
     ],
     onSubmit: async (v) => {
-      const day = today(), owner = resolveOwner(v.area_id, null) || v.owner_id || null;
+      const owner = resolveOwner(v.area_id, null) || v.owner_id || null;
       const f = await db.insert("findings", {
         module: "issues", title: `[${NOTIF_TYPE[n.notification_type]}] ${n.subject}`, description: n.description, source: "cliente", status: "abierto",
-        client_id: n.client_id, class_id: v.class_id, area_id: v.area_id || null, area: db.get("areas", v.area_id)?.name || null, owner_id: owner, start_date: day, due_date: dueFor(v.class_id, day),
+        client_id: n.client_id, class_id: v.class_id, area_id: v.area_id || null, area: db.get("areas", v.area_id)?.name || null, owner_id: owner, ...deadlineFields(v.class_id),
       });
       await db.update("customer_notifications", n.id, { finding_id: f.id });
-      toast(`Hallazgo ${f.code} generado · asignado a ${db.profileName(owner)}`, "ok");
+      toast(`Hallazgo ${f.code} generado · se avisó a ${db.profileName(owner)}`, "ok");
+      if (owner) notifyFindings([f], "assigned");
       await refresh();
     },
   });

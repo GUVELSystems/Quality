@@ -11,7 +11,7 @@ export const TABLES = [
   "profiles", "clients", "classifications", "forms", "form_items",
   "audit_plans", "audits", "audit_answers", "findings", "actions",
   "customer_notifications", "risks", "opportunities", "attachments",
-  "lpa_levels", "finding_classes", "areas", "area_level_owners", "app_settings",
+  "lpa_levels", "finding_classes", "areas", "area_level_owners", "app_settings", "notifications", "finding_events",
 ];
 const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP" };
 const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);
@@ -20,10 +20,10 @@ const GENERATED = { risks: ["score"] }; // columnas calculadas por la base de da
 const CASCADE = {
   audit_plans: [["audits", "plan_id"]],
   audits: [["audit_answers", "audit_id"]],
-  findings: [["actions", "finding_id"]],
   forms: [["form_items", "form_id"]],
   form_items: [["audit_answers", "item_id"]],
   areas: [["area_level_owners", "area_id"]],
+  findings: [["actions", "finding_id"], ["finding_events", "finding_id"]],
 };
 
 export const state = { session: null, profile: null, data: {}, demo: isDemo, authIntent: null, authError: null, otp: null };

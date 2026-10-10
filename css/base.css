@@ -29,10 +29,10 @@ strong, b { font-weight: 600; }
   background: var(--navy); color: var(--ice); border-bottom: 1px solid #22354F;
 }
 .brand { display: flex; align-items: center; gap: 13px; flex: none; color: #fff; text-decoration: none !important; }
-.brand img { height: 34px; width: auto; display: block; }
-.brand-word { display: inline-flex; flex-direction: column; width: max-content; margin-top: 3px; }
-.brand-word strong { display: flex; justify-content: space-between; font-weight: 800; font-size: 24px; line-height: .8; letter-spacing: .02em; color: var(--ice); }
-.brand-word small { display: block; margin-top: 6px; font-size: 8.5px; line-height: 1; letter-spacing: .5em; text-transform: uppercase; color: var(--cyan); white-space: nowrap; font-weight: 700; }
+.brand img { height: 36px; width: auto; display: block; }
+.brand-svg { height: 40px; width: auto; display: block; overflow: visible; }
+.bs-main { font-family: var(--sans); font-weight: 800; font-size: 30px; fill: #fff; }
+.bs-sub { font-family: var(--sans); font-weight: 700; font-size: 11.5px; fill: var(--cyan); }
 .brand-product { margin-left: 2px; padding: 3px 8px; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--cyan); border: 1px solid rgba(12,192,223,.45); }
 
 .ws-chip { align-self: center; display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 32px; margin-right: 12px; padding: 0 8px 0 12px; background: rgba(12,192,223,.1); border: 1px solid rgba(12,192,223,.55); border-radius: 0; color: var(--cyan); font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
@@ -46,7 +46,10 @@ strong, b { font-weight: 600; }
   color: #A9BACB; font-weight: 500; font-size: 15px; white-space: nowrap; text-decoration: none !important; transition: background .15s, color .15s;
 }
 .nav-item::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; background: transparent; }
+.nav-item svg { width: 17px; height: 17px; flex: none; opacity: .85; }
 .nav-item:hover { background: rgba(234,242,248,.06); color: #fff; }
+.nav-item.active svg { color: var(--cyan); opacity: 1; }
+.nav-item.active { font-weight: 600; }
 .nav-item.active { color: #fff; }
 .nav-item.active::after { background: var(--cyan); }
 .nav-item:focus-visible { box-shadow: inset 0 0 0 2px var(--cyan); }
@@ -82,6 +85,12 @@ strong, b { font-weight: 600; }
 /* Encabezado de página */
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin: 6px 0 20px; }
 .page-head p { margin-top: 6px; color: var(--text-2); max-width: 70ch; }
+.head-title { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.head-ico { width: 56px; height: 62px; display: grid; place-items: center; flex: none; background: var(--flow-soft); color: var(--flow-ink); clip-path: var(--hex); }
+.head-ico svg { width: 26px; height: 26px; }
+.sec-title { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; font-size: 18px; font-weight: 700; }
+.sec-title svg { width: 22px; height: 22px; color: var(--flow-ink); }
+.sec-title small { margin-left: 4px; font-size: 13px; font-weight: 500; color: var(--text-2); }
 .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--flow-ink); margin-bottom: 4px; display: block; }
 .head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
@@ -91,8 +100,8 @@ strong, b { font-weight: 600; }
 .auth-card { position: relative; width: min(400px, 100%); }
 .auth-brand { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; margin-bottom: 26px; }
 .auth-brand img { width: 62px; }
-.auth-brand strong { font-size: 30px; font-weight: 800; letter-spacing: .09em; color: #fff; line-height: 1; }
-.auth-brand small { font-size: 15px; color: var(--cyan); font-weight: 400; margin-top: 2px; }
+.auth-brand .brand-svg { height: 64px; margin-top: 4px; }
+
 .auth-card .eyebrow { text-align: center; color: #8FA3B8; margin: 0; }
 .auth-card h1 { text-align: center; color: #fff; font-size: 24px; margin: 6px 0 18px; }
 .auth-card .auth-lead { text-align: center; color: #A9BACB; margin: -8px 0 18px; font-size: 14px; }

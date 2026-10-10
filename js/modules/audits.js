@@ -5,7 +5,8 @@ import { setHead, rerender, navigate, H, wsId } from "../router.js";
 import { typesOf, plansOf, auditsOf, findingsOf, lateActionsOf, planWs, WS_LABEL } from "../scope.js";
 import { on, onChange, onInput, badge, pill, empty, openForm, openDialog, confirmDialog, toast } from "../ui.js";
 import { AUDIT_STATUS } from "../constants.js";
-import { classOptions, dueFor, resolveOwner, levelOptions, levelLabel, classBadge } from "../workflow.js";
+import { classOptions, dueFor, deadlineFields, resolveOwner, levelOptions, levelLabel, classBadge } from "../workflow.js";
+import { notifyFindings } from "../notify.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts } from "./shared.js";
 
@@ -328,7 +329,7 @@ const areaName = (it) => db.get("areas", it.area_id)?.name || it.section || "Gen
 /** Texto de ayuda al marcar "No cumple": plazo en días hábiles y responsable automático */
 function nokHint(it, audit, classId) {
   const c = db.get("finding_classes", classId), owner = resolveOwner(it.area_id, audit.level), ar = db.get("areas", it.area_id);
-  const plazo = c ? `Plazo: <b>${c.days} días hábiles</b> → vence <b>${fmtDate(dueFor(classId, today()))}</b>` : "Elige la clasificación para calcular el plazo.";
+  const plazo = c ? `Plazo: <b>${c.days} días hábiles</b> → vence <b>${fmtDate(dueFor(classId))}</b>` : "Elige la clasificación para calcular el plazo.";
   const resp = owner ? `Se asignará a <b>${esc(db.profileName(owner))}</b>${ar ? ` (${esc(ar.name)}${audit.level ? " · Nivel " + audit.level : ""})` : ""}` : `<span class="overdue">Sin responsable definido${ar ? ` en ${esc(ar.name)}` : ""}: un administrador deberá asignarlo</span>`;
   return `${plazo}<br>${resp}`;
 }
@@ -466,20 +467,22 @@ on("au-finish", async (el) => {
   const noks = items.filter((i) => draft.answers[i.id].result === "nok" && !draft.answers[i.id].finding_id);
   if (!(await confirmDialog({ title: "Finalizar auditoría", message: `Se calculará el resultado y se generarán ${noks.length} hallazgo(s) por los puntos que no cumplen, con su plazo en días hábiles y su responsable. Después no podrás editar las respuestas.`, confirmLabel: "Finalizar" }))) return;
   try {
-    const day = today();
+    const created = [];
     for (const it of noks) {
-      const ans = draft.answers[it.id], cls = db.get("finding_classes", ans.class_id);
+      const ans = draft.answers[it.id];
       const f = await db.insert("findings", {
         title: `${audit.code} · ${it.question.replace(/[¿?]/g, "").trim()}`.slice(0, 160) + " (No cumple)", description: ans.comment,
         source: "auditoria", module: planWs(db.get("audit_plans", audit.plan_id)), class_id: ans.class_id, area_id: it.area_id || null, area: db.get("areas", it.area_id)?.name || null,
-        audit_id: audit.id, owner_id: resolveOwner(it.area_id, audit.level), start_date: day, due_date: dueFor(cls.id, day), status: "abierto",
+        audit_id: audit.id, owner_id: resolveOwner(it.area_id, audit.level), status: "abierto", ...deadlineFields(ans.class_id),
       });
+      created.push(f);
       ans.finding_id = f.id;
     }
     await saveAnswers(audit);
     const ok = items.filter((i) => draft.answers[i.id].result === "ok").length, nok = items.filter((i) => draft.answers[i.id].result === "nok").length;
     await db.update("audits", audit.id, { status: "completada", completed_at: new Date().toISOString(), score: ok + nok ? Math.round((ok / (ok + nok)) * 10000) / 100 : null });
     draft = null;
+    if (created.length) await notifyFindings(created.filter((x) => x.owner_id), "assigned");
     toast(`Auditoría finalizada${noks.length ? ` · ${noks.length} hallazgo(s) generados` : ""}`, "ok");
     rerender();
   } catch (e) { toast(e.message, "danger"); }

@@ -107,3 +107,53 @@ export function businessDaysBetween(a, b) {
   for (let d = addDays(from, 1); d <= to && n < 4000; d = addDays(d, 1)) if (isBusinessDay(d)) n++;
   return n * sign;
 }
+
+/* --------------------- Tiempo hábil con horas y minutos -------------------- */
+/* Un "día hábil" son 24 h de lunes a viernes: los sábados y domingos no cuentan. */
+export const DAY_MS = 86400000;
+const midnightAfter = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+const midnightOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const weekendDay = (d) => d.getDay() === 0 || d.getDay() === 6;
+export const endOfDay = (dateStr) => new Date(dateStr + "T23:59:59.999");
+export const localDateOf = (d) => isoDate(d);
+/** Tiempo hábil (ms) entre dos instantes; negativo si b es anterior a a. */
+export function businessMs(a, b) {
+  if (b < a) return -businessMs(b, a);
+  let total = 0, cur = new Date(a), guard = 0;
+  while (cur < b && guard++ < 5000) {
+    const next = midnightAfter(cur), stop = next < b ? next : b;
+    if (!weekendDay(cur)) total += stop - cur;
+    cur = stop;
+  }
+  return total;
+}
+/** Suma (o resta, si ms < 0) tiempo hábil a un instante. */
+export function shiftBusiness(t, ms) {
+  let cur = new Date(t), left = Math.abs(ms), guard = 0;
+  if (ms >= 0) {
+    while (left > 0 && guard++ < 5000) {
+      const next = midnightAfter(cur);
+      if (weekendDay(cur)) { cur = next; continue; }
+      const avail = next - cur;
+      if (left <= avail) return new Date(cur.getTime() + left);
+      left -= avail; cur = next;
+    }
+  } else {
+    while (left > 0 && guard++ < 5000) {
+      const prev = new Date(cur.getTime() - 1), start = midnightOf(prev);
+      if (weekendDay(prev)) { cur = start; continue; }
+      const avail = cur - start;
+      if (left <= avail) return new Date(cur.getTime() - left);
+      left -= avail; cur = start;
+    }
+  }
+  return cur;
+}
+/** ms → { d, h, m, text }  (p. ej. "2 d 5 h 12 min") */
+export function fmtDuration(ms) {
+  const t = Math.max(0, Math.floor(Math.abs(ms) / 60000)), d = Math.floor(t / 1440), h = Math.floor((t % 1440) / 60), m = t % 60;
+  const text = d ? `${d} d ${h} h ${m} min` : h ? `${h} h ${m} min` : m ? `${m} min` : "menos de 1 min";
+  return { d, h, m, text };
+}
+/** Fecha local (YYYY-MM-DD) del último instante de un plazo (evita que 24:00 caiga al día siguiente) */
+export const dueDateOf = (instant) => isoDate(new Date(new Date(instant).getTime() - 1));

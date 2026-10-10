@@ -26,6 +26,7 @@ Tiempo estimado: 30–40 min la primera vez.
    5. `supabase/05_audit_notifications.sql`
    6. `supabase/06_modules.sql` (separa los hallazgos por módulo; ejecútalo **antes** de publicar la versión con módulos independientes)
    7. `supabase/07_workflow.sql` (clasificaciones con días hábiles, niveles LPA, áreas y flujo del hallazgo; ejecútalo **antes** de publicar la versión con el nuevo flujo)
+   8. `supabase/08_milestones_notifications.sql` (milestones con hora, verificación aceptar/rechazar, bandeja de notificaciones)
 
 > Todos son re-ejecutables. Si ya habías corrido una versión anterior, vuelve a ejecutar los 5 en orden (migra sin perder datos).
 
@@ -157,3 +158,6 @@ En `supabase/email-templates/` hay dos plantillas HTML:
 Pega el HTML completo en el recuadro de contenido y guarda. El logotipo se carga desde `https://quality.guvelsystems.com/assets/guvel-logo.png`; si tu dominio es otro, cámbialo en ambos archivos. No modifiques `{{ .ConfirmationURL }}`, `{{ .Email }}` ni `{{ .Data.full_name }}`.
 
 > **Importante:** las plantillas de invitación y recuperación usan `{{ .TokenHash }}` y llevan al portal, que canjea el token **solo cuando la persona pulsa «Continuar»**. Así los filtros de correo corporativo no consumen el enlace. Si usas Resend con *Click tracking* activado, desactívalo para el dominio (Resend → Domains), porque reescribe los enlaces.
+
+## Anexo · Función `notify-finding` (aviso por correo al asignar un hallazgo)
+Es una tercera Edge Function, igual que `invite-user` y `notify-audit-plan`: **Edge Functions → Deploy a new function → Via Editor**, nombre exacto `notify-finding`, pega `docs/pegar-en-supabase/notify-finding.ts` y despliega. Usa los mismos secretos (`RESEND_API_KEY`, `FROM_EMAIL`, `SITE_URL`). Si no está desplegada, el portal sigue funcionando y los avisos llegan solo a la bandeja; el correo se omite y se muestra un aviso.

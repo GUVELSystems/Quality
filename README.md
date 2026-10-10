@@ -22,7 +22,7 @@ El chip cian de la barra superior (junto al logo) despliega los módulos como **
 
 Los hallazgos llevan la columna `module` (`auditorias`, `internas`, `issues`) y las acciones heredan la de su hallazgo; por eso los módulos no se mezclan. Los enlaces antiguos de correo (`#/audits/…`) siguen funcionando: el portal los redirige al módulo correcto.
 
-Flujo de los hallazgos (aceptar/trasladar → análisis → acción con evidencia → verificación del administrador), milestones y asignación automática de responsables: ver [`docs/FLUJO_HALLAZGOS.md`](docs/FLUJO_HALLAZGOS.md).
+Flujo de los hallazgos (aceptar/trasladar → acción con evidencia → verificación aceptar/rechazar del administrador), milestones con días/horas/minutos, bandeja de notificaciones y avisos por correo: ver [`docs/FLUJO_HALLAZGOS.md`](docs/FLUJO_HALLAZGOS.md).
 
 ## Detalle de funciones
 
@@ -56,7 +56,7 @@ Guía completa paso a paso (Auth, SMTP, Resend, Edge Functions, checklist de pru
 
 Resumen:
 
-1. Crea un proyecto en [supabase.com](https://supabase.com) y ejecuta en el **SQL Editor**, en orden: `supabase/01_schema.sql` → `02_policies.sql` → `03_seed.sql` → `04_attachments.sql` → `05_audit_notifications.sql` → `06_modules.sql` → `07_workflow.sql`.
+1. Crea un proyecto en [supabase.com](https://supabase.com) y ejecuta en el **SQL Editor**, en orden: `supabase/01_schema.sql` → `02_policies.sql` → `03_seed.sql` → `04_attachments.sql` → `05_audit_notifications.sql` → `06_modules.sql` → `07_workflow.sql` → `08_milestones_notifications.sql`.
 2. **Auth**: desactiva el registro libre («Allow new users to sign up»), define *Site URL* y *Redirect URLs* con la URL del portal.
 3. Crea tu usuario en *Authentication → Users*. **El primer usuario es administrador**; a los demás los invitas desde el portal (*Configuración → Usuarios → Invitar usuario*).
 4. Despliega las Edge Functions (`invite-user`, `notify-audit-plan`) y carga los secretos `RESEND_API_KEY`, `FROM_EMAIL`, `SITE_URL`.

@@ -110,3 +110,19 @@ export const areas = {
 on("ar-new", () => areaForm(null));
 on("ar-edit", (el) => areaForm(db.get("areas", el.dataset.id)));
 onInput("ar-q", (el) => { areaQ = el.value.toLowerCase(); const p = el.selectionStart; rerender().then(() => { const i = document.getElementById("ar-q"); i?.focus(); i?.setSelectionRange(p, p); }); });
+
+/* ------------------ Clasificaciones y niveles en una sola página ----------------- */
+export const classesAndLevels = {
+  id: "clevels", label: "Clasificaciones y niveles", icon: "tag",
+  render(root) {
+    root.innerHTML = `<div class="stack">
+      <section><div class="sec-title">${icon("tag")}<span>Clasificaciones de hallazgo</span><small>N1, N2… con sus días hábiles</small></div><div id="cl-a"></div></section>
+      <section><div class="sec-title">${icon("layers")}<span>Niveles de LPA</span><small>Cuántos niveles usa tu LPA</small></div><div id="cl-b"></div></section></div>`;
+    findingClasses.render(root.querySelector("#cl-a"));
+    lpaLevels.render(root.querySelector("#cl-b"));
+    setHead({
+      title: "Clasificaciones y niveles", subtitle: "Define los plazos en días hábiles de cada clasificación y los niveles que usa tu LPA.",
+      actions: db.can.manage ? `<button class="btn" data-action="lpalevels-new">${icon("plus")} Nuevo nivel</button><button class="btn primary" data-action="fclasses-new">${icon("plus")} Nueva clasificación</button>` : "",
+    });
+  },
+};

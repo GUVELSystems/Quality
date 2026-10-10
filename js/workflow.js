@@ -1,12 +1,16 @@
 /* =====================================================================
    Flujo del hallazgo
-   Abierto (aceptar o trasladar) → En análisis (¿por qué?) → En acción
-   (¿qué se hará? + evidencia) → Verificación (solo admin) → Cerrado
-   Milestones: (1) cierre de acciones, con plazo según la clasificación
-               (2) verificación, N días hábiles después de cerrar acciones
+   Abierto (aceptar o trasladar) → En acción (acción + evidencia) →
+   Verificación (el administrador acepta o rechaza) → Cerrado
+   Si se rechaza, el hallazgo se reabre y el milestone de cierre continúa
+   con el tiempo que le quedaba.
+
+   Milestones (relojes en tiempo hábil, lunes a viernes, con horas y minutos):
+     1) Cierre de acciones: plazo según la clasificación (N1 = 3 días, …)
+     2) Verificación: N días hábiles después de cerrar las acciones (5 por defecto)
    ===================================================================== */
 import * as db from "./db.js";
-import { esc, today, addBusinessDays, businessDaysBetween, fmtDate } from "./utils.js";
+import { esc, today, addBusinessDays, businessMs, shiftBusiness, fmtDuration, fmtDate, fmtDateTime, DAY_MS, endOfDay, isoDate, dueDateOf } from "./utils.js";
 
 /* ------------------------------ Clasificaciones ---------------------------- */
 export const classes = () => db.rows("finding_classes").filter((c) => c.active).sort((a, b) => a.days - b.days || a.code.localeCompare(b.code));
@@ -18,8 +22,14 @@ export const classBadge = (f) => {
   return c ? `<span class="badge" data-tone="${classTone(c)}" style="text-transform:none" title="${esc(c.name || c.code)} · ${c.days} días hábiles">${esc(c.code)} · ${c.days} d</span>` : `<span class="badge" data-tone="neutral">Sin clasificación</span>`;
 };
 export const classOptions = () => classes().map((c) => [c.id, `${c.code} · ${c.days} días hábiles`]);
-export const dueFor = (classId, from = today()) => { const c = db.get("finding_classes", classId); return c ? addBusinessDays(from, c.days) : null; };
-export const verifyDays = () => Number(db.setting("verification_days", 15)) || 15;
+/** Fecha límite (YYYY-MM-DD) para una clasificación, contando desde ahora: sirve para mostrar avisos */
+export const dueFor = (classId, from = new Date()) => { const c = db.get("finding_classes", classId); return c ? dueDateOf(shiftBusiness(new Date(from), c.days * DAY_MS)) : null; };
+/** Campos de inicio y límite (con hora) de un hallazgo nuevo */
+export function deadlineFields(classId, start = new Date()) {
+  const c = db.get("finding_classes", classId), due = c ? shiftBusiness(start, c.days * DAY_MS) : null;
+  return { start_date: isoDate(start), due_at: due ? due.toISOString() : null, due_date: due ? dueDateOf(due) : null };
+}
+export const verifyDays = () => Number(db.setting("verification_days", 5)) || 5;
 
 /* ------------------------------ Niveles y áreas --------------------------- */
 export const levels = () => db.rows("lpa_levels").filter((l) => l.active).sort((a, b) => a.level - b.level);
@@ -40,51 +50,96 @@ export function resolveOwner(areaId, level) {
 
 /* -------------------------------- Permisos ------------------------------- */
 export const isOwner = (f) => !!f && f.owner_id === db.state.profile.id;
-/** Avanzar el hallazgo (aceptar, trasladar, análisis, acción): su responsable o un administrador */
+/** Avanzar el hallazgo (aceptar, trasladar, registrar acción): su responsable o un administrador */
 export const canAct = (f) => db.can.write && (isOwner(f) || db.can.admin);
 export const canTransfer = (f) => canAct(f) && f.status === "abierto" && !(f.transfer_count > 0);
 export const canVerify = (f) => db.can.admin && f.status === "verificacion";
 
 /* -------------------------------- Milestones ----------------------------- */
-function evalMilestone(label, start, due, end) {
-  const t = today(), total = start && due ? Math.max(1, businessDaysBetween(start, due)) : 1;
-  let state, days;
-  if (end) { days = due ? businessDaysBetween(due, end) : 0; state = days > 0 ? "late" : "ontime"; }
-  else if (!due) { state = "pending"; days = null; }
-  else { days = businessDaysBetween(t, due); state = days < 0 ? "overdue" : "running"; }
-  const used = start ? Math.max(0, businessDaysBetween(start, end || t)) : 0;
-  const tone = state === "ontime" ? "ok" : state === "late" || state === "overdue" ? "danger" : state === "running" ? "info" : "neutral";
+export const STAGES = ["abierto", "en_accion", "verificacion", "cerrado"];
+export const STAGE_LABEL = { abierto: "Abierto", en_analisis: "En acción", en_accion: "En acción", verificacion: "Verificación", cerrado: "Cerrado" };
+export const stageOf = (f) => (f.status === "en_analisis" ? "en_accion" : f.status);   // la etapa "En análisis" ya no existe
+
+const startInstant = (f) => {
+  const c = f.created_at ? new Date(f.created_at) : new Date();
+  return f.start_date && isoDate(c) !== f.start_date ? new Date(f.start_date + "T00:00:00") : c;
+};
+export const dueInstant = (f) => (f.due_at ? new Date(f.due_at) : f.due_date ? endOfDay(f.due_date) : null);
+export const verifyInstant = (f) => (f.verify_due_at ? new Date(f.verify_due_at) : f.verify_due ? endOfDay(f.verify_due) : null);
+const closedInstant = (f) => (f.actions_closed_at ? new Date(f.actions_closed_at) : f.actions_closed_on ? new Date(f.actions_closed_on + "T12:00:00") : null);
+const verifiedInstant = (f) => (f.verified_at ? new Date(f.verified_at) : f.verified_on ? new Date(f.verified_on + "T12:00:00") : null);
+
+function evalMilestone(label, start, due, end, now) {
+  let state, rem = null;
+  if (end) { rem = due ? businessMs(end, due) : 0; state = rem >= 0 ? "ontime" : "late"; }
+  else if (!due) state = "pending";
+  else { rem = businessMs(now, due); state = rem >= 0 ? "running" : "overdue"; }
+  const total = start && due ? Math.max(1, businessMs(start, due)) : 1, used = start ? Math.max(0, businessMs(start, end || now)) : 0;
+  const dur = fmtDuration(rem ?? 0);
   const text = {
-    ontime: `Cerrado a tiempo · ${fmtDate(end)}`,
-    late: `Cerrado tarde (+${days} d hábiles) · ${fmtDate(end)}`,
-    overdue: `Vencido hace ${-days} d hábiles`,
-    running: days === 0 ? "Vence hoy" : `Quedan ${days} d hábiles`,
-    pending: "Sin iniciar",
+    ontime: `Cerrado a tiempo · sobraron ${dur.text}`, late: `Cerrado tarde · +${dur.text}`,
+    overdue: `Vencido hace ${dur.text}`, running: `Quedan ${dur.text}`, pending: "Sin iniciar",
   }[state];
-  return { label, start, due, end, state, tone, days, text, pct: Math.min(100, Math.round((used / total) * 100)) };
+  const caption = { ontime: "Sobraron", late: "De retraso", overdue: "Vencido hace", running: "Quedan", pending: "" }[state];
+  return {
+    label, start, due, end, state, text, caption, dur, ms: rem,
+    tone: state === "ontime" ? "ok" : state === "late" || state === "overdue" ? "danger" : state === "running" ? "info" : "neutral",
+    pct: Math.min(100, Math.round((used / total) * 100)),
+  };
 }
-/** Dos ventanas independientes: la de cierre se congela al cerrar las acciones (verde/rojo) y
- *  la de verificación empieza ahí; así no se pierde la trazabilidad de haber cerrado a tiempo o no. */
-export function milestones(f) {
-  const m1 = evalMilestone("Cierre de acciones", f.start_date || (f.created_at || today()).slice(0, 10), f.due_date, f.actions_closed_on);
-  const m2 = f.actions_closed_on ? evalMilestone("Verificación", f.actions_closed_on, f.verify_due, f.verified_on) : null;
+/** Dos relojes independientes: el de cierre se detiene (verde/rojo) al cerrar las acciones y el de verificación
+ *  empieza ahí. Si el administrador rechaza, el hallazgo se reabre y el de cierre continúa con el tiempo que le quedaba. */
+export function milestones(f, now = new Date()) {
+  const closed = ["verificacion", "cerrado"].includes(stageOf(f)) ? closedInstant(f) : null;
+  const m1 = evalMilestone("Cierre de acciones", startInstant(f), dueInstant(f), closed, now);
+  const m2 = closed ? evalMilestone("Verificación", closed, verifyInstant(f), stageOf(f) === "cerrado" ? verifiedInstant(f) : null, now) : null;
   return { m1, m2 };
 }
 /** ¿Qué plazo está corriendo ahora y está vencido? */
-export function overdueKind(f) {
-  const { m1, m2 } = milestones(f);
+export function overdueKind(f, now = new Date()) {
   if (f.status === "cerrado") return null;
-  if (!f.actions_closed_on) return m1.state === "overdue" ? "cierre" : null;
-  return m2?.state === "overdue" ? "verificacion" : null;
+  const { m1, m2 } = milestones(f, now);
+  if (stageOf(f) === "verificacion") return m2?.state === "overdue" ? "verificacion" : null;
+  return m1.state === "overdue" ? "cierre" : null;
 }
-export const STAGES = ["abierto", "en_analisis", "en_accion", "verificacion", "cerrado"];
-export const STAGE_LABEL = { abierto: "Abierto", en_analisis: "En análisis", en_accion: "En acción", verificacion: "Verificación", cerrado: "Cerrado" };
+
+/* ------------------------------ Historial ------------------------------- */
+export const logEvent = (f, kind, detail = null) => db.insert("finding_events", { finding_id: f.id, kind, detail, actor: db.state.profile.id }).catch(() => null);
+export const eventsOf = (f) => db.rows("finding_events").filter((e) => e.finding_id === f.id).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 
 /* ------------------------------ Acciones del flujo ------------------------ */
 const nowISO = () => new Date().toISOString();
-export const acceptFinding = (f) => db.update("findings", f.id, { status: "en_analisis", accepted_at: nowISO(), accepted_by: db.state.profile.id });
-export const transferFinding = (f, to, reason) => db.update("findings", f.id, { owner_id: to, transfer_count: 1, transferred_from: f.owner_id, transferred_at: nowISO(), transfer_reason: reason });
-export const saveAnalysis = (f, text, advance) => db.update("findings", f.id, advance ? { analysis_text: text, analysis_at: nowISO(), status: "en_accion" } : { analysis_text: text });
+export async function acceptFinding(f) {
+  const r = await db.update("findings", f.id, { status: "en_accion", accepted_at: nowISO(), accepted_by: db.state.profile.id });
+  logEvent(f, "accepted"); return r;
+}
+export async function transferFinding(f, to, reason) {
+  const r = await db.update("findings", f.id, { owner_id: to, transfer_count: 1, transferred_from: f.owner_id, transferred_at: nowISO(), transfer_reason: reason });
+  logEvent(f, "transferred", `${db.profileName(f.owner_id)} → ${db.profileName(to)} · ${reason}`); return r;
+}
 export const savePlan = (f, text) => db.update("findings", f.id, { action_plan: text });
-export const closeActions = (f, text) => db.update("findings", f.id, { action_plan: text, actions_closed_on: today(), verify_due: addBusinessDays(today(), verifyDays()), status: "verificacion" });
-export const verifyFinding = (f, notes) => db.update("findings", f.id, { verification_notes: notes, verified_at: nowISO(), verified_by: db.state.profile.id, verified_on: today(), status: "cerrado" });
+export async function closeActions(f, text) {
+  const now = new Date(), verifyDue = shiftBusiness(now, verifyDays() * DAY_MS), late = businessMs(now, dueInstant(f) || now) < 0;
+  const r = await db.update("findings", f.id, {
+    action_plan: text, actions_closed_at: now.toISOString(), actions_closed_on: isoDate(now), verify_due_at: verifyDue.toISOString(), verify_due: dueDateOf(verifyDue), status: "verificacion",
+  });
+  logEvent(f, "actions_closed", late ? "Cerradas fuera de tiempo" : "Cerradas a tiempo"); return r;
+}
+/** El administrador acepta la verificación: el hallazgo se cierra */
+export async function acceptVerification(f, notes) {
+  const r = await db.update("findings", f.id, { verification_notes: notes, verified_at: nowISO(), verified_by: db.state.profile.id, verified_on: today(), status: "cerrado" });
+  const m = milestones({ ...f, status: "cerrado", verified_at: nowISO() }).m2;
+  logEvent(f, "verified", `${notes}${m ? ` · verificación ${m.state === "ontime" ? "a tiempo" : "tardía"}` : ""}`); return r;
+}
+/** El administrador rechaza: se reabre y el milestone de cierre continúa con el tiempo que le quedaba */
+export async function rejectVerification(f, reason) {
+  const now = new Date(), due = dueInstant(f), closed = closedInstant(f);
+  const remaining = due && closed ? businessMs(closed, due) : 0;               // positivo = sobraba tiempo; negativo = ya iba tarde
+  const newDue = shiftBusiness(now, remaining);
+  const r = await db.update("findings", f.id, {
+    status: "abierto", reject_count: (f.reject_count || 0) + 1, rejected_at: now.toISOString(), rejection_reason: reason,
+    actions_closed_at: null, actions_closed_on: null, verify_due_at: null, verify_due: null, verification_notes: null,
+    due_at: newDue.toISOString(), due_date: dueDateOf(newDue),
+  });
+  logEvent(f, "rejected", reason); return r;
+}

@@ -41,6 +41,26 @@ const findingFields = (editing, current) => ([
 ]);
 
 export function newFinding(defaults = {}) {
+  if (wsId() === "internas") {
+    // Auditorías Internas: el alta solo abre el expediente; la clasificación y el responsable se definen en "Registro"
+    openForm({
+      eyebrow: WS_LABEL.internas, title: "Registrar hallazgo", submitLabel: "Registrar hallazgo",
+      intro: `<div class="note" style="margin-bottom:14px">Un administrador completará la clasificación, el proceso y el responsable en la etapa <b>Registro</b>.</div>`,
+      fields: [
+        { name: "title", label: "Título del hallazgo", required: true, span2: true },
+        { name: "description", label: "Descripción", type: "textarea", span2: true },
+        { name: "clause", label: "Cláusula / punto afectado", placeholder: "Ej. 8.5.1" },
+        { name: "source", label: "Origen", type: "select", required: true, options: mapOpts(SOURCE) },
+      ],
+      values: { source: "auditoria", ...defaults },
+      onSubmit: async (v) => {
+        const r = await db.insert("findings", { ...v, module: "internas", status: "registro" });
+        toast(`Hallazgo ${r.code} registrado · pendiente de clasificar`, "ok");
+        await refresh();
+      },
+    });
+    return;
+  }
   openForm({
     eyebrow: WS_LABEL[wsId()], title: "Registrar hallazgo", fields: findingFields(false), size: "wide",
     values: { source: isIssues() ? "cliente" : "auditoria", ...defaults }, submitLabel: "Registrar hallazgo",

@@ -573,14 +573,19 @@ on("au-finish", async (el) => {
   if (!(await confirmDialog({ title: "Finalizar auditoría", message: `Se calculará el resultado y se generarán ${noks.length} hallazgo(s) por los puntos que no cumplen, con su plazo en días hábiles y su responsable. Después no podrás editar las respuestas.`, confirmLabel: "Finalizar" }))) return;
   try {
     const created = [];
+    const ws = planWs(db.get("audit_plans", audit.plan_id));
     for (const it of noks) {
       const ans = draft.answers[it.id];
-      const f = await db.insert("findings", {
+      const base = {
         title: isDimension(it) ? `${audit.code} · ${it.question} fuera de tolerancia`.slice(0, 160) : `${audit.code} · ${it.question.replace(/[¿?]/g, "").trim()}`.slice(0, 160) + " (No cumple)",
         description: isDimension(it) ? `${ans.comment}\nValor medido: ${ans.value} ${dimSpec(it).unit} · especificación ${specText(it)} (rango ${dimRange(it)})` : ans.comment,
-        source: "auditoria", module: planWs(db.get("audit_plans", audit.plan_id)), class_id: ans.class_id, area_id: it.area_id || null, area: db.get("areas", it.area_id)?.name || null,
-        audit_id: audit.id, owner_id: resolveOwner(it.area_id, audit.level), status: "abierto", ...deadlineFields(ans.class_id),
-      });
+        source: "auditoria", module: ws, area_id: it.area_id || null, area: db.get("areas", it.area_id)?.name || null, audit_id: audit.id,
+      };
+      // Auditorías Internas: el hallazgo nace en "Registro" — la clasificación del auditor queda como sugerencia
+      // editable y el responsable NO se asigna automáticamente; el administrador confirma ambos ahí.
+      const f = await db.insert("findings", ws === "internas"
+        ? { ...base, class_id: ans.class_id, status: "registro", clause: it.clause || null }
+        : { ...base, class_id: ans.class_id, owner_id: resolveOwner(it.area_id, audit.level), status: "abierto", ...deadlineFields(ans.class_id) });
       created.push(f);
       ans.finding_id = f.id;
     }

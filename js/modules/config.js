@@ -6,7 +6,6 @@ import { setHead, rerender } from "../router.js";
 import { on, onInput, empty, openForm, openDialog, confirmDialog, toast, pill } from "../ui.js";
 import { makeCrud } from "./crud.js";
 import { classes, classTone, levels, levelLabel, verifyDays, verifyDaysForType, VERIFY_TYPES, SCOPES, scopesOf } from "../workflow.js";
-import { emptySchema, bindBuilder, builderHTML } from "../templates.js";
 
 const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
 const yesNo = (v) => (v ? pill("Activo", "ok") : pill("Inactivo", "neutral"));
@@ -157,61 +156,35 @@ export const standards = makeCrud({
   ],
 });
 
-/* -------------------------- CAPA Files / Root Cause Files (plantillas) ----------------- */
-const TPL_KIND = { capa: { table: "capa_templates", label: "CAPA Files", icon: "capa", kinds: ["8D", "4D", "CAPA", "A4", "Alerta de calidad", "Personalizado"] },
-                   rca: { table: "rca_templates", label: "Root Cause Files", icon: "rca", kinds: ["5 Porqués", "Ishikawa", "Personalizado"] } };
-
-function templateEditor(kind, tpl) {
-  const C = TPL_KIND[kind];
-  const schema = tpl?.schema && tpl.schema.sections ? JSON.parse(JSON.stringify(tpl.schema)) : emptySchema();
-  const dlg = openDialog({
-    eyebrow: tpl ? tpl.code : `Nueva plantilla · ${C.label}`, title: tpl ? "Editar plantilla" : "Nueva plantilla", size: "wide",
-    body: `<form id="tpl-head" class="form-grid" novalidate>
-        <label class="field"><span>Código <i>*</i></span><input class="input" name="code" required value="${esc(tpl?.code || "")}" placeholder="CAPA-8D-01"></label>
-        <label class="field"><span>Tipo</span><select class="select" name="kind">${C.kinds.map((k) => `<option ${tpl?.kind === k ? "selected" : ""}>${k}</option>`).join("")}</select></label>
-        <label class="field span-2"><span>Nombre <i>*</i></span><input class="input" name="name" required value="${esc(tpl?.name || "")}" placeholder="8D · Resolución de problemas"></label>
-        <label class="check" style="align-self:end;height:38px"><input type="checkbox" name="active" ${tpl?.active === false ? "" : "checked"}> Plantilla activa</label></form>
-      <div class="section-title"><span>Diseño de la plantilla</span></div>
-      <p class="muted" style="font-size:13px;margin-bottom:10px">Agrega secciones y campos (texto, fecha, opciones o una <b>tabla tipo hoja de cálculo</b> con las columnas que definas) para armar tu propio 8D, 4D, A4, 5 Porqués, Ishikawa, etc.</p>
-      <div id="tpl-builder"></div>
-      <div id="tpl-err" class="alert hidden" style="margin-top:14px"></div>`,
-    footer: `${tpl && db.can.manage ? `<button class="btn danger" id="tpl-del" style="margin-right:auto">Eliminar</button>` : ""}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="tpl-save">Guardar plantilla</button>`,
-  });
-  bindBuilder(dlg.el.querySelector("#tpl-builder"), schema);
-  const err = dlg.el.querySelector("#tpl-err");
-  dlg.el.querySelector("#tpl-save").addEventListener("click", async (e) => {
-    const f = dlg.el.querySelector("#tpl-head");
-    if (!f.checkValidity()) { f.reportValidity(); return; }
-    if (!schema.sections.length) { err.textContent = "Agrega al menos una sección."; err.classList.remove("hidden"); return; }
-    const empty = schema.sections.find((s) => !s.fields.length);
-    if (empty) { err.textContent = `La sección «${empty.title || "sin nombre"}» no tiene campos.`; err.classList.remove("hidden"); return; }
-    e.target.disabled = true;
-    const data = { code: f.elements.code.value.trim(), name: f.elements.name.value.trim(), kind: f.elements.kind.value, active: f.elements.active.checked, schema };
-    try {
-      tpl ? await db.update(C.table, tpl.id, data) : await db.insert(C.table, data);
-      toast("Plantilla guardada", "ok"); dlg.close(); await rerender();
-    } catch (ex) { err.textContent = ex.message; err.classList.remove("hidden"); e.target.disabled = false; }
-  });
-  dlg.el.querySelector("#tpl-del")?.addEventListener("click", async () => {
-    if (!(await confirmDialog({ title: "¿Eliminar plantilla?", message: "Los hallazgos que ya la usaron conservan lo capturado.", confirmLabel: "Eliminar", danger: true }))) return;
-    try { await db.remove(C.table, tpl.id); toast("Plantilla eliminada"); dlg.close(); await rerender(); } catch (ex) { err.textContent = ex.message; err.classList.remove("hidden"); }
+/* ------------------------- CAPA Files: logo para el PDF del 8D/4D ---------------------- */
+function compressLogo(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 240, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL("image/png"));
+    };
+    img.onerror = () => reject(new Error("No se pudo leer la imagen."));
+    img.src = URL.createObjectURL(file);
   });
 }
-function templatesPage(kind) {
-  const C = TPL_KIND[kind];
-  return {
-    id: C.table, label: C.label, icon: C.icon,
-    render(root) {
-      setHead({ title: C.label, subtitle: kind === "capa" ? "Formatos de acción correctiva (8D, 4D, CAPA, A4, Alerta de calidad…) que se llenan al corregir un hallazgo de auditoría interna." : "Formatos para documentar la causa raíz (5 Porqués, Ishikawa…) de un hallazgo de auditoría interna.",
-        actions: db.can.manage ? `<button class="btn primary" data-action="tpl-new" data-kind="${kind}">${icon("plus")} Nueva plantilla</button>` : "" });
-      const list = db.rows(C.table).sort((a, b) => a.code.localeCompare(b.code));
-      root.innerHTML = `<div class="panel">${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Nombre</th><th>Tipo</th><th class="num">Secciones</th><th>Estado</th></tr></thead><tbody>
-        ${list.map((t) => `<tr data-action="tpl-edit" data-kind="${kind}" data-id="${t.id}"><td class="mono">${esc(t.code)}</td><td class="title">${esc(t.name)}</td><td>${pill(t.kind, "info")}</td><td class="num mono">${(t.schema?.sections || []).length}</td><td>${yesNo(t.active)}</td></tr>`).join("")}
-        </tbody></table></div>` : empty(`Sin plantillas de ${C.label}`, "Crea la primera, por ejemplo un 8D o un 5 Porqués.", C.icon)}</div>`;
-    },
-  };
-}
-export const capaFiles = templatesPage("capa");
-export const rcaFiles = templatesPage("rca");
-on("tpl-new", (el) => templateEditor(el.dataset.kind, null));
-on("tpl-edit", (el) => templateEditor(el.dataset.kind, db.get(TPL_KIND[el.dataset.kind].table, el.dataset.id)));
+export const capaFiles = {
+  id: "capa", label: "CAPA Files", icon: "capa",
+  render(root) {
+    setHead({ title: "CAPA Files", subtitle: "Logo que aparece en el encabezado del PDF del 8D / 4D. El resto del formato (8D con 5 Porqués, 8D con Ishikawa y 4D) usa siempre la plantilla oficial de GUVEL." });
+    const url = db.setting("capa_logo", null);
+    root.innerHTML = `<div class="panel"><div class="panel-body logo-card">
+      <div class="logo-preview">${url ? `<img src="${url}" alt="Logo actual">` : '<span class="muted">Sin logo propio: se usa el de GUVEL</span>'}</div>
+      ${db.can.manage ? `<div class="logo-actions"><label class="btn primary">${icon("plus")} Subir logo<input type="file" accept="image/*" hidden id="logo-file"></label>${url ? `<button class="btn danger" data-action="logo-remove">Quitar</button>` : ""}</div><p class="muted" style="font-size:13px;margin-top:6px">Imagen cuadrada recomendada (PNG con fondo transparente).</p>` : ""}
+    </div></div>`;
+  },
+};
+document.addEventListener("change", async (e) => {
+  if (e.target.id !== "logo-file") return;
+  const file = e.target.files[0]; if (!file) return;
+  try { const dataUrl = await compressLogo(file); await db.saveSetting("capa_logo", dataUrl); toast("Logo actualizado", "ok"); await rerender(); }
+  catch (err) { toast(err.message, "danger"); }
+});
+on("logo-remove", async () => { await db.saveSetting("capa_logo", null); toast("Logo quitado"); await rerender(); });

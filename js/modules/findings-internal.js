@@ -15,10 +15,13 @@ import { notifyFindings } from "../notify.js";
 import { catOpts, clientOpts, mapOpts, catName, clientName } from "./shared.js";
 import { fillHTML, readFill, gridOwners } from "../templates.js";
 import {
-  classes, classBadge, classOptions, classOf, areaOptions, resolveOwner, milestones, overdueKind, canAct, canTransfer, canVerify, verifyDaysFor, verifyDays,
+  classes, classBadge, classOptions, classOf, levelOptions, levelLabel, areaOptions, resolveOwner, milestones, overdueKind, canAct, canTransfer, canVerify, verifyDaysFor, verifyDays,
   STAGES_INTERNAL, STAGE_LABEL_INTERNAL, eventsOf, acceptInternal, transferFinding, saveProblem, advanceProblem, saveContainment, advanceContainment,
   saveRca, advanceRca, savePlan, closeActions, acceptVerification, rejectVerification,
+  isEightD, dStages, eightdStages, dLabel, PS_TYPES, RCA_TYPES, canRegister, canSetStrategy, canActD, canVerify8D,
+  registerFinding, saveStrategy, acceptD, saveD, advanceD, closeVerification8D, rejectVerification8D, deadlineFields,
 } from "../workflow.js";
+import { exportFinding8D4D } from "../pdf8d.js";
 
 const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
 const drafts = {};                         // texto sin guardar: `${id}:${campo}`
@@ -87,6 +90,9 @@ const EV_TEXT = {
   actions_closed: (e) => `Acciones cerradas · ${esc(e.detail || "")}`,
   rejected: (e) => `Verificación <b>rechazada</b> por ${esc(db.profileName(e.actor))} · «${esc(e.detail || "")}»`,
   verified: (e) => `Verificado y cerrado por <b>${esc(db.profileName(e.actor))}</b> · ${esc(e.detail || "")}`,
+  registered: (e) => `Registrado y clasificado por <b>${esc(db.profileName(e.actor))}</b>`,
+  strategy: (e) => `Estrategia definida: <b>${esc(e.detail || "")}</b>`,
+  d_stage: (e) => `Etapa completada: ${esc(e.detail || "")}`,
 };
 function historyCard(f) {
   const ev = [{ at: f.created_at, text: "Hallazgo registrado" }, ...eventsOf(f).map((e) => ({ at: e.created_at, text: (EV_TEXT[e.kind] || (() => esc(e.kind)))(e) }))];
@@ -107,7 +113,7 @@ function templateBlock(f, kind, editable) {
   const freeVal = drafts[`${f.id}:${C.free}`] ?? f[C.free] ?? "";
   if (tpl) gridOwners[key] = { schema: tpl.schema, getData: () => tplDraftFor(f, kind).data, repaint: (data) => { tplDraftFor(f, kind).data = data; paint(); } };
   return `<label class="field" style="max-width:360px"><span>Formato ${kind === "rca" ? "de causa raíz" : "de acción correctiva"}</span>
-      <select class="select" data-change="if-tpl-pick" data-id="${f.id}" data-kind="${kind}" ${editable ? "" : "disabled"}><option value="">— Texto libre —</option>${templates.map((t) => `<option value="${t.id}" ${t.id === st.templateId ? "selected" : ""}>${esc(t.code)} · ${esc(t.name)}</option>`).join("")}</select></label>
+      <select class="select" data-change="lif-tpl-pick" data-id="${f.id}" data-kind="${kind}" ${editable ? "" : "disabled"}><option value="">— Texto libre —</option>${templates.map((t) => `<option value="${t.id}" ${t.id === st.templateId ? "selected" : ""}>${esc(t.code)} · ${esc(t.name)}</option>`).join("")}</select></label>
     <div id="if-tpl-${kind}" class="if-tpl-body" data-tpl-root="${key}">${tpl
       ? fillHTML(tpl.schema, st.data, !editable)
       : (editable ? `<textarea class="textarea" data-input="if-draft" data-key="${f.id}:${C.free}" rows="4" placeholder="${kind === "rca" ? "¿Por qué se presentó esta situación? (puedes elegir un formato arriba, como 5 Porqués o Ishikawa)" : "¿Qué se hará para corregir el hallazgo?"}">${esc(freeVal)}</textarea>`
@@ -125,7 +131,7 @@ const hasTemplateContent = (f, kind) => { const st = tplDraftFor(f, kind); if (!
 
 /* --------------------------------------- Pasos --------------------------------------- */
 const lock = (t) => `<div class="lock-note">${t}</div>`;
-function stepBody(f, st) {
+function legacyStepBody(f, st) {
   const STAGES = STAGES_INTERNAL, cur = STAGES.indexOf(f.status === "en_analisis" ? "rca" : f.status), idx = STAGES.indexOf(st), act = canAct(f), ownerName = esc(db.profileName(f.owner_id));
   const draftKey = (k) => `${f.id}:${k}`, draftVal = (k, saved) => drafts[draftKey(k)] ?? saved ?? "";
   const ta = (k, saved, ph) => `<textarea class="textarea" id="ta-${k}" data-input="if-draft" data-key="${draftKey(k)}" rows="5" placeholder="${esc(ph)}">${esc(draftVal(k, saved))}</textarea>`;
@@ -134,7 +140,7 @@ function stepBody(f, st) {
     let controls = "";
     if (f.status === "abierto") {
       if (!f.owner_id) controls = lock("Este hallazgo no tiene responsable. Un administrador debe asignarlo desde <b>Editar</b>.");
-      else if (act) controls = `<div class="stage-actions"><button class="btn primary" data-action="if-accept" data-id="${f.id}">${icon("check2")} Aceptar hallazgo</button>${canTransfer(f) ? `<button class="btn" data-action="if-transfer" data-id="${f.id}">${icon("swap")} Trasladar</button>` : ""}</div>${f.transfer_count > 0 ? lock("Este hallazgo ya fue trasladado una vez; no puede trasladarse de nuevo.") : ""}`;
+      else if (act) controls = `<div class="stage-actions"><button class="btn primary" data-action="lif-accept" data-id="${f.id}">${icon("check2")} Aceptar hallazgo</button>${canTransfer(f) ? `<button class="btn" data-action="lif-transfer" data-id="${f.id}">${icon("swap")} Trasladar</button>` : ""}</div>${f.transfer_count > 0 ? lock("Este hallazgo ya fue trasladado una vez; no puede trasladarse de nuevo.") : ""}`;
       else controls = lock(`Solo <b>${ownerName}</b> (o un administrador) puede aceptar o trasladar este hallazgo.`);
     } else controls = `<div class="done-text">Aceptado por <b>${esc(db.profileName(f.accepted_by))}</b> · ${fmtDateTime(f.accepted_at)}</div>`;
     const rejected = f.reject_count > 0 && f.status === "abierto" ? `<div class="reject-note"><b>Verificación rechazada${f.rejected_at ? " el " + fmtDateTime(f.rejected_at) : ""}</b><br>${esc(f.rejection_reason || "")}</div>` : "";
@@ -143,28 +149,28 @@ function stepBody(f, st) {
   if (st === "descripcion") {
     if (idx > cur) return lock("Disponible cuando el responsable acepte el hallazgo.");
     if (idx < cur) return `<div class="done-text">${esc(f.problem_desc || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">Registrado ${fmtDateTime(f.problem_at)}</div>`;
-    return act ? `<p class="q-label">¿Qué, cuándo, dónde y cuánto? Describe el problema con el mayor detalle posible.</p>${ta("problem_desc", f.problem_desc, "Describe el problema…")}${attachmentsSection("finding", f.id, { ref: "descripcion", title: "Evidencia", canEdit: true })}<div class="stage-actions"><button class="btn" data-action="if-save" data-id="${f.id}" data-field="problem_desc">Guardar borrador</button><button class="btn primary" data-action="if-advance" data-id="${f.id}" data-to="contencion" data-field="problem_desc">Guardar y continuar</button></div>` : lock(`Solo <b>${ownerName}</b> (o un administrador) puede registrar la descripción.`);
+    return act ? `<p class="q-label">¿Qué, cuándo, dónde y cuánto? Describe el problema con el mayor detalle posible.</p>${ta("problem_desc", f.problem_desc, "Describe el problema…")}${attachmentsSection("finding", f.id, { ref: "descripcion", title: "Evidencia", canEdit: true })}<div class="stage-actions"><button class="btn" data-action="lif-save" data-id="${f.id}" data-field="problem_desc">Guardar borrador</button><button class="btn primary" data-action="lif-advance" data-id="${f.id}" data-to="contencion" data-field="problem_desc">Guardar y continuar</button></div>` : lock(`Solo <b>${ownerName}</b> (o un administrador) puede registrar la descripción.`);
   }
   if (st === "contencion") {
     if (idx > cur) return lock("Disponible cuando se registre la descripción del problema.");
     if (idx < cur) return `<div class="done-text">${esc(f.containment_text || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">Registrado ${fmtDateTime(f.containment_at)}</div>`;
-    return act ? `<p class="q-label">¿Qué se hizo de inmediato para contener el problema?</p>${ta("containment_text", f.containment_text, "Acciones de contención inmediatas…")}${attachmentsSection("finding", f.id, { ref: "contencion", title: "Evidencia", canEdit: true })}<div class="stage-actions"><button class="btn" data-action="if-save" data-id="${f.id}" data-field="containment_text">Guardar borrador</button><button class="btn primary" data-action="if-advance" data-id="${f.id}" data-to="rca" data-field="containment_text">Guardar y continuar</button></div>` : lock(`Solo <b>${ownerName}</b> (o un administrador) puede registrar la contención.`);
+    return act ? `<p class="q-label">¿Qué se hizo de inmediato para contener el problema?</p>${ta("containment_text", f.containment_text, "Acciones de contención inmediatas…")}${attachmentsSection("finding", f.id, { ref: "contencion", title: "Evidencia", canEdit: true })}<div class="stage-actions"><button class="btn" data-action="lif-save" data-id="${f.id}" data-field="containment_text">Guardar borrador</button><button class="btn primary" data-action="lif-advance" data-id="${f.id}" data-to="rca" data-field="containment_text">Guardar y continuar</button></div>` : lock(`Solo <b>${ownerName}</b> (o un administrador) puede registrar la contención.`);
   }
   if (st === "rca") {
     if (idx > cur) return lock("Disponible cuando se registren las acciones de contención.");
     if (idx < cur) return `<div class="done-text">${esc(f.analysis_text || "Ver formato de causa raíz guardado.")}</div><div class="muted" style="margin-top:6px;font-size:13px">Registrado ${fmtDateTime(f.analysis_at)}</div>`;
-    return act ? `<p class="q-label">Análisis de causa raíz</p>${templateBlock(f, "rca", true)}${attachmentsSection("finding", f.id, { ref: "rca", title: "Evidencia", canEdit: true })}<div class="stage-actions"><button class="btn" data-action="if-save-tpl" data-id="${f.id}" data-kind="rca">Guardar borrador</button><button class="btn primary" data-action="if-advance-rca" data-id="${f.id}">Guardar y continuar</button></div>` : lock(`Solo <b>${ownerName}</b> (o un administrador) puede registrar el análisis.`);
+    return act ? `<p class="q-label">Análisis de causa raíz</p>${templateBlock(f, "rca", true)}${attachmentsSection("finding", f.id, { ref: "rca", title: "Evidencia", canEdit: true })}<div class="stage-actions"><button class="btn" data-action="lif-save-tpl" data-id="${f.id}" data-kind="rca">Guardar borrador</button><button class="btn primary" data-action="lif-advance-rca" data-id="${f.id}">Guardar y continuar</button></div>` : lock(`Solo <b>${ownerName}</b> (o un administrador) puede registrar el análisis.`);
   }
   if (st === "en_accion") {
     if (idx > cur) return lock("Disponible cuando se registre el análisis de causa raíz.");
     if (idx < cur) return `<div class="done-text">${esc(f.action_plan || "Ver formato de acción correctiva guardado.")}</div><div class="muted" style="margin-top:6px;font-size:13px">Acciones cerradas el ${fmtDateTime(f.actions_closed_at || f.actions_closed_on)}</div>`;
-    return act ? `<p class="q-label">¿Qué se hará para corregir el hallazgo de forma definitiva?</p>${templateBlock(f, "capa", true)}${attachmentsSection("finding", f.id, { ref: "accion", title: "Evidencia", canEdit: true })}<div class="stage-actions"><button class="btn" data-action="if-save-tpl" data-id="${f.id}" data-kind="capa">Guardar borrador</button><button class="btn primary" data-action="if-close-actions" data-id="${f.id}">Cerrar acciones y enviar a verificación</button></div>${lock(`Un administrador tendrá ${verifyDaysFor(f)} días hábiles para aceptar o rechazar. Se requiere descripción (o formato) y al menos una evidencia.`)}` : lock(`Solo <b>${ownerName}</b> (o un administrador) puede registrar la acción.`);
+    return act ? `<p class="q-label">¿Qué se hará para corregir el hallazgo de forma definitiva?</p>${templateBlock(f, "capa", true)}${attachmentsSection("finding", f.id, { ref: "accion", title: "Evidencia", canEdit: true })}<div class="stage-actions"><button class="btn" data-action="lif-save-tpl" data-id="${f.id}" data-kind="capa">Guardar borrador</button><button class="btn primary" data-action="lif-close-actions" data-id="${f.id}">Cerrar acciones y enviar a verificación</button></div>${lock(`Un administrador tendrá ${verifyDaysFor(f)} días hábiles para aceptar o rechazar. Se requiere descripción (o formato) y al menos una evidencia.`)}` : lock(`Solo <b>${ownerName}</b> (o un administrador) puede registrar la acción.`);
   }
   if (st === "verificacion") {
     if (idx > cur) return lock("Disponible cuando se cierren las acciones.");
     const recap = `<p class="q-label">Causa raíz</p>${templateBlock(f, "rca", false)}<p class="q-label" style="margin-top:14px">Acción correctiva</p>${templateBlock(f, "capa", false)}${attachmentsSection("finding", f.id, { ref: "accion", title: "Evidencia de la acción", canEdit: false })}`;
     if (idx < cur) return `${recap}<p class="q-label" style="margin-top:14px">Resultado de la verificación</p><div class="done-text">${esc(f.verification_notes || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">${fmtDateTime(f.verified_at)}</div>`;
-    return `${recap}${canVerify(f) ? `<p class="q-label" style="margin-top:14px">¿Las acciones fueron efectivas?</p>${ta("verification_notes", f.verification_notes, "Resultado de la verificación…")}<div class="stage-actions"><button class="btn primary" data-action="if-verify-accept" data-id="${f.id}">${icon("check2")} Aceptar</button><button class="btn danger" data-action="if-verify-reject" data-id="${f.id}">${icon("close")} Rechazar</button></div>` : lock("Solo un <b>administrador</b> puede aceptar o rechazar la verificación.")}`;
+    return `${recap}${canVerify(f) ? `<p class="q-label" style="margin-top:14px">¿Las acciones fueron efectivas?</p>${ta("verification_notes", f.verification_notes, "Resultado de la verificación…")}<div class="stage-actions"><button class="btn primary" data-action="lif-verify-accept" data-id="${f.id}">${icon("check2")} Aceptar</button><button class="btn danger" data-action="lif-verify-reject" data-id="${f.id}">${icon("close")} Rechazar</button></div>` : lock("Solo un <b>administrador</b> puede aceptar o rechazar la verificación.")}`;
   }
   /* cerrado */
   if (idx > cur) return lock("El hallazgo se cierra cuando un administrador acepta la verificación.");
@@ -176,20 +182,20 @@ function stepBody(f, st) {
 
 /* ---------------------------------------- Página -------------------------------------- */
 let viewStage = null, curId = null;
-function pageHTML(f) {
+function legacyPageHTML(f) {
   const STAGES = STAGES_INTERNAL, cur = STAGES.indexOf(f.status === "en_analisis" ? "rca" : f.status), view = viewStage || (f.status === "en_analisis" ? "rca" : f.status);
   return `<div class="if-page">
     <div class="if-head">
       <button class="btn ghost icon" data-action="if-back" aria-label="Volver a la lista">${icon("chevL")}</button>
       <div class="if-head-t"><span class="eyebrow mono">${esc(f.code)}</span><h1>${esc(f.title)}</h1></div>
       <div class="if-head-badges">${badge(FINDING_STATUS, f.status)}${f.reject_count > 0 ? `<span class="badge" data-tone="danger">Rechazado ${f.reject_count}×</span>` : ""}</div>
-      ${db.can.write ? `<button class="btn" data-action="if-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}
+      ${db.can.write ? `<button class="btn" data-action="lif-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}
     </div>
     <div class="if-grid">
       <aside class="if-side">${milestoneCard(f)}${filesCard(f)}${historyCard(f)}</aside>
       <main class="if-main">
         <div class="if-steps" role="tablist" aria-label="Etapas del hallazgo">${STAGES.map((s, i) => `<button class="if-step ${i < cur ? "done" : ""} ${i === cur ? "current" : ""} ${s === view ? "viewing" : ""} ${i > cur ? "locked" : ""}" role="tab" aria-selected="${s === view}" data-action="if-stage" data-stage="${s}"><span>${STAGE_LABEL_INTERNAL[s]}</span></button>`).join("")}</div>
-        <div class="if-status" id="if-status-box"><div class="if-status-k">${STAGE_LABEL_INTERNAL[view]}</div>${stepBody(f, view)}</div>
+        <div class="if-status" id="if-status-box"><div class="if-status-k">${STAGE_LABEL_INTERNAL[view]}</div>${legacyStepBody(f, view)}</div>
       </main>
       <aside class="if-details">${detailsHTML(f)}</aside>
     </div>
@@ -199,7 +205,7 @@ function paint() {
   const f = db.get("findings", curId);
   const root = document.getElementById("if-root");
   if (!f || !root) return;
-  root.innerHTML = pageHTML(f);
+  root.innerHTML = isEightD(f) ? e8dPageHTML(f) : legacyPageHTML(f);
 }
 export function renderInternalFinding(root, id, stage) {
   const f = db.get("findings", id);
@@ -214,7 +220,7 @@ export function renderInternalFinding(root, id, stage) {
 hooks.finding = async () => paint();
 
 /* ------------------------------------- Formularios ------------------------------------ */
-function editFinding(f) {
+function legacyEditFinding(f) {
   openForm({
     eyebrow: f.code, title: "Editar hallazgo", size: "wide",
     values: f,
@@ -231,7 +237,7 @@ function editFinding(f) {
     onDelete: db.can.manage ? async () => { await db.remove("findings", f.id); toast("Hallazgo eliminado"); navigate(`${wsId()}/hallazgos`); } : null,
   });
 }
-function transferForm(f) {
+function legacyTransferForm(f) {
   openForm({
     eyebrow: f.code, title: "Trasladar hallazgo", submitLabel: "Trasladar",
     intro: `<div class="note warn" style="margin-bottom:14px"><b>Solo se puede trasladar una vez.</b></div>`,
@@ -242,7 +248,7 @@ function transferForm(f) {
     onSubmit: async (v) => { await transferFinding(f, v.to, v.reason.trim()); toast(`Hallazgo trasladado a ${db.profileName(v.to)}`, "ok"); notifyFindings([db.get("findings", f.id)], "transferred"); paint(); },
   });
 }
-function rejectForm(f) {
+function legacyRejectForm(f) {
   openForm({
     eyebrow: f.code, title: "Rechazar verificación", submitLabel: "Rechazar y reabrir",
     intro: `<div class="note warn" style="margin-bottom:14px">El hallazgo se <b>reabre</b> en la etapa Abierto. El milestone de cierre continúa con el tiempo que le quedaba.</div>`,
@@ -257,24 +263,24 @@ const val = (k) => (document.getElementById(`ta-${k}`)?.value ?? drafts[Object.k
 const run = async (fn, next) => { try { await fn(); if (next) viewStage = next; paint(); } catch (e) { toast(e.message, "danger"); } };
 
 on("if-back", () => navigate(`${wsId()}/hallazgos`));
-on("if-edit", (el) => editFinding(fnd(el.dataset.id)));
+on("lif-edit", (el) => legacyEditFinding(fnd(el.dataset.id)));
 on("if-stage", (el) => { viewStage = el.dataset.stage; paint(); });
-on("if-accept", (el) => run(async () => { await acceptInternal(fnd(el.dataset.id)); toast("Hallazgo aceptado", "ok"); }, "descripcion"));
-on("if-transfer", (el) => transferForm(fnd(el.dataset.id)));
-on("if-save", (el) => run(async () => { const f = fnd(el.dataset.id), field = el.dataset.field, text = val(field); await db.update("findings", f.id, { [field]: text }); toast("Borrador guardado", "ok"); }));
-on("if-advance", (el) => {
+on("lif-accept", (el) => run(async () => { await acceptInternal(fnd(el.dataset.id)); toast("Hallazgo aceptado", "ok"); }, "descripcion"));
+on("lif-transfer", (el) => legacyTransferForm(fnd(el.dataset.id)));
+on("lif-save", (el) => run(async () => { const f = fnd(el.dataset.id), field = el.dataset.field, text = val(field); await db.update("findings", f.id, { [field]: text }); toast("Borrador guardado", "ok"); }));
+on("lif-advance", (el) => {
   const f = fnd(el.dataset.id), field = el.dataset.field, to = el.dataset.to, text = val(field);
   if (text.length < 5) { toast("Escribe el contenido de esta etapa.", "danger"); return; }
   const fn = field === "problem_desc" ? () => advanceProblem(f, text) : () => advanceContainment(f, text);
   run(async () => { await fn(); delete drafts[`${f.id}:${field}`]; toast("Guardado · siguiente etapa", "ok"); }, to);
 });
-on("if-save-tpl", (el) => run(async () => { await saveTemplateIfAny(fnd(el.dataset.id), el.dataset.kind); const f = fnd(el.dataset.id); const free = val(TPL[el.dataset.kind].free); if (free) await db.update("findings", f.id, { [TPL[el.dataset.kind].free]: free }); toast("Borrador guardado", "ok"); }));
-on("if-advance-rca", (el) => {
+on("lif-save-tpl", (el) => run(async () => { await saveTemplateIfAny(fnd(el.dataset.id), el.dataset.kind); const f = fnd(el.dataset.id); const free = val(TPL[el.dataset.kind].free); if (free) await db.update("findings", f.id, { [TPL[el.dataset.kind].free]: free }); toast("Borrador guardado", "ok"); }));
+on("lif-advance-rca", (el) => {
   const f = fnd(el.dataset.id), free = val("analysis_text"), tpl = hasTemplateContent(f, "rca");
   if (!tpl && free.length < 5) { toast("Describe la causa raíz o elige y llena un formato.", "danger"); return; }
   run(async () => { await saveTemplateIfAny(f, "rca"); await advanceRca(f, tpl ? (f.analysis_text || "Ver formato de causa raíz guardado.") : free); toast("Guardado · pasa a Acciones", "ok"); }, "en_accion");
 });
-on("if-close-actions", async (el) => {
+on("lif-close-actions", async (el) => {
   const f = fnd(el.dataset.id), free = val("action_plan"), tpl = hasTemplateContent(f, "capa");
   const ev = db.rows("attachments").filter((a) => a.entity === "finding" && a.entity_id === f.id && a.ref === "accion").length;
   if (!tpl && free.length < 5) { toast("Describe la acción correctiva o elige y llena un formato.", "danger"); return; }
@@ -283,11 +289,294 @@ on("if-close-actions", async (el) => {
   if (!(await confirmDialog({ title: "Cerrar acciones", message: `El milestone de cierre se detiene ahora (${late ? "fuera de tiempo" : "a tiempo"}) y empieza la verificación: un administrador tendrá ${verifyDaysFor(f)} días hábiles.`, confirmLabel: "Cerrar acciones" }))) return;
   run(async () => { await saveTemplateIfAny(f, "capa"); await closeActions(f, tpl ? (f.action_plan || "Ver formato de acción correctiva guardado.") : free); toast("Acciones cerradas · en Verificación", "ok"); notifyFindings([db.get("findings", f.id)], "verify"); }, "verificacion");
 });
-on("if-verify-accept", (el) => {
+on("lif-verify-accept", (el) => {
   const notes = val("verification_notes");
   if (notes.length < 5) { toast("Describe cómo se verificó la efectividad de las acciones.", "danger"); return; }
   run(async () => { await acceptVerification(fnd(el.dataset.id), notes); toast("Verificación aceptada · hallazgo cerrado", "ok"); }, "cerrado");
 });
-on("if-verify-reject", (el) => rejectForm(fnd(el.dataset.id)));
+on("lif-verify-reject", (el) => legacyRejectForm(fnd(el.dataset.id)));
 onInput("if-draft", (el) => { drafts[el.dataset.key] = el.value; });
-onChange("if-tpl-pick", (el) => { tplDraftFor(fnd(el.dataset.id), el.dataset.kind).templateId = el.value; paint(); });
+onChange("lif-tpl-pick", (el) => { tplDraftFor(fnd(el.dataset.id), el.dataset.kind).templateId = el.value; paint(); });
+
+/* =====================================================================
+   Flujo 8D / 4D (nuevo) · Registro → Detalles → Solicitud → D1…D8/D4 → Verificación
+   ===================================================================== */
+const staffAll = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
+const gridFieldId = (key) => `g_${key}`;
+
+/** Sección con una sola tabla tipo hoja de cálculo (reutiliza el motor de plantillas) */
+function gridSection(title, key, columns, f, editable, rows) {
+  const gid = `${f.id}:${key}`, fieldId = gridFieldId(key);
+  const schema = { sections: [{ id: key, title: " ", fields: [{ id: fieldId, label: "", type: "grid", columns }] }] };
+  const data = { [fieldId]: (f.d_data?.[key]?.length ? f.d_data[key] : rows) || undefined };
+  if (editable) gridOwners[gid] = { schema, getData: () => ({ [fieldId]: f.d_data?.[key] || [] }), repaint: (d) => { f.d_data = { ...f.d_data, [key]: d[fieldId] }; db.update("findings", f.id, { d_data: f.d_data }); paint(); } };
+  return `<div class="e8-block"><h4>${esc(title)}</h4><div data-tpl-root="${gid}">${fillHTML(schema, data, !editable)}</div></div>`;
+}
+function readGrid(f, key) {
+  const root = document.querySelector(`[data-tpl-root="${f.id}:${key}"]`);
+  if (!root) return f.d_data?.[key] || [];
+  const fid = gridFieldId(key);
+  const rows = [...root.querySelectorAll("tr[data-ri]")].map((tr) => [...tr.querySelectorAll(`[data-grid="${fid}"]`)].map((i) => i.value));
+  return rows.filter((r) => r.some((c) => c.trim()));
+}
+const textField = (f, key, label, ph = "", required = false) => {
+  const v = drafts[`${f.id}:dd.${key}`] ?? f.d_data?.[key] ?? "";
+  return `<label class="field"><span>${esc(label)}${required ? " <i>*</i>" : ""}</span><input class="input" data-input="e8-dd" data-key="${f.id}:dd.${key}" value="${esc(v)}" placeholder="${esc(ph)}"></label>`;
+};
+const textAreaField = (f, key, label, ph = "", span2 = true) => {
+  const v = drafts[`${f.id}:dd.${key}`] ?? f.d_data?.[key] ?? "";
+  return `<label class="field ${span2 ? "span-2" : ""}"><span>${esc(label)}</span><textarea class="textarea" rows="3" data-input="e8-dd" data-key="${f.id}:dd.${key}" placeholder="${esc(ph)}">${esc(v)}</textarea></label>`;
+};
+function readDraftDD(f, keys) {
+  const out = {};
+  for (const k of keys) out[k] = (document.querySelector(`[data-key="${f.id}:dd.${k}"]`)?.value ?? f.d_data?.[k] ?? "").trim();
+  return out;
+}
+
+/* ------------------------------- Detalles (panel derecho) ------------------------------ */
+function e8dDetailsHTML(f) {
+  const area = db.get("areas", f.area_id), { audit, standard, item, process } = originInfo(f);
+  const row = (k, v) => `<div class="if-d-row"><dt>${esc(k)}</dt><dd>${v}</dd></div>`;
+  return `<div class="if-card"><h3>${icon("list")} Detalles</h3>
+    ${f.strategy_ps ? row("Estrategia", `<span class="badge" data-tone="info">${esc(f.strategy_ps)}</span>${f.strategy_ps === "8D" ? ` <span class="badge" data-tone="info">${esc(RCA_TYPES[f.strategy_rca] || "—")}</span>` : ""}`) : ""}
+    ${f.status !== "registro" ? row("Responsable", userCell(db.get("profiles", f.owner_id)) + (f.status === "solicitud" ? ' <span class="badge" data-tone="warn">Por aceptar</span>' : "")) : ""}
+    ${f.class_id ? row("Clasificación", classBadge(f)) : ""}
+    ${row("Proceso / Área", esc(process?.name || area?.name || f.area || "—"))}
+    ${standard ? row("Norma aplicable", esc(standard.name)) : ""}
+    ${(f.clause || item?.clause) ? row("Cláusula", `<span class="mono">${esc(f.clause || item?.clause)}</span>`) : ""}
+    ${row("Origen", audit ? `<a href="#/internas/audit/${audit.id}">${esc(audit.code)}</a>` : esc(SOURCE[f.source]?.[0] || "—"))}
+    ${row("Registrado", fmtDateTime(f.created_at))}
+    ${f.due_at ? row("Límite de acciones", fmtDateTime(f.due_at)) : ""}
+    ${f.transfer_count > 0 ? row("Traslado", `De <b>${esc(db.profileName(f.transferred_from))}</b> a <b>${esc(db.profileName(f.owner_id))}</b><br><span class="muted">«${esc(f.transfer_reason || "")}»</span>`) : ""}
+    ${f.reject_count > 0 ? row("Rechazos", `<span class="overdue">${f.reject_count}</span>`) : ""}
+  </div>`;
+}
+
+/* ------------------------------- Etapas: Registro / Detalles / Solicitud ------------------------------ */
+function stageRegistro(f) {
+  if (!canRegister(f)) return lock("Solo un administrador puede registrar y clasificar este hallazgo.");
+  return `<p class="muted" style="margin-bottom:14px">${esc(f.description || "Sin descripción inicial.")}</p>
+    <div class="form-grid">
+      <label class="field"><span>Clasificación <i>*</i></span><select class="select" data-input="e8-reg" data-key="class_id">${classOptions(["Interna"]).map(([v, l]) => `<option value="${v}" ${v === f.class_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+      <label class="field"><span>Proceso / Área</span><select class="select" data-input="e8-reg" data-key="area_id"><option value="">— Proceso —</option>${areaOptions().map(([v, l]) => `<option value="${v}" ${v === f.area_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+      <label class="field"><span>Cláusula / punto afectado</span><input class="input" data-input="e8-reg" data-key="clause" value="${esc(f.clause || "")}"></label>
+      <label class="field"><span>Responsable <i>*</i></span><select class="select" data-input="e8-reg" data-key="owner_id"><option value="">— Responsable —</option>${staffAll().map((p) => `<option value="${p.id}" ${p.id === f.owner_id ? "selected" : ""}>${esc(p.full_name)}</option>`).join("")}</select></label>
+    </div>
+    ${attachmentsSection("finding", f.id, { ref: null, title: "Evidencia inicial", canEdit: true })}
+    <div class="stage-actions"><button class="btn primary" data-action="e8-register" data-id="${f.id}">${icon("check2")} Registrar y continuar</button></div>`;
+}
+function stageDetalles(f) {
+  const idx = eightdStages(f).indexOf("detalles"), cur = eightdStages(f).indexOf(f.status);
+  if (idx > cur) return lock("Disponible cuando se registre y clasifique el hallazgo.");
+  if (idx < cur) return `<div class="done-text">Estrategia: <b>${esc(f.strategy_ps)}</b>${f.strategy_ps === "8D" ? ` · ${esc(RCA_TYPES[f.strategy_rca])}` : ""} · Correctivas ${f.corrective_mandatory ? "obligatorias" : "opcionales"} · Preventivas ${f.preventive_mandatory ? "obligatorias" : "opcionales"}</div><div class="muted" style="margin-top:6px;font-size:13px">Registrado ${fmtDateTime(f.strategy_at)}</div>`;
+  if (!canSetStrategy(f)) return lock("Solo un administrador define la estrategia de solución.");
+  const ps = drafts[`${f.id}:ps`] ?? f.strategy_ps ?? "8D", rca = drafts[`${f.id}:rca`] ?? f.strategy_rca ?? "5whys";
+  return `<p class="muted" style="margin-bottom:14px">Define cómo se resolverá este hallazgo. El equipo seguirá esta estrategia paso a paso.</p>
+    <div class="form-grid">
+      <label class="field"><span>Problem Solving <i>*</i></span><select class="select" data-change="e8-ps" data-id="${f.id}">${Object.keys(PS_TYPES).map((k) => `<option value="${k}" ${k === ps ? "selected" : ""}>${k}</option>`).join("")}</select></label>
+      <label class="field" id="e8-rca-wrap" ${ps === "4D" ? 'style="display:none"' : ""}><span>Análisis de causa raíz <i>*</i></span><select class="select" data-input="e8-strategy" data-key="rca">${Object.entries(RCA_TYPES).map(([k, l]) => `<option value="${k}" ${k === rca ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label class="check"><input type="checkbox" data-input="e8-strategy" data-key="corrective" ${((drafts[`${f.id}:corrective`] ?? f.corrective_mandatory) !== false) ? "checked" : ""}> Acciones correctivas obligatorias</label>
+      <label class="check"><input type="checkbox" data-input="e8-strategy" data-key="preventive" ${(drafts[`${f.id}:preventive`] ?? (f.preventive_mandatory ?? (ps !== "4D"))) ? "checked" : ""}> Acciones preventivas obligatorias</label>
+    </div>
+    <p class="muted" style="font-size:13px;margin-top:4px">Un 4D no incluye D5–D8: termina en D4 (acciones inmediatas) y pasa directo a Verificación.</p>
+    <div class="stage-actions"><button class="btn primary" data-action="e8-strategy-save" data-id="${f.id}">${icon("check2")} Guardar estrategia y continuar</button></div>`;
+}
+function stageSolicitud(f) {
+  const idx = eightdStages(f).indexOf("solicitud"), cur = eightdStages(f).indexOf(f.status), ownerName = esc(db.profileName(f.owner_id));
+  if (idx > cur) return lock("Disponible cuando se defina la estrategia.");
+  let controls;
+  if (idx < cur) controls = `<div class="done-text">Aceptado por <b>${esc(db.profileName(f.accepted_by))}</b> · ${fmtDateTime(f.accepted_at)}</div>`;
+  else if (canActD(f)) controls = `<div class="stage-actions"><button class="btn primary" data-action="e8-accept" data-id="${f.id}">${icon("check2")} Aceptar hallazgo</button>${canTransfer(f) ? `<button class="btn" data-action="e8-transfer" data-id="${f.id}">${icon("swap")} Trasladar</button>` : ""}</div>${f.transfer_count > 0 ? lock("Este hallazgo ya fue trasladado una vez; no puede trasladarse de nuevo.") : ""}`;
+  else controls = lock(`Solo <b>${ownerName}</b> (o un administrador) puede aceptar o trasladar este hallazgo.`);
+  const rejected = f.reject_count > 0 && f.status === "registro" ? "" : "";
+  return `<p class="muted" style="margin-bottom:10px">${esc(f.title)}</p>${rejected}${controls}`;
+}
+
+/* ------------------------------- D1…D8 ------------------------------ */
+function stageD1(f, editable) {
+  return gridSection("Integrantes del equipo", "team", ["Nombre", "Departamento", "Responsabilidad"], f, editable);
+}
+function stageD2(f, editable) {
+  const is8D = f.strategy_ps !== "4D";
+  const w5 = f.d_data?.problem5w || {};
+  const field5 = (k, l) => `<label class="field"><span>${esc(l)}</span><input class="input" data-input="e8-dd" data-key="${f.id}:dd.problem5w.${k}" value="${esc(drafts[`${f.id}:dd.problem5w.${k}`] ?? w5[k] ?? "")}"></label>`;
+  return `${textAreaField(f, "failure_desc", "Descripción de la falla", "¿Qué pasó? Descríbelo con el mayor detalle.")}
+    <div class="form-grid">${field5("what", "¿Qué?")}${field5("where", "¿Dónde?")}${field5("when", "¿Cuándo?")}${field5("who", "¿Quién?")}${field5("why", "¿Por qué?")}${is8D ? field5("how_much", "¿Cuánto?") + field5("batch", "Lote") : ""}</div>
+    ${attachmentsSection("finding", f.id, { ref: "d2", title: "Evidencia (fotos OK / NO OK)", canEdit: editable })}`;
+}
+function stageD3(f, editable) {
+  if (f.strategy_ps === "4D") {
+    const r = f.d_data?.rootcause4d || {};
+    const w = (k, l) => `<label class="field"><span>${esc(l)}</span><input class="input" data-input="e8-dd" data-key="${f.id}:dd.rootcause4d.${k}" value="${esc(drafts[`${f.id}:dd.rootcause4d.${k}`] ?? r[k] ?? "")}"></label>`;
+    return `<p class="muted">Problema: ${esc(f.d_data?.failure_desc || f.description || "—")}</p><div class="form-grid">${w("why1", "¿Por qué? 1")}${w("why2", "¿Por qué? 2")}${w("why3", "¿Por qué? 3")}${w("why4", "¿Por qué? 4")}${w("root_cause", "Causa raíz")}</div>${attachmentsSection("finding", f.id, { ref: "d3", title: "Evidencia", canEdit: editable })}`;
+  }
+  return `${gridSection("Acciones de contención", "containment", ["Acción", "Responsable", "Fecha límite", "Fecha de cierre", "Comentarios"], f, editable)}${attachmentsSection("finding", f.id, { ref: "d3", title: "Evidencia", canEdit: editable })}`;
+}
+function stageD4(f, editable) {
+  if (f.strategy_ps === "4D") {
+    const c = f.d_data?.closure4d || {};
+    const w = (k, l, type = "text") => `<label class="field"><span>${esc(l)}</span><input class="input" type="${type}" data-input="e8-dd" data-key="${f.id}:dd.closure4d.${k}" value="${esc(drafts[`${f.id}:dd.closure4d.${k}`] ?? c[k] ?? "")}"></label>`;
+    return `${gridSection("Acciones inmediatas", "immediate", ["Acción", "Responsable", "Fecha límite", "Fecha de cierre", "Comentarios"], f, editable)}
+      <div class="e8-block"><h4>Cierre del 4D</h4><div class="form-grid">${w("prepared_by", "Preparado por")}${w("prepared_date", "Fecha", "date")}${w("reviewed_by", "Revisado por")}${w("reviewed_date", "Fecha", "date")}${w("status", "Estatus")}${w("completion_date", "Fecha de cierre", "date")}</div></div>
+      ${attachmentsSection("finding", f.id, { ref: "d4", title: "Evidencia", canEdit: editable })}`;
+  }
+  if (f.strategy_rca === "ishikawa") {
+    const d = f.d_data?.ishikawa || {};
+    const cats = [0, 1, 2].map((i) => `<label class="field"><span>Categoría ${i + 1}</span><input class="input" data-input="e8-dd" data-key="${f.id}:dd.ishikawa.cat${i}" value="${esc(drafts[`${f.id}:dd.ishikawa.cat${i}`] ?? d[`cat${i}`] ?? "")}"></label>${gridSection(`Causas · Categoría ${i + 1}`, `ishikawa_causes${i}`, ["Causa"], f, editable)}`).join("");
+    return `<div class="form-grid">${cats}</div>${textAreaField(f, "ishikawa_problem", "Problema (efecto)", "Enunciado del problema al que convergen las causas")}${attachmentsSection("finding", f.id, { ref: "d4", title: "Evidencia", canEdit: editable })}`;
+  }
+  const chains = [["why_occur", "¿Por qué ocurrió el defecto?"], ["why_detect", "¿Por qué no se detectó?"], ["why_prevent", "¿Por qué no se previno?"]];
+  const chain = (key, label) => { const r = f.d_data?.[key] || {}; const w = (k) => `<input class="input" data-input="e8-dd" data-key="${f.id}:dd.${key}.${k}" placeholder="¿Por qué?" value="${esc(drafts[`${f.id}:dd.${key}.${k}`] ?? r[k] ?? "")}">`; return `<div class="e8-block"><h4>${esc(label)}</h4><div class="e8-why-row">${w("why1")}${w("why2")}${w("why3")}${w("why4")}<input class="input" data-input="e8-dd" data-key="${f.id}:dd.${key}.root_cause" placeholder="Causa raíz" value="${esc(drafts[`${f.id}:dd.${key}.root_cause`] ?? r.root_cause ?? "")}"></div></div>`; };
+  return `${chains.map(([k, l]) => chain(k, l)).join("")}${attachmentsSection("finding", f.id, { ref: "d4", title: "Evidencia", canEdit: editable })}`;
+}
+const actionCols = ["Acción", "Responsable", "Fecha límite", "Fecha de cierre"];
+function stageD5(f, editable) { return gridSection("Plan de acciones correctivas permanentes", "corrective_plan", actionCols, f, editable); }
+function stageD6(f, editable) { return gridSection("Acciones correctivas implementadas", "corrective_done", actionCols, f, editable); }
+function stageD7(f, editable) {
+  const a = f.d_data?.additional || {};
+  const yn = (k, l) => { const v = a[k] || {}; return `<div class="e8-block"><h4>${esc(l)}</h4><div class="form-grid">
+    <label class="field"><span>¿Necesario?</span><select class="select" data-input="e8-dd" data-key="${f.id}:dd.additional.${k}.flag">${["No", "Sí"].map((o, i) => `<option value="${i}" ${String(i) === String(v.flag ?? 0) ? "selected" : ""}>${o}</option>`).join("")}</select></label>
+    <label class="field"><span>Responsable</span><input class="input" data-input="e8-dd" data-key="${f.id}:dd.additional.${k}.responsible" value="${esc(drafts[`${f.id}:dd.additional.${k}.responsible`] ?? v.responsible ?? "")}"></label>
+    <label class="field"><span>Fecha límite</span><input class="input" type="date" data-input="e8-dd" data-key="${f.id}:dd.additional.${k}.due" value="${esc(v.due || "")}"></label>
+    <label class="field"><span>Fecha de cierre</span><input class="input" type="date" data-input="e8-dd" data-key="${f.id}:dd.additional.${k}.completion" value="${esc(v.completion || "")}"></label></div></div>`; };
+  return `${f.preventive_mandatory ? "" : '<p class="muted" style="margin-bottom:10px">Las acciones preventivas no son obligatorias para esta estrategia, pero puedes registrarlas.</p>'}
+    ${gridSection("Acciones preventivas", "preventive", actionCols, f, editable)}
+    ${yn("fmea", "¿Es necesario actualizar el FMEA?")}${yn("cp", "¿Es necesario actualizar el Plan de Control?")}${yn("rollacross", "¿Es necesario un Roll-Across?")}`;
+}
+function stageD8(f, editable) {
+  const c = f.d_data?.closure8d || {};
+  const w = (k, l, type = "text") => `<label class="field"><span>${esc(l)}</span><input class="input" type="${type}" data-input="e8-dd" data-key="${f.id}:dd.closure8d.${k}" value="${esc(drafts[`${f.id}:dd.closure8d.${k}`] ?? c[k] ?? "")}"></label>`;
+  return `<p class="muted" style="margin-bottom:14px">El equipo es reconocido por su esfuerzo y colaboración resolviendo el problema.</p>
+    <div class="form-grid">${w("prepared_by", "Preparado por")}${w("reviewed_by", "Revisado por")}${w("approved_by", "Aprobado por")}${w("closing_date", "Fecha de cierre", "date")}
+    <label class="field"><span>Estatus del reporte</span><select class="select" data-input="e8-dd" data-key="${f.id}:dd.closure8d.status"><option ${c.status !== "Closed" ? "selected" : ""}>Open</option><option ${c.status === "Closed" ? "selected" : ""}>Closed</option></select></label></div>`;
+}
+const D_BODY = { d1: stageD1, d2: stageD2, d3: stageD3, d4: stageD4, d5: stageD5, d6: stageD6, d7: stageD7, d8: stageD8 };
+
+function stageDGeneric(f, stage) {
+  const stages = eightdStages(f), idx = stages.indexOf(stage), cur = stages.indexOf(f.status), act = canActD(f), ownerName = esc(db.profileName(f.owner_id));
+  if (idx > cur) return lock(`Disponible al llegar a ${esc(dLabel(stage, f))}.`);
+  const editable = idx === cur && act;
+  const body = D_BODY[stage](f, editable);
+  if (idx < cur) return body;                     // ya hecho: vista de solo lectura
+  if (!act) return `${body}${lock(`Solo <b>${ownerName}</b> (o un administrador) puede continuar.`)}`;
+  const isLast = stages[idx + 1] === "verificacion";
+  return `${body}<div class="stage-actions"><button class="btn" data-action="e8-d-save" data-id="${f.id}" data-stage="${stage}">Guardar borrador</button>
+    <button class="btn primary" data-action="e8-d-advance" data-id="${f.id}" data-stage="${stage}">${isLast ? "Guardar y enviar a Verificación" : "Guardar y continuar"}</button></div>
+    ${isLast ? lock(`Un administrador tendrá ${verifyDaysFor(f)} días hábiles para aceptar o rechazar la verificación.`) : ""}`;
+}
+
+function stageVerificacion8D(f) {
+  const stages = eightdStages(f), idx = stages.indexOf("verificacion"), cur = stages.indexOf(f.status);
+  if (idx > cur) return lock("Disponible cuando se completen las acciones.");
+  const pdfBtn = `<button class="btn" data-action="e8-pdf" data-id="${f.id}">${icon("download")} Descargar PDF (${esc(f.strategy_ps)})</button>`;
+  if (idx < cur) return `<div class="done-text">${esc(f.verification_notes || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">${fmtDateTime(f.verified_at)}</div><div class="stage-actions">${pdfBtn}</div>`;
+  const notes = drafts[`${f.id}:verification_notes`] ?? f.verification_notes ?? "";
+  return `<div class="stage-actions" style="margin-bottom:14px">${pdfBtn}</div>${canVerify8D(f) ? `<p class="q-label">¿El 8D/4D fue efectivo y está completo?</p>
+    <textarea class="textarea" rows="4" data-input="e8-dd" data-key="${f.id}:verification_notes" placeholder="Resultado de la verificación…">${esc(notes)}</textarea>
+    <div class="stage-actions"><button class="btn primary" data-action="e8-verify-accept" data-id="${f.id}">${icon("check2")} Aceptar y cerrar</button><button class="btn danger" data-action="e8-verify-reject" data-id="${f.id}">${icon("close")} Rechazar</button></div>`
+    : lock("Solo un <b>administrador</b> puede aceptar o rechazar la verificación.")}`;
+}
+function stageCerrado8D(f) {
+  if (f.status !== "cerrado") return lock("El hallazgo se cierra cuando un administrador acepta la verificación.");
+  const { m1, m2 } = milestones(f);
+  return `<div class="if-closed-grid"><div><dt>Cierre de acciones</dt><dd>${esc(m1.text)}</dd></div><div><dt>Verificación</dt><dd>${esc(m2?.text || "—")}</dd></div>
+    <div><dt>Verificó</dt><dd>${esc(db.profileName(f.verified_by))}</dd></div><div><dt>Cerrado</dt><dd>${fmtDateTime(f.closed_at || f.verified_at)}</dd></div></div>
+    <p class="q-label" style="margin-top:14px">Resultado de la verificación</p><div class="done-text">${esc(f.verification_notes || "—")}</div>
+    <div class="stage-actions" style="margin-top:14px"><button class="btn primary" data-action="e8-pdf" data-id="${f.id}">${icon("download")} Descargar PDF (${esc(f.strategy_ps)})</button></div>`;
+}
+
+function e8dStepBody(f, st) {
+  if (st === "registro") return stageRegistro(f);
+  if (st === "detalles") return stageDetalles(f);
+  if (st === "solicitud") return stageSolicitud(f);
+  if (st === "verificacion") return stageVerificacion8D(f);
+  if (st === "cerrado") return stageCerrado8D(f);
+  return stageDGeneric(f, st);
+}
+
+function e8dPageHTML(f) {
+  const stages = eightdStages(f), cur = stages.indexOf(f.status), view = viewStage && stages.includes(viewStage) ? viewStage : f.status;
+  return `<div class="if-page">
+    <div class="if-head">
+      <button class="btn ghost icon" data-action="if-back" aria-label="Volver a la lista">${icon("chevL")}</button>
+      <div class="if-head-t"><span class="eyebrow mono">${esc(f.code)}</span><h1>${esc(f.title)}</h1></div>
+      <div class="if-head-badges">${badge(FINDING_STATUS, f.status === "cerrado" ? "cerrado" : f.status === "verificacion" ? "verificacion" : "abierto")}${f.strategy_ps ? `<span class="badge" data-tone="info">${esc(f.strategy_ps)}</span>` : ""}${f.reject_count > 0 ? `<span class="badge" data-tone="danger">Rechazado ${f.reject_count}×</span>` : ""}</div>
+      ${db.can.write && f.status !== "registro" ? `<button class="btn" data-action="lif-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}
+    </div>
+    <div class="if-grid">
+      <aside class="if-side">${milestoneCard(f)}${filesCard(f)}${historyCard(f)}</aside>
+      <main class="if-main">
+        <div class="if-steps e8-steps" role="tablist" aria-label="Etapas del hallazgo">${stages.map((s, i) => `<button class="if-step ${i < cur ? "done" : ""} ${i === cur ? "current" : ""} ${s === view ? "viewing" : ""} ${i > cur ? "locked" : ""}" role="tab" aria-selected="${s === view}" data-action="if-stage" data-stage="${s}"><span>${esc(dLabel(s, f))}</span></button>`).join("")}</div>
+        <div class="if-status" id="if-status-box"><div class="if-status-k">${esc(dLabel(view, f))}</div>${e8dStepBody(f, view)}</div>
+      </main>
+      <aside class="if-details">${e8dDetailsHTML(f)}</aside>
+    </div>
+  </div>`;
+}
+
+/* ------------------------------------- Formularios del 8D/4D ------------------------------------ */
+function e8dTransferForm(f) {
+  openForm({
+    eyebrow: f.code, title: "Trasladar hallazgo", submitLabel: "Trasladar",
+    intro: `<div class="note warn" style="margin-bottom:14px"><b>Solo se puede trasladar una vez.</b></div>`,
+    fields: [
+      { name: "to", label: "Nuevo responsable", type: "select", required: true, span2: true, options: staffAll().filter((p) => p.id !== f.owner_id).map((p) => [p.id, p.full_name]) },
+      { name: "reason", label: "Motivo del traslado", type: "textarea", required: true, span2: true },
+    ],
+    onSubmit: async (v) => { await transferFinding(f, v.to, v.reason.trim()); toast(`Hallazgo trasladado a ${db.profileName(v.to)}`, "ok"); notifyFindings([db.get("findings", f.id)], "transferred"); paint(); },
+  });
+}
+function e8dRejectForm(f) {
+  openForm({
+    eyebrow: f.code, title: "Rechazar verificación", submitLabel: "Rechazar y reabrir",
+    intro: `<div class="note warn" style="margin-bottom:14px">El hallazgo se reabre en <b>Registro</b> para que un administrador lo revise de nuevo.</div>`,
+    fields: [{ name: "reason", label: "Motivo del rechazo", type: "textarea", required: true, span2: true }],
+    onSubmit: async (v) => { await rejectVerification8D(f, v.reason.trim()); viewStage = "registro"; toast("Verificación rechazada · vuelve a Registro", "ok"); notifyFindings([db.get("findings", f.id)], "rejected"); paint(); },
+  });
+}
+
+/* ------------------------------------- Eventos del 8D/4D ------------------------------------ */
+const setPath = (obj, path, val) => { const keys = path.split("."); let o = obj; for (let i = 0; i < keys.length - 1; i++) o = (o[keys[i]] ??= {}); o[keys[keys.length - 1]] = val; };
+onInput("e8-dd", (el) => { drafts[el.dataset.key] = el.value; });
+on("e8-register", (el) => {
+  const f = fnd(el.dataset.id), box = document.getElementById("if-status-box");
+  const classId = box.querySelector('[data-key="class_id"]').value, areaId = box.querySelector('[data-key="area_id"]').value, clause = box.querySelector('[data-key="clause"]').value.trim(), ownerId = box.querySelector('[data-key="owner_id"]').value;
+  if (!classId || !ownerId) { toast("Elige la clasificación y el responsable.", "danger"); return; }
+  run(async () => { await registerFinding(f, { class_id: classId, area_id: areaId || null, area: db.get("areas", areaId)?.name || null, clause: clause || null, owner_id: ownerId, ...deadlineFields(classId) }); viewStage = null; toast("Hallazgo registrado · define la estrategia", "ok"); });
+});
+onChange("e8-ps", (el) => { drafts[`${el.dataset.id}:ps`] = el.value; const w = document.getElementById("e8-rca-wrap"); if (w) w.style.display = el.value === "4D" ? "none" : ""; });
+onInput("e8-strategy", (el) => { drafts[`${fnd_id(el)}:${el.dataset.key}`] = el.type === "checkbox" ? el.checked : el.value; });
+function fnd_id(el) { return el.closest("[data-id]")?.dataset.id || curId; }
+on("e8-strategy-save", (el) => {
+  const f = fnd(el.dataset.id), box = document.getElementById("if-status-box");
+  const ps = box.querySelector('[data-change="e8-ps"]')?.value || drafts[`${f.id}:ps`] || "8D";
+  const rca = box.querySelector('[data-key="rca"]')?.value || "5whys";
+  const corrective = box.querySelector('[data-key="corrective"]')?.checked ?? true;
+  const preventive = box.querySelector('[data-key="preventive"]')?.checked ?? (ps !== "4D");
+  run(async () => { await saveStrategy(f, { strategy_ps: ps, strategy_rca: ps === "8D" ? rca : null, corrective_mandatory: corrective, preventive_mandatory: preventive }); viewStage = null; toast("Estrategia guardada · pasa a Solicitud", "ok"); });
+});
+on("e8-accept", (el) => run(async () => { await acceptD(fnd(el.dataset.id)); viewStage = null; toast("Hallazgo aceptado · D1 Equipo", "ok"); }));
+on("e8-transfer", (el) => e8dTransferForm(fnd(el.dataset.id)));
+function collectDD(f, stage) {
+  const patch = {};
+  document.querySelectorAll(`#if-status-box [data-key^="${f.id}:dd."]`).forEach((el) => { const path = el.dataset.key.split(":dd.")[1]; setPath(patch, path, el.type === "checkbox" ? el.checked : el.value); });
+  // Tablas (grid) visibles en esta etapa: se leen por lo que está EN PANTALLA, no por lo que ya existiera guardado
+  document.querySelectorAll(`#if-status-box [data-tpl-root^="${f.id}:"]`).forEach((root) => {
+    const key = root.dataset.tplRoot.slice(`${f.id}:`.length);
+    const m = /^ishikawa_causes(\d)$/.exec(key);
+    if (m) { patch.ishikawa ??= { ...(f.d_data?.ishikawa || {}) }; patch.ishikawa[`causes${m[1]}`] = readGrid(f, key); }
+    else patch[key] = readGrid(f, key);
+  });
+  return patch;
+}
+on("e8-d-save", (el) => run(async () => { const f = fnd(el.dataset.id); await saveD(f, collectDD(f, el.dataset.stage)); toast("Borrador guardado", "ok"); }));
+on("e8-d-advance", (el) => run(async () => { const f = fnd(el.dataset.id); await advanceD(f, el.dataset.stage, collectDD(f, el.dataset.stage)); viewStage = null; toast("Guardado · siguiente etapa", "ok"); }));
+on("e8-verify-accept", (el) => {
+  const notes = (document.querySelector(`[data-key="${el.dataset.id}:verification_notes"]`)?.value || "").trim();
+  if (notes.length < 5) { toast("Describe el resultado de la verificación.", "danger"); return; }
+  run(async () => { await closeVerification8D(fnd(el.dataset.id), notes); viewStage = null; toast("Verificación aceptada · hallazgo cerrado", "ok"); });
+});
+on("e8-verify-reject", (el) => e8dRejectForm(fnd(el.dataset.id)));
+on("e8-pdf", async (el) => {
+  try { await exportFinding8D4D(fnd(el.dataset.id)); } catch (e) { toast(e.message, "danger"); }
+});

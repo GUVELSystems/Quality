@@ -195,3 +195,74 @@ export async function rejectVerification(f, reason) {
   });
   logEvent(f, "rejected", reason); return r;
 }
+
+
+/* =====================================================================
+   Flujo 8D / 4D (Auditorías Internas)
+   Registro → Detalles del problema → Solicitud → D1…D8 (8D) o D1→D4 (4D) → Verificación
+   Todo el contenido de D1…D8 vive en `finding.d_data` (su forma cambia según
+   sea 8D o 4D y según el tipo de causa raíz elegido).
+   ===================================================================== */
+export const PS_TYPES = { "8D": "8D", "4D": "4D" };
+export const RCA_TYPES = { "5whys": "5 Porqués", ishikawa: "Ishikawa" };
+const NEW_FLOW_STATUSES = new Set(["registro", "detalles", "solicitud", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8"]);
+/** Un hallazgo nuevo nace en "registro" sin estrategia todavía; se distingue del flujo anterior por su etapa,
+ *  no por strategy_ps (que solo se llena hasta "Detalles del problema"). */
+export const isEightD = (f) => !!f?.strategy_ps || NEW_FLOW_STATUSES.has(f?.status);
+
+/** Las etapas D que aplican según la estrategia: 8D ve las 8; 4D se detiene en D4 (que ya incluye el cierre) */
+export function dStages(f) {
+  return f?.strategy_ps === "4D" ? ["d1", "d2", "d3", "d4"] : ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8"];
+}
+export function eightdStages(f) {
+  return ["registro", "detalles", "solicitud", ...dStages(f), "verificacion", "cerrado"];
+}
+export const D_LABEL = {
+  registro: "Registro", detalles: "Detalles del problema", solicitud: "Solicitud de hallazgo",
+  d1: "D1 · Equipo", d2: "D2 · Descripción del problema",
+  verificacion: "Verificación", cerrado: "Cierre",
+};
+/** D3/D4 cambian de título según 8D o 4D */
+export function dLabel(stage, f) {
+  if (D_LABEL[stage]) return D_LABEL[stage];
+  const d4D = f?.strategy_ps === "4D";
+  if (stage === "d3") return d4D ? "D3 · Causa raíz" : "D3 · Acciones de contención";
+  if (stage === "d4") return d4D ? "D4 · Acciones inmediatas y cierre" : `D4 · Causa raíz (${RCA_TYPES[f?.strategy_rca] || "—"})`;
+  return { d5: "D5 · Plan de acciones correctivas", d6: "D6 · Acciones correctivas implementadas", d7: "D7 · Preventivas y Roll-Across", d8: "D8 · Reconocimiento y cierre" }[stage] || stage;
+}
+export const canRegister = (f) => db.can.admin && f.status === "registro";
+export const canSetStrategy = (f) => db.can.admin && f.status === "detalles";
+export const canActD = (f) => db.can.write && f.status !== "registro" && f.status !== "detalles" && (isOwner(f) || db.can.admin) && !["verificacion", "cerrado"].includes(f.status);
+export const canVerify8D = (f) => db.can.admin && f.status === "verificacion";
+
+export async function registerFinding(f, patch) {
+  const r = await db.update("findings", f.id, { ...patch, status: "detalles", registered_at: nowISO(), registered_by: db.state.profile.id });
+  logEvent(f, "registered"); return r;
+}
+export async function saveStrategy(f, strategy) {
+  const r = await db.update("findings", f.id, { ...strategy, status: "solicitud", strategy_at: nowISO(), strategy_by: db.state.profile.id });
+  logEvent(f, "strategy", `${strategy.strategy_ps}${strategy.strategy_ps === "8D" ? " · " + RCA_TYPES[strategy.strategy_rca] : ""}`); return r;
+}
+export async function acceptD(f) {
+  const r = await db.update("findings", f.id, { status: "d1", accepted_at: nowISO(), accepted_by: db.state.profile.id });
+  logEvent(f, "accepted"); return r;
+}
+export const saveD = (f, patch) => db.update("findings", f.id, { d_data: { ...f.d_data, ...patch } });
+export async function advanceD(f, stage, patch) {
+  const stages = eightdStages(f), i = stages.indexOf(stage), next = stages[i + 1];
+  const data = { d_data: { ...f.d_data, ...patch }, status: next };
+  if (next === "verificacion") {                            // última D: aquí se "cierran las acciones" para el milestone
+    const now = new Date(), verifyDue = shiftBusiness(now, verifyDaysFor(f) * DAY_MS);
+    Object.assign(data, { actions_closed_at: now.toISOString(), actions_closed_on: isoDate(now), verify_due_at: verifyDue.toISOString(), verify_due: dueDateOf(verifyDue) });
+  }
+  const r = await db.update("findings", f.id, data);
+  logEvent(f, "d_stage", dLabel(stage, f)); return r;
+}
+export async function closeVerification8D(f, notes) {
+  const r = await db.update("findings", f.id, { verification_notes: notes, verified_at: nowISO(), verified_by: db.state.profile.id, verified_on: today(), status: "cerrado" });
+  logEvent(f, "verified", notes); return r;
+}
+export async function rejectVerification8D(f, reason) {
+  const r = await db.update("findings", f.id, { status: "registro", reject_count: (f.reject_count || 0) + 1, rejected_at: nowISO(), rejection_reason: reason });
+  logEvent(f, "rejected", reason); return r;
+}

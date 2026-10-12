@@ -240,6 +240,39 @@ export function buildSeed() {
       }, updated_at: daysAgoISO(18), updated_by: "u-maria" },
   );
 
+  /* -------------------- Ejemplos del flujo 8D / 4D -------------------- */
+  // 4) Recién llegado: espera Registro (admin clasifica y asigna)
+  mkFinding({ module: "internas", title: "Residuo de aceite en banda transportadora de empaque", description: "Se detectó residuo de aceite acumulado sobre la banda de la línea de empaque 2.", owner_id: null, area_id: null, status: "registro", start_date: T, created_at: daysAgoISO(0) });
+
+  // 5) 8D con 5 Porqués, a medio camino (en D3 · Contención)
+  const if8D = mkFinding({ module: "internas", title: "Pieza fuera de especificación liberada a cliente", description: "Se liberó un lote con una dimensión fuera de tolerancia al cliente Automotriz Norte.", class_id: klass("NCM").id, area_id: A("Calidad"), owner_id: "u-juan", start_date: bd(3), classification_id: catId("Calidad de producto") });
+  if8D.status = "d3"; if8D.registered_at = daysAgoISO(3); if8D.registered_by = "u-carlos"; if8D.strategy_at = daysAgoISO(3); if8D.strategy_by = "u-carlos";
+  if8D.strategy_ps = "8D"; if8D.strategy_rca = "5whys"; if8D.corrective_mandatory = true; if8D.preventive_mandatory = true;
+  if8D.accepted_at = daysAgoISO(2); if8D.accepted_by = "u-juan";
+  if8D.d_data = {
+    team: [["Juan Pérez", "Calidad", "Líder del equipo"], ["María López", "Calidad", "Revisión de causa raíz"], ["Carlos Gutiérrez", "Dirección", "Patrocinador"]],
+    failure_desc: "Durante la auditoría se detectó que el lote L-4471 presentaba el diámetro exterior fuera de especificación y fue liberado por error a Automotriz Norte.",
+    problem5w: { what: "Diámetro exterior fuera de tolerancia", where: "Línea de producción 2 · estación de torneado", when: "Turno nocturno, 6 de octubre", who: "Operador de turno C", why: "Calibrador fuera de calibración", how_much: "120 piezas", batch: "L-4471" },
+  };
+
+  // 6) 4D cerrado (para probar que termina en D4 y el PDF del 4D)
+  const if4D = mkFinding({ module: "internas", title: "Falta de etiqueta de identificación en contenedor retornable", description: "Un contenedor retornable circuló sin etiqueta de identificación de lote.", class_id: klass("NCm").id, area_id: A("Logística"), owner_id: "u-pedro", start_date: bd(10), classification_id: catId("Documentación") });
+  if4D.registered_at = daysAgoISO(10); if4D.registered_by = "u-carlos"; if4D.strategy_at = daysAgoISO(10); if4D.strategy_by = "u-carlos";
+  if4D.strategy_ps = "4D"; if4D.strategy_rca = null; if4D.corrective_mandatory = true; if4D.preventive_mandatory = false;
+  if4D.accepted_at = daysAgoISO(9); if4D.accepted_by = "u-pedro";
+  if4D.d_data = {
+    team: [["Pedro Ramírez", "Almacén", "Responsable"], ["Ana Torres", "Logística", "Apoyo"]],
+    failure_desc: "Un contenedor retornable se envió al cliente sin la etiqueta de identificación de lote requerida.",
+    problem5w: { what: "Etiqueta de identificación faltante", where: "Andén de embarques", when: "3 de octubre", who: "Turno de embarques", why: "No se verificó antes del cierre de turno" },
+    rootcause4d: { why1: "No se verificó el contenedor antes de cerrar el turno", why2: "No existe un punto de verificación obligatorio", why3: "El checklist de embarque no incluye etiquetas de contenedores retornables", why4: "El checklist no se ha actualizado desde el cambio de proveedor de contenedores", root_cause: "El checklist de embarque está desactualizado y no cubre contenedores retornables" },
+    immediate: [["Agregar la verificación de etiqueta al checklist de embarque", "Pedro Ramírez", addDays(T, -5), addDays(T, -3), "Hecho"]],
+    closure4d: { prepared_by: "Pedro Ramírez", prepared_date: addDays(T, -8), reviewed_by: "María López", reviewed_date: addDays(T, -6), status: "Closed", completion_date: addDays(T, -3) },
+  };
+  if4D.action_plan = "Checklist de embarque actualizado con el punto de verificación de etiquetas.";
+  closeAt(if4D, new Date(addBusinessDays(if4D.start_date, 5) + "T15:00:00"));
+  if4D.verified_at = shiftBusiness(new Date(if4D.actions_closed_at), 2 * DAY_MS).toISOString(); if4D.verified_on = isoDate(new Date(if4D.verified_at)); if4D.verified_by = "u-carlos";
+  if4D.verification_notes = "Se verificaron 10 embarques consecutivos: todos los contenedores retornables llevan su etiqueta."; if4D.closed_at = if4D.verified_at; if4D.status = "cerrado";
+
     /* Notificaciones de cliente (Issues) */
   const notifs = [];
   const mkNotif = (o) => notifs.push({ id: uuid(), code: code("NCL"), description: null, part_number: null, quantity: null, severity: "mayor", received_at: T, response_due: null, status: "recibida", owner_id: "u-maria", finding_id: null, closed_at: null, created_by: "u-maria", created_at: daysAgoISO(3), updated_at: daysAgoISO(1), ...o });

@@ -5,10 +5,10 @@
    Centro: pasos + estado de la etapa. Derecha: Detalles (fijo).
    ===================================================================== */
 import * as db from "../db.js";
-import { esc, fmtDate, fmtDateTime } from "../utils.js";
+import { esc, uuid, fmtDate, fmtDateTime } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead, navigate, wsId } from "../router.js";
-import { on, onChange, onInput, badge, userCell, empty, openForm, confirmDialog, toast } from "../ui.js";
+import { on, onChange, onInput, badge, userCell, empty, openForm, confirmDialog, toast, safeRefresh } from "../ui.js";
 import { SOURCE, FINDING_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { notifyFindings } from "../notify.js";
@@ -303,13 +303,24 @@ onChange("lif-tpl-pick", (el) => { tplDraftFor(fnd(el.dataset.id), el.dataset.ki
    ===================================================================== */
 const staffAll = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
 const gridFieldId = (key) => `g_${key}`;
+/** Lo que hay escrito en cada tabla AHORA MISMO (aunque no se haya guardado): evita que un repintado
+ *  de fondo (reloj del milestone, refresco al subir una evidencia…) borre lo que la persona ya tecleó. */
+const gridDrafts = {};
+const clearGridDrafts = (findingId) => { for (const k of Object.keys(gridDrafts)) if (k.startsWith(`${findingId}:`)) delete gridDrafts[k]; };
+document.addEventListener("input", (e) => {
+  const cell = e.target.closest("[data-grid]"), root = e.target.closest("[data-tpl-root]");
+  if (!cell || !root) return;
+  const fid = cell.dataset.grid;
+  gridDrafts[root.dataset.tplRoot] = [...root.querySelectorAll("tr[data-ri]")].map((tr) => [...tr.querySelectorAll(`[data-grid="${fid}"]`)].map((i) => i.value));
+});
 
 /** Sección con una sola tabla tipo hoja de cálculo (reutiliza el motor de plantillas) */
 function gridSection(title, key, columns, f, editable, rows) {
   const gid = `${f.id}:${key}`, fieldId = gridFieldId(key);
   const schema = { sections: [{ id: key, title: " ", fields: [{ id: fieldId, label: "", type: "grid", columns }] }] };
-  const data = { [fieldId]: (f.d_data?.[key]?.length ? f.d_data[key] : rows) || undefined };
-  if (editable) gridOwners[gid] = { schema, getData: () => ({ [fieldId]: f.d_data?.[key] || [] }), repaint: (d) => { f.d_data = { ...f.d_data, [key]: d[fieldId] }; db.update("findings", f.id, { d_data: f.d_data }); paint(); } };
+  const live = gridDrafts[gid] ?? (f.d_data?.[key]?.length ? f.d_data[key] : rows);
+  const data = { [fieldId]: live || undefined };
+  if (editable) gridOwners[gid] = { schema, getData: () => ({ [fieldId]: gridDrafts[gid] ?? f.d_data?.[key] ?? [] }), repaint: (d) => { gridDrafts[gid] = d[fieldId]; paint(); } };
   return `<div class="e8-block"><h4>${esc(title)}</h4><div data-tpl-root="${gid}">${fillHTML(schema, data, !editable)}</div></div>`;
 }
 function readGrid(f, key) {
@@ -318,6 +329,45 @@ function readGrid(f, key) {
   const fid = gridFieldId(key);
   const rows = [...root.querySelectorAll("tr[data-ri]")].map((tr) => [...tr.querySelectorAll(`[data-grid="${fid}"]`)].map((i) => i.value));
   return rows.filter((r) => r.some((c) => c.trim()));
+}
+
+/* -------------------------- Acciones con evidencia obligatoria ------------------------- */
+/** Cada fila de "Acciones" es una tarjeta (no una hoja de cálculo): Acción, Responsable, Fecha
+ *  límite (con calendario, sin pasar el milestone de cierre) y su propia Evidencia. La fecha de
+ *  cierre NO se escribe a mano: se pone sola en cuanto se adjunta la primera evidencia de esa fila. */
+function actionRows(f, key) { return drafts[`${f.id}:act.${key}`] ?? f.d_data?.[key] ?? []; }
+function evidenceDateFor(f, ref) {
+  const atts = db.rows("attachments").filter((a) => a.entity === "finding" && a.entity_id === f.id && a.ref === ref).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  return atts[0]?.created_at || null;
+}
+function actionField(f, key, i, field, row, type = "text", extra = "") {
+  const dk = `${f.id}:act.${key}.${i}.${field}`, v = drafts[dk] ?? row[field] ?? "";
+  return `<input class="input" type="${type}" data-input="e8-dd" data-key="${dk}" value="${esc(v)}" ${extra}>`;
+}
+function actionGrid(title, key, f, editable, { maxDue } = {}) {
+  const rows = actionRows(f, key);
+  const cards = rows.map((r, i) => {
+    const ref = `${key}:${r.id}`, closedAt = evidenceDateFor(f, ref);
+    return `<div class="act-card">
+      <div class="act-fields">
+        <label class="field span-2"><span>Acción <i>*</i></span>${actionField(f, key, i, "action", r, "text", editable ? "" : "disabled")}</label>
+        <label class="field"><span>Responsable</span>${actionField(f, key, i, "responsible", r, "text", editable ? "" : "disabled")}</label>
+        <label class="field"><span>Fecha límite</span>${actionField(f, key, i, "due", r, "date", `${maxDue ? `max="${maxDue}"` : ""} ${editable ? "" : "disabled"}`)}</label>
+      </div>
+      ${attachmentsSection("finding", f.id, { ref, title: "Evidencia (obligatoria para cerrar)", canEdit: editable })}
+      <div class="act-close ${closedAt ? "done" : "pending"}">${closedAt ? `${icon("check2")} Cerrada automáticamente al adjuntar evidencia · ${fmtDateTime(closedAt)}` : "Pendiente de cerrar: se cierra sola en cuanto adjuntes una evidencia"}</div>
+      ${editable ? `<button type="button" class="btn sm ghost" data-action="e8-act-del" data-key="${key}" data-ri="${i}">${icon("close")} Quitar</button>` : ""}
+    </div>`;
+  }).join("") || '<p class="muted" style="margin-bottom:10px">Sin acciones todavía.</p>';
+  return `<div class="e8-block" data-act-section="${key}"><h4>${esc(title)}</h4>${cards}${editable ? `<button type="button" class="btn sm" data-action="e8-act-add" data-key="${key}">${icon("plus")} Agregar acción</button>` : ""}</div>`;
+}
+/** Para enviar la etapa: toda acción declarada debe tener al menos una evidencia (= está cerrada) */
+function actionsIncomplete(f, key) {
+  return actionRows(f, key).filter((r) => (r.action || "").trim()).some((r) => !evidenceDateFor(f, `${key}:${r.id}`));
+}
+function readActionRows(f, key) {
+  return actionRows(f, key).map((r, i) => ({ id: r.id, action: (drafts[`${f.id}:act.${key}.${i}.action`] ?? r.action ?? "").trim(), responsible: (drafts[`${f.id}:act.${key}.${i}.responsible`] ?? r.responsible ?? "").trim(), due: drafts[`${f.id}:act.${key}.${i}.due`] ?? r.due ?? "" }))
+    .filter((r) => r.action || r.responsible || r.due);
 }
 const textField = (f, key, label, ph = "", required = false) => {
   const v = drafts[`${f.id}:dd.${key}`] ?? f.d_data?.[key] ?? "";
@@ -402,7 +452,8 @@ function stageD2(f, editable) {
   const field5 = (k, l) => `<label class="field"><span>${esc(l)}</span><input class="input" data-input="e8-dd" data-key="${f.id}:dd.problem5w.${k}" value="${esc(drafts[`${f.id}:dd.problem5w.${k}`] ?? w5[k] ?? "")}"></label>`;
   return `${textAreaField(f, "failure_desc", "Descripción de la falla", "¿Qué pasó? Descríbelo con el mayor detalle.")}
     <div class="form-grid">${field5("what", "¿Qué?")}${field5("where", "¿Dónde?")}${field5("when", "¿Cuándo?")}${field5("who", "¿Quién?")}${field5("why", "¿Por qué?")}${is8D ? field5("how_much", "¿Cuánto?") + field5("batch", "Lote") : ""}</div>
-    ${attachmentsSection("finding", f.id, { ref: "d2", title: "Evidencia (fotos OK / NO OK)", canEdit: editable })}`;
+    ${attachmentsSection("finding", f.id, { ref: "d2_nok", title: "Foto de la condición encontrada (NO OK)", canEdit: editable })}
+    ${attachmentsSection("finding", f.id, { ref: "d2_ok", title: "Foto de la condición correcta, para comparar (OK)", canEdit: editable })}`;
 }
 function stageD3(f, editable) {
   if (f.strategy_ps === "4D") {
@@ -410,15 +461,14 @@ function stageD3(f, editable) {
     const w = (k, l) => `<label class="field"><span>${esc(l)}</span><input class="input" data-input="e8-dd" data-key="${f.id}:dd.rootcause4d.${k}" value="${esc(drafts[`${f.id}:dd.rootcause4d.${k}`] ?? r[k] ?? "")}"></label>`;
     return `<p class="muted">Problema: ${esc(f.d_data?.failure_desc || f.description || "—")}</p><div class="form-grid">${w("why1", "¿Por qué? 1")}${w("why2", "¿Por qué? 2")}${w("why3", "¿Por qué? 3")}${w("why4", "¿Por qué? 4")}${w("root_cause", "Causa raíz")}</div>${attachmentsSection("finding", f.id, { ref: "d3", title: "Evidencia", canEdit: editable })}`;
   }
-  return `${gridSection("Acciones de contención", "containment", ["Acción", "Responsable", "Fecha límite", "Fecha de cierre", "Comentarios"], f, editable)}${attachmentsSection("finding", f.id, { ref: "d3", title: "Evidencia", canEdit: editable })}`;
+  return actionGrid("Acciones de contención", "containment", f, editable, { maxDue: f.due_date });
 }
 function stageD4(f, editable) {
   if (f.strategy_ps === "4D") {
     const c = f.d_data?.closure4d || {};
     const w = (k, l, type = "text") => `<label class="field"><span>${esc(l)}</span><input class="input" type="${type}" data-input="e8-dd" data-key="${f.id}:dd.closure4d.${k}" value="${esc(drafts[`${f.id}:dd.closure4d.${k}`] ?? c[k] ?? "")}"></label>`;
-    return `${gridSection("Acciones inmediatas", "immediate", ["Acción", "Responsable", "Fecha límite", "Fecha de cierre", "Comentarios"], f, editable)}
-      <div class="e8-block"><h4>Cierre del 4D</h4><div class="form-grid">${w("prepared_by", "Preparado por")}${w("prepared_date", "Fecha", "date")}${w("reviewed_by", "Revisado por")}${w("reviewed_date", "Fecha", "date")}${w("status", "Estatus")}${w("completion_date", "Fecha de cierre", "date")}</div></div>
-      ${attachmentsSection("finding", f.id, { ref: "d4", title: "Evidencia", canEdit: editable })}`;
+    return `${actionGrid("Acciones inmediatas", "immediate", f, editable, { maxDue: f.due_date })}
+      <div class="e8-block"><h4>Cierre del 4D</h4><div class="form-grid">${w("prepared_by", "Preparado por")}${w("prepared_date", "Fecha", "date")}${w("reviewed_by", "Revisado por")}${w("reviewed_date", "Fecha", "date")}${w("status", "Estatus")}${w("completion_date", "Fecha de cierre", "date")}</div></div>`;
   }
   if (f.strategy_rca === "ishikawa") {
     const d = f.d_data?.ishikawa || {};
@@ -429,18 +479,18 @@ function stageD4(f, editable) {
   const chain = (key, label) => { const r = f.d_data?.[key] || {}; const w = (k) => `<input class="input" data-input="e8-dd" data-key="${f.id}:dd.${key}.${k}" placeholder="¿Por qué?" value="${esc(drafts[`${f.id}:dd.${key}.${k}`] ?? r[k] ?? "")}">`; return `<div class="e8-block"><h4>${esc(label)}</h4><div class="e8-why-row">${w("why1")}${w("why2")}${w("why3")}${w("why4")}<input class="input" data-input="e8-dd" data-key="${f.id}:dd.${key}.root_cause" placeholder="Causa raíz" value="${esc(drafts[`${f.id}:dd.${key}.root_cause`] ?? r.root_cause ?? "")}"></div></div>`; };
   return `${chains.map(([k, l]) => chain(k, l)).join("")}${attachmentsSection("finding", f.id, { ref: "d4", title: "Evidencia", canEdit: editable })}`;
 }
-const actionCols = ["Acción", "Responsable", "Fecha límite", "Fecha de cierre"];
-function stageD5(f, editable) { return gridSection("Plan de acciones correctivas permanentes", "corrective_plan", actionCols, f, editable); }
-function stageD6(f, editable) { return gridSection("Acciones correctivas implementadas", "corrective_done", actionCols, f, editable); }
-function stageD7(f, editable) {
+function stageD5(f, editable) { return actionGrid("Plan de acciones correctivas permanentes", "corrective_plan", f, editable, { maxDue: f.due_date }); }
+/** D6 y D7 se trabajan juntos: no tiene por qué terminarse lo correctivo para empezar lo preventivo */
+function stageD6(f, editable) {
   const a = f.d_data?.additional || {};
-  const yn = (k, l) => { const v = a[k] || {}; return `<div class="e8-block"><h4>${esc(l)}</h4><div class="form-grid">
-    <label class="field"><span>¿Necesario?</span><select class="select" data-input="e8-dd" data-key="${f.id}:dd.additional.${k}.flag">${["No", "Sí"].map((o, i) => `<option value="${i}" ${String(i) === String(v.flag ?? 0) ? "selected" : ""}>${o}</option>`).join("")}</select></label>
-    <label class="field"><span>Responsable</span><input class="input" data-input="e8-dd" data-key="${f.id}:dd.additional.${k}.responsible" value="${esc(drafts[`${f.id}:dd.additional.${k}.responsible`] ?? v.responsible ?? "")}"></label>
-    <label class="field"><span>Fecha límite</span><input class="input" type="date" data-input="e8-dd" data-key="${f.id}:dd.additional.${k}.due" value="${esc(v.due || "")}"></label>
-    <label class="field"><span>Fecha de cierre</span><input class="input" type="date" data-input="e8-dd" data-key="${f.id}:dd.additional.${k}.completion" value="${esc(v.completion || "")}"></label></div></div>`; };
-  return `${f.preventive_mandatory ? "" : '<p class="muted" style="margin-bottom:10px">Las acciones preventivas no son obligatorias para esta estrategia, pero puedes registrarlas.</p>'}
-    ${gridSection("Acciones preventivas", "preventive", actionCols, f, editable)}
+  const yn = (k, l) => { const v = a[k] || {}; const dk = (field) => `${f.id}:dd.additional.${k}.${field}`;
+    return `<div class="e8-block"><h4>${esc(l)}</h4><div class="form-grid">
+    <label class="field"><span>¿Necesario?</span><select class="select" data-input="e8-dd" data-key="${dk("flag")}">${["No", "Sí"].map((o, i) => `<option value="${i}" ${String(drafts[dk("flag")] ?? v.flag ?? 0) === String(i) ? "selected" : ""}>${o}</option>`).join("")}</select></label>
+    <label class="field"><span>Responsable</span><input class="input" data-input="e8-dd" data-key="${dk("responsible")}" value="${esc(drafts[dk("responsible")] ?? v.responsible ?? "")}"></label>
+    <label class="field"><span>Fecha límite</span><input class="input" type="date" data-input="e8-dd" data-key="${dk("due")}" ${f.due_date ? `max="${f.due_date}"` : ""} value="${esc(drafts[dk("due")] ?? v.due ?? "")}"></label></div></div>`; };
+  return `${actionGrid("Acciones correctivas implementadas", "corrective_done", f, editable, { maxDue: f.due_date })}
+    ${f.preventive_mandatory ? "" : '<p class="muted" style="margin:14px 0 10px">Las acciones preventivas no son obligatorias para esta estrategia, pero puedes registrarlas.</p>'}
+    ${actionGrid("Acciones preventivas", "preventive", f, editable, { maxDue: f.due_date })}
     ${yn("fmea", "¿Es necesario actualizar el FMEA?")}${yn("cp", "¿Es necesario actualizar el Plan de Control?")}${yn("rollacross", "¿Es necesario un Roll-Across?")}`;
 }
 function stageD8(f, editable) {
@@ -450,7 +500,7 @@ function stageD8(f, editable) {
     <div class="form-grid">${w("prepared_by", "Preparado por")}${w("reviewed_by", "Revisado por")}${w("approved_by", "Aprobado por")}${w("closing_date", "Fecha de cierre", "date")}
     <label class="field"><span>Estatus del reporte</span><select class="select" data-input="e8-dd" data-key="${f.id}:dd.closure8d.status"><option ${c.status !== "Closed" ? "selected" : ""}>Open</option><option ${c.status === "Closed" ? "selected" : ""}>Closed</option></select></label></div>`;
 }
-const D_BODY = { d1: stageD1, d2: stageD2, d3: stageD3, d4: stageD4, d5: stageD5, d6: stageD6, d7: stageD7, d8: stageD8 };
+const D_BODY = { d1: stageD1, d2: stageD2, d3: stageD3, d4: stageD4, d5: stageD5, d6: stageD6, d8: stageD8 };
 
 function stageDGeneric(f, stage) {
   const stages = eightdStages(f), idx = stages.indexOf(stage), cur = stages.indexOf(f.status), act = canActD(f), ownerName = esc(db.profileName(f.owner_id));
@@ -465,13 +515,14 @@ function stageDGeneric(f, stage) {
     ${isLast ? lock(`Un administrador tendrá ${verifyDaysFor(f)} días hábiles para aceptar o rechazar la verificación.`) : ""}`;
 }
 
+const controlField = (f) => `<label class="field" style="max-width:260px"><span>N.º de control del reporte</span><input class="input" data-input="e8-dd" data-key="${f.id}:control_number" placeholder="Ej. QR-2026-0042" value="${esc(drafts[`${f.id}:control_number`] ?? f.control_number ?? "")}"></label>`;
+const pdfBtn = (f) => `<button class="btn" data-action="e8-pdf" data-id="${f.id}">${icon("download")} Descargar PDF (${esc(f.strategy_ps)})</button>`;
 function stageVerificacion8D(f) {
   const stages = eightdStages(f), idx = stages.indexOf("verificacion"), cur = stages.indexOf(f.status);
   if (idx > cur) return lock("Disponible cuando se completen las acciones.");
-  const pdfBtn = `<button class="btn" data-action="e8-pdf" data-id="${f.id}">${icon("download")} Descargar PDF (${esc(f.strategy_ps)})</button>`;
-  if (idx < cur) return `<div class="done-text">${esc(f.verification_notes || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">${fmtDateTime(f.verified_at)}</div><div class="stage-actions">${pdfBtn}</div>`;
+  if (idx < cur) return `<div class="done-text">${esc(f.verification_notes || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">${fmtDateTime(f.verified_at)}</div><div class="stage-actions" style="margin-top:12px">${controlField(f)}${pdfBtn(f)}</div>`;
   const notes = drafts[`${f.id}:verification_notes`] ?? f.verification_notes ?? "";
-  return `<div class="stage-actions" style="margin-bottom:14px">${pdfBtn}</div>${canVerify8D(f) ? `<p class="q-label">¿El 8D/4D fue efectivo y está completo?</p>
+  return `<div class="stage-actions" style="margin-bottom:14px;align-items:flex-end">${controlField(f)}${pdfBtn(f)}</div>${canVerify8D(f) ? `<p class="q-label">¿El 8D/4D fue efectivo y está completo?</p>
     <textarea class="textarea" rows="4" data-input="e8-dd" data-key="${f.id}:verification_notes" placeholder="Resultado de la verificación…">${esc(notes)}</textarea>
     <div class="stage-actions"><button class="btn primary" data-action="e8-verify-accept" data-id="${f.id}">${icon("check2")} Aceptar y cerrar</button><button class="btn danger" data-action="e8-verify-reject" data-id="${f.id}">${icon("close")} Rechazar</button></div>`
     : lock("Solo un <b>administrador</b> puede aceptar o rechazar la verificación.")}`;
@@ -482,7 +533,7 @@ function stageCerrado8D(f) {
   return `<div class="if-closed-grid"><div><dt>Cierre de acciones</dt><dd>${esc(m1.text)}</dd></div><div><dt>Verificación</dt><dd>${esc(m2?.text || "—")}</dd></div>
     <div><dt>Verificó</dt><dd>${esc(db.profileName(f.verified_by))}</dd></div><div><dt>Cerrado</dt><dd>${fmtDateTime(f.closed_at || f.verified_at)}</dd></div></div>
     <p class="q-label" style="margin-top:14px">Resultado de la verificación</p><div class="done-text">${esc(f.verification_notes || "—")}</div>
-    <div class="stage-actions" style="margin-top:14px"><button class="btn primary" data-action="e8-pdf" data-id="${f.id}">${icon("download")} Descargar PDF (${esc(f.strategy_ps)})</button></div>`;
+    <div class="stage-actions" style="margin-top:14px;align-items:flex-end">${controlField(f)}${pdfBtn(f)}</div>`;
 }
 
 function e8dStepBody(f, st) {
@@ -557,6 +608,8 @@ on("e8-strategy-save", (el) => {
 });
 on("e8-accept", (el) => run(async () => { await acceptD(fnd(el.dataset.id)); viewStage = null; toast("Hallazgo aceptado · D1 Equipo", "ok"); }));
 on("e8-transfer", (el) => e8dTransferForm(fnd(el.dataset.id)));
+const ACTION_KEYS = ["containment", "corrective_plan", "corrective_done", "preventive", "immediate"];
+function clearActionDrafts(findingId) { for (const k of Object.keys(drafts)) if (k.startsWith(`${findingId}:act.`)) delete drafts[k]; }
 function collectDD(f, stage) {
   const patch = {};
   document.querySelectorAll(`#if-status-box [data-key^="${f.id}:dd."]`).forEach((el) => { const path = el.dataset.key.split(":dd.")[1]; setPath(patch, path, el.type === "checkbox" ? el.checked : el.value); });
@@ -567,10 +620,31 @@ function collectDD(f, stage) {
     if (m) { patch.ishikawa ??= { ...(f.d_data?.ishikawa || {}) }; patch.ishikawa[`causes${m[1]}`] = readGrid(f, key); }
     else patch[key] = readGrid(f, key);
   });
+  // Acciones con evidencia (contención, planes correctivos/preventivos, inmediatas)
+  document.querySelectorAll(`#if-status-box [data-act-section]`).forEach((sec) => { patch[sec.dataset.actSection] = readActionRows(f, sec.dataset.actSection); });
   return patch;
 }
-on("e8-d-save", (el) => run(async () => { const f = fnd(el.dataset.id); await saveD(f, collectDD(f, el.dataset.stage)); toast("Borrador guardado", "ok"); }));
-on("e8-d-advance", (el) => run(async () => { const f = fnd(el.dataset.id); await advanceD(f, el.dataset.stage, collectDD(f, el.dataset.stage)); viewStage = null; toast("Guardado · siguiente etapa", "ok"); }));
+/** ¿Puede enviarse esta etapa? Toda acción declarada en pantalla necesita su evidencia. */
+function actionGate(f) {
+  for (const key of ACTION_KEYS) {
+    if (!document.querySelector(`#if-status-box [data-act-section="${key}"]`)) continue;
+    const pending = readActionRows(f, key).filter((r) => !evidenceDateFor(f, `${key}:${r.id}`));
+    if (pending.length) return `Adjunta la evidencia de «${pending[0].action || "la acción sin nombre"}» para poder cerrarla y continuar.`;
+  }
+  return null;
+}
+on("e8-act-add", (el) => { const f = fnd(curId), key = el.dataset.key; drafts[`${f.id}:act.${key}`] = [...actionRows(f, key), { id: uuid(), action: "", responsible: "", due: "" }]; paint(); });
+on("e8-act-del", (el) => {
+  const f = fnd(curId), key = el.dataset.key, ri = +el.dataset.ri, rows = readActionRows(f, key);
+  rows.splice(ri, 1); for (const k of Object.keys(drafts)) if (k.startsWith(`${f.id}:act.${key}.`)) delete drafts[k];
+  drafts[`${f.id}:act.${key}`] = rows; paint();
+});
+on("e8-d-save", (el) => run(async () => { const f = fnd(el.dataset.id); await saveD(f, collectDD(f, el.dataset.stage)); clearGridDrafts(f.id); clearActionDrafts(f.id); toast("Borrador guardado", "ok"); }));
+on("e8-d-advance", (el) => {
+  const f = fnd(el.dataset.id), gate = actionGate(f);
+  if (gate) { toast(gate, "danger"); return; }
+  run(async () => { await advanceD(f, el.dataset.stage, collectDD(f, el.dataset.stage)); clearGridDrafts(f.id); clearActionDrafts(f.id); viewStage = null; toast("Guardado · siguiente etapa", "ok"); });
+});
 on("e8-verify-accept", (el) => {
   const notes = (document.querySelector(`[data-key="${el.dataset.id}:verification_notes"]`)?.value || "").trim();
   if (notes.length < 5) { toast("Describe el resultado de la verificación.", "danger"); return; }
@@ -578,5 +652,10 @@ on("e8-verify-accept", (el) => {
 });
 on("e8-verify-reject", (el) => e8dRejectForm(fnd(el.dataset.id)));
 on("e8-pdf", async (el) => {
-  try { await exportFinding8D4D(fnd(el.dataset.id)); } catch (e) { toast(e.message, "danger"); }
+  try {
+    let f = fnd(el.dataset.id);
+    const controlEl = document.querySelector(`[data-key="${f.id}:control_number"]`), control = controlEl?.value.trim();
+    if (control && control !== (f.control_number || "")) { f = await db.update("findings", f.id, { control_number: control }); delete drafts[`${f.id}:control_number`]; }
+    await exportFinding8D4D(f);
+  } catch (e) { toast(e.message, "danger"); }
 });

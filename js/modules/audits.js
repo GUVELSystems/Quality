@@ -3,7 +3,7 @@ import { esc, today, addDays, fmtDate, fmtDateTime, toLocalInput, fromLocalInput
 import { icon } from "../icons.js";
 import { setHead, rerender, navigate, replaceHash, H, wsId } from "../router.js";
 import { typesOf, plansOf, auditsOf, findingsOf, findingAuditType, planWs, WS_LABEL, TYPE_ICON } from "../scope.js";
-import { on, onChange, onInput, badge, pill, empty, openForm, openDialog, confirmDialog, toast } from "../ui.js";
+import { on, onChange, onInput, badge, pill, empty, openForm, openDialog, confirmDialog, toast, safeRefresh } from "../ui.js";
 import { AUDIT_STATUS } from "../constants.js";
 import { classOptions, dueFor, deadlineFields, resolveOwner, levelOptions, levelLabel, classBadge, overdueKind, areaOptions } from "../workflow.js";
 import { notifyFindings } from "../notify.js";

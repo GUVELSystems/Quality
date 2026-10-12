@@ -4,7 +4,7 @@ import { icon } from "../icons.js";
 import { setHead, rerender, replaceHash, navigate, wsId } from "../router.js";
 import { renderInternalFinding } from "./findings-internal.js";
 import { findingsOf, auditsOf, auditWs, findingAuditType, typesOf, WS_LABEL } from "../scope.js";
-import { on, onChange, onInput, badge, userCell, empty, openDrawer, openForm, confirmDialog, toast } from "../ui.js";
+import { on, onChange, onInput, badge, userCell, empty, openDrawer, openForm, confirmDialog, toast, safeRefresh } from "../ui.js";
 import { SOURCE, FINDING_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { notifyFindings } from "../notify.js";

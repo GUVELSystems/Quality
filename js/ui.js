@@ -15,6 +15,19 @@ document.addEventListener("click", (e) => {
   if (fn) { if (el.tagName !== "A") e.preventDefault(); fn(el, e); }
 });
 
+/** Repinta `fn` ahora, salvo que la persona esté escribiendo dentro de `root`: ahí se espera a que
+ *  termine (blur) para no borrarle lo que aún no ha guardado. Protege contra relojes periódicos y
+ *  contra que adjuntar una evidencia refresque la pantalla a media escritura. */
+export function safeRefresh(root, fn) {
+  const active = document.activeElement;
+  const editing = active && ["TEXTAREA", "SELECT"].includes(active.tagName) || (active?.tagName === "INPUT" && active.type !== "file");
+  if (root && active && root.contains(active) && editing) {
+    active.addEventListener("blur", () => fn(), { once: true });
+    return;
+  }
+  fn();
+}
+
 /** data-change="nombre" (selects/checkbox) y data-input="nombre" (texto) */
 const changeH = {}, inputH = {};
 export const onChange = (name, fn) => { changeH[name] = fn; };

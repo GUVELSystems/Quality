@@ -31,11 +31,20 @@ async function logo() {
   return logoCache;
 }
 
-const row2 = (grid, more) => (Array.isArray(grid) ? grid : []).filter((r) => (r || []).some((c) => String(c || "").trim())).length ? grid.filter((r) => (r || []).some((c) => String(c || "").trim())) : more;
 const g = (obj, path, dflt = "") => path.split(".").reduce((o, k) => (o && o[k] != null ? o[k] : undefined), obj) ?? dflt;
 const yn = (v) => (Number(v) ? "Sí" : "No");
+/** Cada acción cierra sola al adjuntar su primera evidencia; aquí se recupera esa fecha para el PDF. */
+function actionRows(findingId, key, rows) {
+  return (rows || []).map((r, i) => {
+    const atts = db.rows("attachments").filter((a) => a.entity === "finding" && a.entity_id === findingId && a.ref === `${key}:${r.id}`).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    return [i + 1, r.action || "—", r.responsible || "—", fmtDate(r.due), atts.length ? fmtDate(atts[0].created_at) : "Pendiente"];
+  });
+}
 
-export async function exportFinding8D4D(f) {
+/** Objeto mínimo para previsualizar un formato en blanco (sin datos capturados) */
+export const blankTemplate = (ps, rca) => ({ id: "preview", code: ps === "4D" ? "XX-0000" : "XX-0000", title: "Vista previa del formato", description: "", strategy_ps: ps, strategy_rca: rca, class_id: null, created_at: new Date().toISOString(), registered_at: new Date().toISOString(), d_data: {}, control_number: "" });
+
+export async function exportFinding8D4D(f, { preview = false } = {}) {
   if (!f?.strategy_ps) throw new Error("Este hallazgo aún no tiene una estrategia (8D/4D) definida.");
   const { jsPDF } = await lib();
   const doc = new jsPDF({ unit: "pt", format: [PW, PH] });
@@ -109,14 +118,14 @@ export async function exportFinding8D4D(f) {
     table(["Problem", "Why?", "Why?", "Why?", "Why?", "Why? - Root Cause"], [[d.failure_desc || f.description, r.why1, r.why2, r.why3, r.why4, r.root_cause]]);
     // D4 — Immediate Actions + cierre
     dBar("D4", "Immediate Actions");
-    table(["No.", "Action", "Responsible", "Due Date", "Completion Date", "Comments"], (d.immediate || []).map((r, i) => [i + 1, ...r]));
+    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "immediate", d.immediate));
     const c4 = d.closure4d || {};
     kv([["Prepared By", c4.prepared_by], ["Date", fmtDate(c4.prepared_date)], ["Reviewed By", c4.reviewed_by]]);
     kv([["Date", fmtDate(c4.reviewed_date)], ["Status", c4.status], ["4D Completion Date", fmtDate(c4.completion_date)]]);
   } else {
     // D3 — Containment (8D)
     dBar("D3", "Containment Action");
-    table(["No.", "Action", "Responsible", "Due Date", "Completion Date", "Comments"], (d.containment || []).map((r, i) => [i + 1, ...r]));
+    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "containment", d.containment));
     // D4 — Root Cause (8D): 5 Porqués o Ishikawa
     dBar("D4", `Root Cause (${RCA_TYPES[f.strategy_rca] || "—"})`);
     if (f.strategy_rca === "ishikawa") {
@@ -135,11 +144,11 @@ export async function exportFinding8D4D(f) {
     }
     // D5-D8 (solo 8D)
     dBar("D5", "Planned Permanent Corrective Action(s)");
-    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], (d.corrective_plan || []).map((r, i) => [i + 1, ...r]));
+    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "corrective_plan", d.corrective_plan));
     dBar("D6", "Implemented Permanent Corrective Action(s)");
-    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], (d.corrective_done || []).map((r, i) => [i + 1, ...r]));
+    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "corrective_done", d.corrective_done));
     dBar("D7", "Preventive Action(s)");
-    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], (d.preventive || []).map((r, i) => [i + 1, ...r]));
+    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "preventive", d.preventive));
     const add = d.additional || {};
     table(["Additional Action", "Necesario", "Responsible", "Due Date", "Completion Date"], [
       ["¿Actualizar FMEA?", yn(g(add, "fmea.flag")), g(add, "fmea.responsible"), fmtDate(g(add, "fmea.due")), fmtDate(g(add, "fmea.completion"))],
@@ -157,6 +166,10 @@ export async function exportFinding8D4D(f) {
   dBar("Verificación", "Resultado");
   para(null, f.verification_notes || "Pendiente.");
 
-  doc.setFont("helvetica", "normal"); doc.setFontSize(7); ink(C.t3); doc.text(`Generado por GUVEL Quality · ${fmtDateTime(new Date().toISOString())}`, M, PH - 20);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7); ink(C.t3);
+  doc.text(`Generado por GUVEL Quality · ${fmtDateTime(new Date().toISOString())}`, M, PH - 20);
+  doc.text(`N.º de control: ${f.control_number || "—"}`, PW - M, PH - 20, { align: "right" });
+
+  if (preview) { window.open(doc.output("bloburl"), "_blank"); return; }
   doc.save(`${f.code}_${f.strategy_ps}.pdf`);
 }

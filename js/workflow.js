@@ -211,24 +211,27 @@ const NEW_FLOW_STATUSES = new Set(["registro", "detalles", "solicitud", "d1", "d
 export const isEightD = (f) => !!f?.strategy_ps || NEW_FLOW_STATUSES.has(f?.status);
 
 /** Las etapas D que aplican según la estrategia: 8D ve las 8; 4D se detiene en D4 (que ya incluye el cierre) */
+/** D6 y D7 se trabajan juntos (lo correctivo y lo preventivo pueden avanzar en paralelo); un 4D
+ *  termina en D4 (ya incluye el cierre) y nunca ve D5-D8. */
 export function dStages(f) {
-  return f?.strategy_ps === "4D" ? ["d1", "d2", "d3", "d4"] : ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8"];
+  return f?.strategy_ps === "4D" ? ["d1", "d2", "d3", "d4"] : ["d1", "d2", "d3", "d4", "d5", "d6", "d8"];
 }
 export function eightdStages(f) {
   return ["registro", "detalles", "solicitud", ...dStages(f), "verificacion", "cerrado"];
 }
 export const D_LABEL = {
   registro: "Registro", detalles: "Detalles del problema", solicitud: "Solicitud de hallazgo",
-  d1: "D1 · Equipo", d2: "D2 · Descripción del problema",
+  d1: "Equipo", d2: "Descripción del problema",
   verificacion: "Verificación", cerrado: "Cierre",
 };
-/** D3/D4 cambian de título según 8D o 4D */
+/** D3/D4 cambian de título según 8D o 4D. Solo el título corto se muestra en el portal: el PDF
+ *  sigue llevando el "D1", "D2"… como en la plantilla oficial. */
 export function dLabel(stage, f) {
   if (D_LABEL[stage]) return D_LABEL[stage];
   const d4D = f?.strategy_ps === "4D";
-  if (stage === "d3") return d4D ? "D3 · Causa raíz" : "D3 · Acciones de contención";
-  if (stage === "d4") return d4D ? "D4 · Acciones inmediatas y cierre" : `D4 · Causa raíz (${RCA_TYPES[f?.strategy_rca] || "—"})`;
-  return { d5: "D5 · Plan de acciones correctivas", d6: "D6 · Acciones correctivas implementadas", d7: "D7 · Preventivas y Roll-Across", d8: "D8 · Reconocimiento y cierre" }[stage] || stage;
+  if (stage === "d3") return d4D ? "Causa raíz" : "Acciones de contención";
+  if (stage === "d4") return d4D ? "Acciones inmediatas y cierre" : `Causa raíz (${RCA_TYPES[f?.strategy_rca] || "—"})`;
+  return { d5: "Plan de acciones correctivas", d6: "Correctivas implementadas y preventivas", d8: "Reconocimiento y cierre" }[stage] || stage;
 }
 export const canRegister = (f) => db.can.admin && f.status === "registro";
 export const canSetStrategy = (f) => db.can.admin && f.status === "detalles";

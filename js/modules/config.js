@@ -170,6 +170,11 @@ function compressLogo(file) {
     img.src = URL.createObjectURL(file);
   });
 }
+const BLANK_FORMATS = [
+  { ps: "8D", rca: "5whys", label: "8D · 5 Porqués" },
+  { ps: "8D", rca: "ishikawa", label: "8D · Ishikawa" },
+  { ps: "4D", rca: null, label: "4D" },
+];
 export const capaFiles = {
   id: "capa", label: "CAPA Files", icon: "capa",
   render(root) {
@@ -178,9 +183,17 @@ export const capaFiles = {
     root.innerHTML = `<div class="panel"><div class="panel-body logo-card">
       <div class="logo-preview">${url ? `<img src="${url}" alt="Logo actual">` : '<span class="muted">Sin logo propio: se usa el de GUVEL</span>'}</div>
       ${db.can.manage ? `<div class="logo-actions"><label class="btn primary">${icon("plus")} Subir logo<input type="file" accept="image/*" hidden id="logo-file"></label>${url ? `<button class="btn danger" data-action="logo-remove">Quitar</button>` : ""}</div><p class="muted" style="font-size:13px;margin-top:6px">Imagen cuadrada recomendada (PNG con fondo transparente).</p>` : ""}
+    </div></div>
+    <div class="panel"><div class="panel-head"><h2>Vista previa de los formatos</h2><small>En blanco, tal como se imprimen</small></div><div class="panel-body">
+      <div class="preview-grid">${BLANK_FORMATS.map((f, i) => `<button type="button" class="btn" data-action="capa-preview" data-i="${i}">${icon("form")} Ver ${esc(f.label)}</button>`).join("")}</div>
     </div></div>`;
   },
 };
+on("capa-preview", async (el) => {
+  const { ps, rca } = BLANK_FORMATS[+el.dataset.i];
+  try { const { exportFinding8D4D, blankTemplate } = await import("../pdf8d.js"); await exportFinding8D4D(blankTemplate(ps, rca), { preview: true }); }
+  catch (e) { toast(e.message, "danger"); }
+});
 document.addEventListener("change", async (e) => {
   if (e.target.id !== "logo-file") return;
   const file = e.target.files[0]; if (!file) return;

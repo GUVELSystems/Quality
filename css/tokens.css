@@ -30,6 +30,13 @@
   --weekend-line: rgba(233,162,31,.38);
   color-scheme: light;
 
+  /* Glassy: superficies translúcidas con desenfoque (paneles, diálogos, topbar…) */
+  --glass-bg: rgba(255,255,255,.62); --glass-bg-2: rgba(255,255,255,.78); --glass-border: rgba(255,255,255,.55);
+  --glass-navy: rgba(15,27,45,.78); --glass-navy-border: rgba(255,255,255,.08);
+  --glass-blur: blur(18px) saturate(160%);
+  --r-glass: 16px; --r-glass-sm: 11px;
+  --glass-shadow: 0 8px 32px rgba(15,27,45,.10), 0 1px 2px rgba(15,27,45,.06);
+
   /* Alias de compatibilidad con módulos anteriores */
   --g-cyan: var(--flow); --danger: var(--stop); --warn: var(--watch);
   --muted: var(--text-3); --bg-1: var(--surface-2); --bg-2: var(--surface); --bg-3: var(--surface-3);
@@ -47,6 +54,9 @@
     --idle: #3B4F6B;
     --weekend: rgba(242,179,61,.13); --weekend-line: rgba(242,179,61,.35);
     --shadow-float: 0 18px 48px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.35);
+    --glass-bg: rgba(22,36,58,.60); --glass-bg-2: rgba(22,36,58,.74); --glass-border: rgba(255,255,255,.09);
+    --glass-navy: rgba(10,18,30,.72); --glass-navy-border: rgba(255,255,255,.07);
+    --glass-shadow: 0 8px 32px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.25);
     color-scheme: dark;
   }
 }
@@ -58,6 +68,9 @@
   --watch: #F2B33D; --watch-ink: #F6C766; --watch-soft: rgba(242,179,61,.16);
   --stop: #FF5A5A; --stop-ink: #FF8585; --stop-soft: rgba(255,90,90,.15);
   --ok: #3CC79C; --ok-ink: #6FDDB9; --ok-soft: rgba(60,199,156,.16);
+  --glass-bg: rgba(22,36,58,.60); --glass-bg-2: rgba(22,36,58,.74); --glass-border: rgba(255,255,255,.09);
+  --glass-navy: rgba(10,18,30,.72); --glass-navy-border: rgba(255,255,255,.07);
+  --glass-shadow: 0 8px 32px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.25);
   --idle: #3B4F6B;
   --weekend: rgba(242,179,61,.13); --weekend-line: rgba(242,179,61,.35);
   --shadow-float: 0 18px 48px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.35);

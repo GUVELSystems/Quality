@@ -205,6 +205,9 @@ export async function rejectVerification(f, reason) {
    ===================================================================== */
 export const PS_TYPES = { "8D": "8D", "4D": "4D" };
 export const RCA_TYPES = { "5whys": "5 Porqués", ishikawa: "Ishikawa" };
+/** Clave de ajuste para el número de control de cada FORMATO (no de cada hallazgo): se asigna una
+ *  vez por tipo en Configuración → CAPA Files y se imprime en todos los PDF de ese tipo. */
+export const controlKey = (ps, rca) => `control_${ps}${ps === "8D" ? "_" + rca : ""}`;
 const NEW_FLOW_STATUSES = new Set(["registro", "detalles", "solicitud", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8"]);
 /** Un hallazgo nuevo nace en "registro" sin estrategia todavía; se distingue del flujo anterior por su etapa,
  *  no por strategy_ps (que solo se llena hasta "Detalles del problema"). */
@@ -214,14 +217,14 @@ export const isEightD = (f) => !!f?.strategy_ps || NEW_FLOW_STATUSES.has(f?.stat
 /** D6 y D7 se trabajan juntos (lo correctivo y lo preventivo pueden avanzar en paralelo); un 4D
  *  termina en D4 (ya incluye el cierre) y nunca ve D5-D8. */
 export function dStages(f) {
-  return f?.strategy_ps === "4D" ? ["d1", "d2", "d3", "d4"] : ["d1", "d2", "d3", "d4", "d5", "d6", "d8"];
+  return f?.strategy_ps === "4D" ? ["d1", "d2", "d3", "d4", "d4_revision"] : ["d1", "d2", "d3", "d4", "d5", "d6", "d8"];
 }
 export function eightdStages(f) {
   return ["registro", "detalles", "solicitud", ...dStages(f), "verificacion", "cerrado"];
 }
 export const D_LABEL = {
   registro: "Registro", detalles: "Detalles del problema", solicitud: "Solicitud de hallazgo",
-  d1: "Equipo", d2: "Descripción del problema",
+  d1: "Equipo", d2: "Descripción del problema", d4_revision: "Revisión",
   verificacion: "Verificación", cerrado: "Cierre",
 };
 /** D3/D4 cambian de título según 8D o 4D. Solo el título corto se muestra en el portal: el PDF
@@ -260,6 +263,36 @@ export async function advanceD(f, stage, patch) {
   }
   const r = await db.update("findings", f.id, data);
   logEvent(f, "d_stage", dLabel(stage, f)); return r;
+}
+/* ------------------------------- Revisión del 4D ------------------------------- */
+export const canReview4D = (f) => db.can.write && f.status === "d4_revision" && (f.reviewer_id === db.state.profile.id || db.can.admin);
+/** Estatus automático que se muestra en el cierre del 4D (ya no se escribe a mano) */
+export function closure4DStatus(f) {
+  if (f.strategy_ps !== "4D") return "";
+  if (f.status === "cerrado") return "Aprobado";
+  if (f.status === "verificacion") return "En verificación";
+  if (f.status === "d4_revision") return "En revisión";
+  if (f.d_data?.closure4d?.decision === "rechazado") return "Rechazado · en corrección";
+  return "Borrador";
+}
+export async function sendToReview4D(f, reviewerId, patch) {
+  const closure4d = { ...(f.d_data?.closure4d || {}), ...(patch?.closure4d || {}), preparer_id: f.owner_id, prepared_date: today() };
+  const r = await db.update("findings", f.id, { status: "d4_revision", reviewer_id: reviewerId, d_data: { ...f.d_data, ...patch, closure4d } });
+  logEvent(f, "sent_review", db.profileName(reviewerId)); return r;
+}
+export async function approveReview4D(f, notes) {
+  const now = new Date(), verifyDue = shiftBusiness(now, verifyDaysFor(f) * DAY_MS);
+  const closure4d = { ...(f.d_data?.closure4d || {}), reviewed_by_id: db.state.profile.id, reviewed_date: today(), review_notes: notes, decision: "aprobado" };
+  const r = await db.update("findings", f.id, {
+    status: "verificacion", actions_closed_at: now.toISOString(), actions_closed_on: isoDate(now), verify_due_at: verifyDue.toISOString(), verify_due: dueDateOf(verifyDue),
+    d_data: { ...f.d_data, closure4d },
+  });
+  logEvent(f, "review_approved", notes); return r;
+}
+export async function rejectReview4D(f, notes) {
+  const closure4d = { ...(f.d_data?.closure4d || {}), reviewed_by_id: db.state.profile.id, reviewed_date: today(), review_notes: notes, decision: "rechazado" };
+  const r = await db.update("findings", f.id, { status: "d4", d_data: { ...f.d_data, closure4d } });
+  logEvent(f, "review_rejected", notes); return r;
 }
 export async function closeVerification8D(f, notes) {
   const r = await db.update("findings", f.id, { verification_notes: notes, verified_at: nowISO(), verified_by: db.state.profile.id, verified_on: today(), status: "cerrado" });

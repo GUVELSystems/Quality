@@ -5,7 +5,7 @@ import { icon } from "../icons.js";
 import { setHead, rerender } from "../router.js";
 import { on, onInput, empty, openForm, openDialog, confirmDialog, toast, pill } from "../ui.js";
 import { makeCrud } from "./crud.js";
-import { classes, classTone, levels, levelLabel, verifyDays, verifyDaysForType, VERIFY_TYPES, SCOPES, scopesOf } from "../workflow.js";
+import { classes, classTone, levels, levelLabel, verifyDays, verifyDaysForType, VERIFY_TYPES, SCOPES, scopesOf, controlKey } from "../workflow.js";
 
 const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
 const yesNo = (v) => (v ? pill("Activo", "ok") : pill("Inactivo", "neutral"));
@@ -185,14 +185,22 @@ export const capaFiles = {
       ${db.can.manage ? `<div class="logo-actions"><label class="btn primary">${icon("plus")} Subir logo<input type="file" accept="image/*" hidden id="logo-file"></label>${url ? `<button class="btn danger" data-action="logo-remove">Quitar</button>` : ""}</div><p class="muted" style="font-size:13px;margin-top:6px">Imagen cuadrada recomendada (PNG con fondo transparente).</p>` : ""}
     </div></div>
     <div class="panel"><div class="panel-head"><h2>Vista previa de los formatos</h2><small>En blanco, tal como se imprimen</small></div><div class="panel-body">
-      <div class="preview-grid">${BLANK_FORMATS.map((f, i) => `<button type="button" class="btn" data-action="capa-preview" data-i="${i}">${icon("form")} Ver ${esc(f.label)}</button>`).join("")}</div>
+      <div class="format-grid">${BLANK_FORMATS.map((fmt, i) => `<div class="format-card">
+        <button type="button" class="btn" data-action="capa-preview" data-i="${i}">${icon("form")} Ver ${esc(fmt.label)}</button>
+        <label class="field" style="margin-top:10px"><span>Número de control</span><input class="input" data-input="capa-control" data-i="${i}" placeholder="Ej. FR-QA-008 Rev.02" value="${esc(db.setting(ctrlKey(fmt), "") || "")}" ${db.can.manage ? "" : "disabled"}></label>
+      </div>`).join("")}</div>
     </div></div>`;
   },
 };
+const ctrlKey = (fmt) => controlKey(fmt.ps, fmt.rca);
 on("capa-preview", async (el) => {
   const { ps, rca } = BLANK_FORMATS[+el.dataset.i];
   try { const { exportFinding8D4D, blankTemplate } = await import("../pdf8d.js"); await exportFinding8D4D(blankTemplate(ps, rca), { preview: true }); }
   catch (e) { toast(e.message, "danger"); }
+});
+onInput("capa-control", async (el) => {
+  const fmt = BLANK_FORMATS[+el.dataset.i];
+  try { await db.saveSetting(ctrlKey(fmt), el.value.trim()); } catch (e) { toast(e.message, "danger"); }
 });
 document.addEventListener("change", async (e) => {
   if (e.target.id !== "logo-file") return;

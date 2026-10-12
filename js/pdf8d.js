@@ -6,7 +6,7 @@
    ===================================================================== */
 import * as db from "./db.js";
 import { fmtDate, fmtDateTime } from "./utils.js";
-import { RCA_TYPES } from "./workflow.js";
+import { RCA_TYPES, controlKey, closure4DStatus } from "./workflow.js";
 
 const C = { navy: [15, 27, 45], cyan: [12, 192, 223], ink: [15, 27, 45], t2: [82, 100, 122], t3: [122, 138, 156], line: [221, 230, 238], panel: [244, 248, 251], white: [255, 255, 255] };
 const PW = 595, PH = 842, M = 32;   // carta vertical, como los formatos originales
@@ -21,18 +21,28 @@ async function lib() {
   if (!window.jspdf) { await loadScript("js/vendor/jspdf.umd.min.js"); await loadScript("js/vendor/jspdf.plugin.autotable.min.js"); }
   return window.jspdf;
 }
+/** Dimensiones reales de una imagen (data URL), para no deformarla al encajarla en el encabezado */
+function imageSize(dataUrl) {
+  return new Promise((res) => { const img = new Image(); img.onload = () => res({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 }); img.onerror = () => res({ w: 1, h: 1 }); img.src = dataUrl; });
+}
 let logoCache;
 async function logo() {
   if (logoCache !== undefined) return logoCache;
   const custom = db.setting("capa_logo", null);
-  if (custom) { logoCache = custom; return logoCache; }
-  try { const blob = await (await fetch("assets/guvel-logo.png")).blob(); logoCache = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); }); }
-  catch { logoCache = ""; }
+  const url = custom || (await (async () => { try { const blob = await (await fetch("assets/guvel-logo.png")).blob(); return await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); }); } catch { return ""; } })());
+  logoCache = url ? { url, ...(await imageSize(url)) } : null;
   return logoCache;
 }
 
 const g = (obj, path, dflt = "") => path.split(".").reduce((o, k) => (o && o[k] != null ? o[k] : undefined), obj) ?? dflt;
 const yn = (v) => (Number(v) ? "Sí" : "No");
+function loadImageEl(url) {
+  return new Promise((res, rej) => { const img = new Image(); img.onload = () => res(img); img.onerror = () => rej(new Error("No se pudo cargar la imagen")); img.src = url; });
+}
+const MIME_FMT = { "image/png": "PNG", "image/jpeg": "JPEG", "image/jpg": "JPEG", "image/webp": "WEBP" };
+async function photosFor(findingId, ref) {
+  return db.rows("attachments").filter((a) => a.entity === "finding" && a.entity_id === findingId && a.ref === ref && (a.mime_type || "").startsWith("image/"));
+}
 /** Cada acción cierra sola al adjuntar su primera evidencia; aquí se recupera esa fecha para el PDF. */
 function actionRows(findingId, key, rows) {
   return (rows || []).map((r, i) => {
@@ -55,9 +65,12 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
 
   const header = () => {
     fill(C.navy); doc.rect(0, 0, PW, 64, "F");
-    if (logoData) doc.addImage(logoData, "PNG", M, 14, 36, 36);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(18); ink(C.white); doc.text("GUVEL", M + 44, 32);
-    doc.setFontSize(7); ink(C.cyan); const wG = doc.getTextWidth("GUVEL"); const wQ = doc.getTextWidth("QUALITY"); doc.text("QUALITY", M + 44, 42, { charSpace: (wG - wQ) / 6 });
+    if (logoData) {
+      // Encaja el logo dentro de un recuadro de 44x40pt SIN deformarlo (conserva su proporción real)
+      const boxW = 44, boxH = 40, k = Math.min(boxW / logoData.w, boxH / logoData.h);
+      const w = logoData.w * k, h = logoData.h * k;
+      doc.addImage(logoData.url, M, 12 + (boxH - h) / 2, w, h);
+    }
     doc.setFont("helvetica", "bold"); doc.setFontSize(13); ink(C.white); doc.text(`${f.strategy_ps} - REPORT`, PW - M, 30, { align: "right" });
     doc.setFont("helvetica", "normal"); doc.setFontSize(9); ink(C.cyan); doc.text(f.code, PW - M, 44, { align: "right" });
     y = 84;
@@ -93,6 +106,23 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
       headStyles: { fillColor: C.panel, textColor: C.t2, fontStyle: "bold", fontSize: 7.5 }, ...opts });
     y = doc.lastAutoTable.finalY + 10;
   };
+  /** Fila de fotos (hasta 3, lado a lado) bajo una etiqueta, cada una respetando su proporción real */
+  const photoRow = async (label, atts) => {
+    if (!atts.length) return;
+    checkPage(110);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); ink(C.t2); doc.text(label, M, y); y += 10;
+    const boxW = 150, boxH = 105, gap = 10, n = Math.min(atts.length, 3);
+    for (let i = 0; i < n; i++) {
+      const x = M + i * (boxW + gap);
+      try {
+        const url = await db.attachmentUrl(atts[i]), img = await loadImageEl(url);
+        const k = Math.min(boxW / img.naturalWidth, boxH / img.naturalHeight), w = img.naturalWidth * k, h = img.naturalHeight * k;
+        line(C.line); doc.rect(x, y, boxW, boxH);
+        doc.addImage(img, MIME_FMT[atts[i].mime_type] || "JPEG", x + (boxW - w) / 2, y + (boxH - h) / 2, w, h);
+      } catch { /* si no se pudo cargar, se deja el recuadro vacío */ }
+    }
+    y += boxH + 12;
+  };
 
   header();
   const audit = db.get("audits", f.audit_id), process = db.get("areas", audit?.process_area_id || f.area_id);
@@ -110,6 +140,8 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
   const w5 = d.problem5w || {};
   table(["What?", "Where?", "When?", "Who?", "Why?", ...(f.strategy_ps === "4D" ? [] : ["How Much?", "Batch"])],
     [[w5.what, w5.where, w5.when, w5.who, w5.why, ...(f.strategy_ps === "4D" ? [] : [w5.how_much, w5.batch])]]);
+  await photoRow("NOT OK (condición encontrada):", await photosFor(f.id, "d2_nok"));
+  await photoRow("OK (condición correcta):", await photosFor(f.id, "d2_ok"));
 
   if (f.strategy_ps === "4D") {
     // D3 — Root Cause (4D)
@@ -120,8 +152,8 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
     dBar("D4", "Immediate Actions");
     table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "immediate", d.immediate));
     const c4 = d.closure4d || {};
-    kv([["Prepared By", c4.prepared_by], ["Date", fmtDate(c4.prepared_date)], ["Reviewed By", c4.reviewed_by]]);
-    kv([["Date", fmtDate(c4.reviewed_date)], ["Status", c4.status], ["4D Completion Date", fmtDate(c4.completion_date)]]);
+    kv([["Prepared By", db.profileName(c4.preparer_id || f.owner_id)], ["Date", fmtDate(c4.prepared_date)], ["Reviewed By", c4.reviewed_by_id ? db.profileName(c4.reviewed_by_id) : "—"]]);
+    kv([["Date", fmtDate(c4.reviewed_date)], ["Status", closure4DStatus(f) || "—"], ["4D Completion Date", fmtDate(f.closed_at)]]);
   } else {
     // D3 — Containment (8D)
     dBar("D3", "Containment Action");
@@ -168,7 +200,8 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
 
   doc.setFont("helvetica", "normal"); doc.setFontSize(7); ink(C.t3);
   doc.text(`Generado por GUVEL Quality · ${fmtDateTime(new Date().toISOString())}`, M, PH - 20);
-  doc.text(`N.º de control: ${f.control_number || "—"}`, PW - M, PH - 20, { align: "right" });
+  const control = db.setting(controlKey(f.strategy_ps, f.strategy_rca), "");
+  doc.text(`N.º de control: ${control || "—"}`, PW - M, PH - 20, { align: "right" });
 
   if (preview) { window.open(doc.output("bloburl"), "_blank"); return; }
   doc.save(`${f.code}_${f.strategy_ps}.pdf`);

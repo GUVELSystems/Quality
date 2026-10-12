@@ -266,12 +266,27 @@ export function buildSeed() {
     problem5w: { what: "Etiqueta de identificación faltante", where: "Andén de embarques", when: "3 de octubre", who: "Turno de embarques", why: "No se verificó antes del cierre de turno" },
     rootcause4d: { why1: "No se verificó el contenedor antes de cerrar el turno", why2: "No existe un punto de verificación obligatorio", why3: "El checklist de embarque no incluye etiquetas de contenedores retornables", why4: "El checklist no se ha actualizado desde el cambio de proveedor de contenedores", root_cause: "El checklist de embarque está desactualizado y no cubre contenedores retornables" },
     immediate: [["Agregar la verificación de etiqueta al checklist de embarque", "Pedro Ramírez", addDays(T, -5), addDays(T, -3), "Hecho"]],
-    closure4d: { prepared_by: "Pedro Ramírez", prepared_date: addDays(T, -8), reviewed_by: "María López", reviewed_date: addDays(T, -6), status: "Closed", completion_date: addDays(T, -3) },
+    closure4d: { preparer_id: "u-pedro", prepared_date: addDays(T, -8), reviewed_by_id: "u-maria", reviewed_date: addDays(T, -6), review_notes: "Las acciones inmediatas resuelven el hallazgo.", decision: "aprobado" },
   };
+  if4D.reviewer_id = "u-maria";
   if4D.action_plan = "Checklist de embarque actualizado con el punto de verificación de etiquetas.";
   closeAt(if4D, new Date(addBusinessDays(if4D.start_date, 5) + "T15:00:00"));
   if4D.verified_at = shiftBusiness(new Date(if4D.actions_closed_at), 2 * DAY_MS).toISOString(); if4D.verified_on = isoDate(new Date(if4D.verified_at)); if4D.verified_by = "u-carlos";
   if4D.verification_notes = "Se verificaron 10 embarques consecutivos: todos los contenedores retornables llevan su etiqueta."; if4D.closed_at = if4D.verified_at; if4D.status = "cerrado";
+
+  // Un 4D en plena revisión, para probar la pantalla del revisor
+  const if4DRev = mkFinding({ module: "internas", title: "Montacargas sin checklist de inspección diaria firmado", description: "El montacargas de almacén circuló sin el checklist de inspección diaria firmado.", class_id: klass("NCm").id, area_id: A("Almacén"), owner_id: "u-pedro", start_date: bd(2), classification_id: catId("Documentación") });
+  if4DRev.registered_at = daysAgoISO(2); if4DRev.registered_by = "u-carlos"; if4DRev.strategy_at = daysAgoISO(2); if4DRev.strategy_by = "u-carlos";
+  if4DRev.strategy_ps = "4D"; if4DRev.strategy_rca = null; if4DRev.corrective_mandatory = true; if4DRev.preventive_mandatory = false;
+  if4DRev.accepted_at = daysAgoISO(1); if4DRev.accepted_by = "u-pedro"; if4DRev.status = "d4_revision"; if4DRev.reviewer_id = "u-maria";
+  if4DRev.d_data = {
+    team: [["Pedro Ramírez", "Almacén", "Responsable"]],
+    failure_desc: "El montacargas circuló un turno completo sin el checklist de inspección diaria firmado por el operador.",
+    problem5w: { what: "Checklist sin firmar", where: "Almacén", when: "Ayer", who: "Turno matutino" },
+    rootcause4d: { why1: "El operador olvidó firmar antes de arrancar", why2: "No hay un bloqueo físico que lo impida", why3: "El tablero de llaves no exige entregar el checklist firmado", why4: "", root_cause: "El proceso de entrega de llaves no exige el checklist firmado" },
+    immediate: [{ id: "demo-imm-1", action: "Vincular la entrega de llaves del montacargas a la firma del checklist", responsible: "Pedro Ramírez", due: addDays(T, 2) }],
+    closure4d: { preparer_id: "u-pedro", prepared_date: daysAgoISO(1).slice(0, 10) },
+  };
 
     /* Notificaciones de cliente (Issues) */
   const notifs = [];

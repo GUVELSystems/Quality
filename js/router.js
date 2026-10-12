@@ -4,6 +4,7 @@ import { esc } from "./utils.js";
 import { icon } from "./icons.js";
 import * as db from "./db.js";
 import { planWs, auditWs, findingWs, WS_ICON } from "./scope.js";
+import { withFocusPreserved } from "./ui.js";
 
 /** Módulo: { id, label, tabs:[{ id, label, render(root, params), hidden?, activeAs?, count?() }], hideTabs? } */
 const workspaces = new Map();
@@ -73,14 +74,16 @@ export async function renderRoute(scroll = true) {
   cur = { ws: w.id, tab: tab.id, params: !canonical ? [] : parts.slice(w.hideTabs ? 1 : 2) };
   const root = document.getElementById("view");
   const keepY = window.scrollY;
-  try {
-    root.innerHTML = "";
-    await tab.render(root, cur.params);
-  } catch (e) {
-    console.error(e);
-    setHead({ title: tab.label || w.label });
-    root.innerHTML = `<div class="panel"><div class="empty">${icon("finding")}<strong>Algo salió mal</strong>${esc(e.message || e)}</div></div>`;
-  }
+  await withFocusPreserved(async () => {
+    try {
+      root.innerHTML = "";
+      await tab.render(root, cur.params);
+    } catch (e) {
+      console.error(e);
+      setHead({ title: tab.label || w.label });
+      root.innerHTML = `<div class="panel"><div class="empty">${icon("finding")}<strong>Algo salió mal</strong>${esc(e.message || e)}</div></div>`;
+    }
+  });
   const key = `${cur.ws}/${cur.tab}/${cur.params.join("/")}`;
   if (!scroll) window.scrollTo({ top: keepY });
   else if (lastKey !== key) window.scrollTo({ top: 0 });

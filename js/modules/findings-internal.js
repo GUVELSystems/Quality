@@ -8,7 +8,7 @@ import * as db from "../db.js";
 import { esc, uuid, fmtDate, fmtDateTime } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead, navigate, wsId } from "../router.js";
-import { on, onChange, onInput, badge, userCell, empty, openForm, confirmDialog, toast, safeRefresh } from "../ui.js";
+import { on, onChange, onInput, badge, userCell, empty, openForm, confirmDialog, toast, withFocusPreserved } from "../ui.js";
 import { SOURCE, FINDING_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { notifyFindings } from "../notify.js";
@@ -20,6 +20,7 @@ import {
   saveRca, advanceRca, savePlan, closeActions, acceptVerification, rejectVerification,
   isEightD, dStages, eightdStages, dLabel, PS_TYPES, RCA_TYPES, canRegister, canSetStrategy, canActD, canVerify8D,
   registerFinding, saveStrategy, acceptD, saveD, advanceD, closeVerification8D, rejectVerification8D, deadlineFields,
+  canReview4D, closure4DStatus, sendToReview4D, approveReview4D, rejectReview4D,
 } from "../workflow.js";
 import { exportFinding8D4D } from "../pdf8d.js";
 
@@ -93,6 +94,9 @@ const EV_TEXT = {
   registered: (e) => `Registrado y clasificado por <b>${esc(db.profileName(e.actor))}</b>`,
   strategy: (e) => `Estrategia definida: <b>${esc(e.detail || "")}</b>`,
   d_stage: (e) => `Etapa completada: ${esc(e.detail || "")}`,
+  sent_review: (e) => `Enviado a revisar · revisor: <b>${esc(e.detail || "")}</b>`,
+  review_approved: (e) => `Revisado y <b>aprobado</b> por ${esc(db.profileName(e.actor))} · «${esc(e.detail || "")}»`,
+  review_rejected: (e) => `Revisado y <b>rechazado</b> por ${esc(db.profileName(e.actor))} · «${esc(e.detail || "")}»`,
 };
 function historyCard(f) {
   const ev = [{ at: f.created_at, text: "Hallazgo registrado" }, ...eventsOf(f).map((e) => ({ at: e.created_at, text: (EV_TEXT[e.kind] || (() => esc(e.kind)))(e) }))];
@@ -202,10 +206,12 @@ function legacyPageHTML(f) {
   </div>`;
 }
 function paint() {
-  const f = db.get("findings", curId);
-  const root = document.getElementById("if-root");
-  if (!f || !root) return;
-  root.innerHTML = isEightD(f) ? e8dPageHTML(f) : legacyPageHTML(f);
+  withFocusPreserved(() => {
+    const f = db.get("findings", curId);
+    const root = document.getElementById("if-root");
+    if (!f || !root) return;
+    root.innerHTML = isEightD(f) ? e8dPageHTML(f) : legacyPageHTML(f);
+  });
 }
 export function renderInternalFinding(root, id, stage) {
   const f = db.get("findings", id);
@@ -466,9 +472,17 @@ function stageD3(f, editable) {
 function stageD4(f, editable) {
   if (f.strategy_ps === "4D") {
     const c = f.d_data?.closure4d || {};
-    const w = (k, l, type = "text") => `<label class="field"><span>${esc(l)}</span><input class="input" type="${type}" data-input="e8-dd" data-key="${f.id}:dd.closure4d.${k}" value="${esc(drafts[`${f.id}:dd.closure4d.${k}`] ?? c[k] ?? "")}"></label>`;
+    const reviewerKey = `${f.id}:dd.closure4d.__reviewer`, reviewerVal = drafts[reviewerKey] ?? f.reviewer_id ?? "";
+    const reviewerField = editable
+      ? `<label class="field"><span>Revisado por</span><select class="select" data-input="e8-dd" data-key="${reviewerKey}"><option value="">— Elegir revisor —</option>${staffAll().filter((p) => p.id !== f.owner_id).map((p) => `<option value="${p.id}" ${p.id === reviewerVal ? "selected" : ""}>${esc(p.full_name)}</option>`).join("")}</select></label>`
+      : `<div class="field"><span>Revisado por</span><div class="done-text">${esc(db.profileName(f.reviewer_id) || "—")}</div></div>`;
     return `${actionGrid("Acciones inmediatas", "immediate", f, editable, { maxDue: f.due_date })}
-      <div class="e8-block"><h4>Cierre del 4D</h4><div class="form-grid">${w("prepared_by", "Preparado por")}${w("prepared_date", "Fecha", "date")}${w("reviewed_by", "Revisado por")}${w("reviewed_date", "Fecha", "date")}${w("status", "Estatus")}${w("completion_date", "Fecha de cierre", "date")}</div></div>`;
+      <div class="e8-block"><h4>Cierre del 4D</h4><div class="form-grid">
+        <div class="field"><span>Preparado por</span><div class="done-text">${esc(db.profileName(c.preparer_id || f.owner_id))}</div></div>
+        <div class="field"><span>Fecha</span><div class="done-text">${c.prepared_date ? fmtDate(c.prepared_date) : "Se fija al enviar a revisar"}</div></div>
+        ${reviewerField}
+        <div class="field"><span>Estatus</span><div class="done-text">${esc(closure4DStatus(f) || "—")}</div></div>
+      </div></div>`;
   }
   if (f.strategy_rca === "ishikawa") {
     const d = f.d_data?.ishikawa || {};
@@ -509,20 +523,23 @@ function stageDGeneric(f, stage) {
   const body = D_BODY[stage](f, editable);
   if (idx < cur) return body;                     // ya hecho: vista de solo lectura
   if (!act) return `${body}${lock(`Solo <b>${ownerName}</b> (o un administrador) puede continuar.`)}`;
+  if (stage === "d4" && f.strategy_ps === "4D") {   // el 4D no "avanza": se envía a revisar a alguien elegido
+    return `${body}<div class="stage-actions"><button class="btn" data-action="e8-d-save" data-id="${f.id}" data-stage="d4">Guardar borrador</button>
+      <button class="btn primary" data-action="e8-send-review" data-id="${f.id}">${icon("check2")} Enviar a revisar</button></div>`;
+  }
   const isLast = stages[idx + 1] === "verificacion";
   return `${body}<div class="stage-actions"><button class="btn" data-action="e8-d-save" data-id="${f.id}" data-stage="${stage}">Guardar borrador</button>
     <button class="btn primary" data-action="e8-d-advance" data-id="${f.id}" data-stage="${stage}">${isLast ? "Guardar y enviar a Verificación" : "Guardar y continuar"}</button></div>
     ${isLast ? lock(`Un administrador tendrá ${verifyDaysFor(f)} días hábiles para aceptar o rechazar la verificación.`) : ""}`;
 }
 
-const controlField = (f) => `<label class="field" style="max-width:260px"><span>N.º de control del reporte</span><input class="input" data-input="e8-dd" data-key="${f.id}:control_number" placeholder="Ej. QR-2026-0042" value="${esc(drafts[`${f.id}:control_number`] ?? f.control_number ?? "")}"></label>`;
 const pdfBtn = (f) => `<button class="btn" data-action="e8-pdf" data-id="${f.id}">${icon("download")} Descargar PDF (${esc(f.strategy_ps)})</button>`;
 function stageVerificacion8D(f) {
   const stages = eightdStages(f), idx = stages.indexOf("verificacion"), cur = stages.indexOf(f.status);
   if (idx > cur) return lock("Disponible cuando se completen las acciones.");
-  if (idx < cur) return `<div class="done-text">${esc(f.verification_notes || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">${fmtDateTime(f.verified_at)}</div><div class="stage-actions" style="margin-top:12px">${controlField(f)}${pdfBtn(f)}</div>`;
+  if (idx < cur) return `<div class="done-text">${esc(f.verification_notes || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">${fmtDateTime(f.verified_at)}</div><div class="stage-actions" style="margin-top:12px">${pdfBtn(f)}</div>`;
   const notes = drafts[`${f.id}:verification_notes`] ?? f.verification_notes ?? "";
-  return `<div class="stage-actions" style="margin-bottom:14px;align-items:flex-end">${controlField(f)}${pdfBtn(f)}</div>${canVerify8D(f) ? `<p class="q-label">¿El 8D/4D fue efectivo y está completo?</p>
+  return `<div class="stage-actions" style="margin-bottom:14px">${pdfBtn(f)}</div>${canVerify8D(f) ? `<p class="q-label">¿El 8D/4D fue efectivo y está completo?</p>
     <textarea class="textarea" rows="4" data-input="e8-dd" data-key="${f.id}:verification_notes" placeholder="Resultado de la verificación…">${esc(notes)}</textarea>
     <div class="stage-actions"><button class="btn primary" data-action="e8-verify-accept" data-id="${f.id}">${icon("check2")} Aceptar y cerrar</button><button class="btn danger" data-action="e8-verify-reject" data-id="${f.id}">${icon("close")} Rechazar</button></div>`
     : lock("Solo un <b>administrador</b> puede aceptar o rechazar la verificación.")}`;
@@ -533,13 +550,28 @@ function stageCerrado8D(f) {
   return `<div class="if-closed-grid"><div><dt>Cierre de acciones</dt><dd>${esc(m1.text)}</dd></div><div><dt>Verificación</dt><dd>${esc(m2?.text || "—")}</dd></div>
     <div><dt>Verificó</dt><dd>${esc(db.profileName(f.verified_by))}</dd></div><div><dt>Cerrado</dt><dd>${fmtDateTime(f.closed_at || f.verified_at)}</dd></div></div>
     <p class="q-label" style="margin-top:14px">Resultado de la verificación</p><div class="done-text">${esc(f.verification_notes || "—")}</div>
-    <div class="stage-actions" style="margin-top:14px;align-items:flex-end">${controlField(f)}${pdfBtn(f)}</div>`;
+    <div class="stage-actions" style="margin-top:14px">${pdfBtn(f)}</div>`;
 }
 
+function stageD4Revision(f) {
+  const stages = eightdStages(f), idx = stages.indexOf("d4_revision"), cur = stages.indexOf(f.status), c = f.d_data?.closure4d || {};
+  if (idx > cur) return lock("Disponible cuando se envíe el 4D a revisar.");
+  const recap = `<div class="form-grid">
+    <div class="field"><span>Preparado por</span><div class="done-text">${esc(db.profileName(c.preparer_id))}</div></div>
+    <div class="field"><span>Fecha de envío</span><div class="done-text">${fmtDate(c.prepared_date)}</div></div>
+    <div class="field"><span>Revisor</span><div class="done-text">${esc(db.profileName(f.reviewer_id))}</div></div></div>`;
+  if (idx < cur) return `${recap}<p class="q-label" style="margin-top:14px">Resultado de la revisión</p><div class="done-text">${esc(c.review_notes || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">${fmtDate(c.reviewed_date)}</div>`;
+  if (!canReview4D(f)) return `${recap}${lock(`Esperando la revisión de <b>${esc(db.profileName(f.reviewer_id))}</b>.`)}`;
+  const notes = drafts[`${f.id}:dd.closure4d.review_notes`] ?? c.review_notes ?? "";
+  return `${recap}<p class="q-label" style="margin-top:14px">¿Las acciones inmediatas resuelven el hallazgo?</p>
+    <textarea class="textarea" rows="4" data-input="e8-dd" data-key="${f.id}:dd.closure4d.review_notes" placeholder="Comentarios de la revisión…">${esc(notes)}</textarea>
+    <div class="stage-actions"><button class="btn primary" data-action="e8-review-approve" data-id="${f.id}">${icon("check2")} Revisado y aprobado</button><button class="btn danger" data-action="e8-review-reject" data-id="${f.id}">${icon("close")} Revisado y rechazado</button></div>`;
+}
 function e8dStepBody(f, st) {
   if (st === "registro") return stageRegistro(f);
   if (st === "detalles") return stageDetalles(f);
   if (st === "solicitud") return stageSolicitud(f);
+  if (st === "d4_revision") return stageD4Revision(f);
   if (st === "verificacion") return stageVerificacion8D(f);
   if (st === "cerrado") return stageCerrado8D(f);
   return stageDGeneric(f, st);
@@ -625,10 +657,14 @@ function collectDD(f, stage) {
   return patch;
 }
 /** ¿Puede enviarse esta etapa? Toda acción declarada en pantalla necesita su evidencia. */
+const ACTION_LABEL = { containment: "una acción de contención", corrective_plan: "una acción correctiva", corrective_done: "una acción correctiva implementada", preventive: "una acción preventiva", immediate: "una acción inmediata" };
 function actionGate(f) {
   for (const key of ACTION_KEYS) {
     if (!document.querySelector(`#if-status-box [data-act-section="${key}"]`)) continue;
-    const pending = readActionRows(f, key).filter((r) => !evidenceDateFor(f, `${key}:${r.id}`));
+    const required = key !== "preventive" || f.preventive_mandatory;
+    const rows = readActionRows(f, key);
+    if (required && !rows.length) return `Agrega al menos ${ACTION_LABEL[key]} antes de continuar. No puedes dar por terminada esta etapa sin ninguna acción.`;
+    const pending = rows.filter((r) => !evidenceDateFor(f, `${key}:${r.id}`));
     if (pending.length) return `Adjunta la evidencia de «${pending[0].action || "la acción sin nombre"}» para poder cerrarla y continuar.`;
   }
   return null;
@@ -645,6 +681,42 @@ on("e8-d-advance", (el) => {
   if (gate) { toast(gate, "danger"); return; }
   run(async () => { await advanceD(f, el.dataset.stage, collectDD(f, el.dataset.stage)); clearGridDrafts(f.id); clearActionDrafts(f.id); viewStage = null; toast("Guardado · siguiente etapa", "ok"); });
 });
+/* --------------------------- Revisión del 4D: notificaciones --------------------------- */
+async function notifyReviewer(f, reviewerId) {
+  try { await db.insert("notifications", { user_id: reviewerId, module: f.module || "internas", kind: "finding_review_requested", title: "Te asignaron revisar un 4D", body: `${esc(f.title)} · ${f.code}. Entra a revisarlo y dar tu aprobación o rechazo.`, href: `internas/hallazgos/${f.id}`, ref_id: f.id }); }
+  catch { /* la bandeja es secundaria */ }
+}
+async function notifyPreparer(f, approved) {
+  const preparerId = f.d_data?.closure4d?.preparer_id;
+  if (!preparerId) return;
+  try { await db.insert("notifications", { user_id: preparerId, module: f.module || "internas", kind: approved ? "finding_review_approved" : "finding_review_rejected", title: approved ? "Tu 4D fue revisado y aprobado" : "Tu 4D fue revisado y rechazado", body: `${esc(f.title)} · ${f.code}.`, href: `internas/hallazgos/${f.id}`, ref_id: f.id }); }
+  catch { /* secundaria */ }
+}
+on("e8-send-review", (el) => {
+  const f = fnd(el.dataset.id);
+  const reviewerId = document.querySelector(`[data-key="${f.id}:dd.closure4d.__reviewer"]`)?.value;
+  if (!reviewerId) { toast("Elige quién revisará el 4D.", "danger"); return; }
+  const gate = actionGate(f);
+  if (gate) { toast(gate, "danger"); return; }
+  run(async () => {
+    const patch = collectDD(f, "d4");
+    if (patch.closure4d) delete patch.closure4d.__reviewer;
+    const r = await sendToReview4D(f, reviewerId, patch);
+    clearGridDrafts(f.id); clearActionDrafts(f.id); viewStage = null;
+    await notifyReviewer(r, reviewerId);
+    toast(`Enviado a revisar · se avisó a ${db.profileName(reviewerId)}`, "ok");
+  });
+});
+on("e8-review-approve", (el) => {
+  const notes = (document.querySelector(`[data-key="${el.dataset.id}:dd.closure4d.review_notes"]`)?.value || "").trim();
+  if (notes.length < 5) { toast("Describe el resultado de la revisión.", "danger"); return; }
+  run(async () => { const f = fnd(el.dataset.id), r = await approveReview4D(f, notes); viewStage = null; await notifyPreparer(r, true); toast("Revisión aprobada · pasa a Verificación", "ok"); });
+});
+on("e8-review-reject", (el) => {
+  const notes = (document.querySelector(`[data-key="${el.dataset.id}:dd.closure4d.review_notes"]`)?.value || "").trim();
+  if (notes.length < 5) { toast("Describe el motivo del rechazo.", "danger"); return; }
+  run(async () => { const f = fnd(el.dataset.id), r = await rejectReview4D(f, notes); viewStage = null; await notifyPreparer(r, false); toast("Revisión rechazada · vuelve a D4", "ok"); });
+});
 on("e8-verify-accept", (el) => {
   const notes = (document.querySelector(`[data-key="${el.dataset.id}:verification_notes"]`)?.value || "").trim();
   if (notes.length < 5) { toast("Describe el resultado de la verificación.", "danger"); return; }
@@ -652,10 +724,5 @@ on("e8-verify-accept", (el) => {
 });
 on("e8-verify-reject", (el) => e8dRejectForm(fnd(el.dataset.id)));
 on("e8-pdf", async (el) => {
-  try {
-    let f = fnd(el.dataset.id);
-    const controlEl = document.querySelector(`[data-key="${f.id}:control_number"]`), control = controlEl?.value.trim();
-    if (control && control !== (f.control_number || "")) { f = await db.update("findings", f.id, { control_number: control }); delete drafts[`${f.id}:control_number`]; }
-    await exportFinding8D4D(f);
-  } catch (e) { toast(e.message, "danger"); }
+  try { await exportFinding8D4D(fnd(el.dataset.id)); } catch (e) { toast(e.message, "danger"); }
 });

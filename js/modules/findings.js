@@ -4,7 +4,7 @@ import { icon } from "../icons.js";
 import { setHead, rerender, replaceHash, navigate, wsId } from "../router.js";
 import { renderInternalFinding } from "./findings-internal.js";
 import { findingsOf, auditsOf, auditWs, findingAuditType, typesOf, WS_LABEL } from "../scope.js";
-import { on, onChange, onInput, badge, userCell, empty, openDrawer, openForm, confirmDialog, toast, safeRefresh } from "../ui.js";
+import { on, onChange, onInput, badge, userCell, empty, openDrawer, openForm, confirmDialog, toast, withFocusPreserved } from "../ui.js";
 import { SOURCE, FINDING_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { notifyFindings } from "../notify.js";
@@ -242,7 +242,9 @@ export function openFinding(id, stage) {
 const paintDrawer = () => { const f = db.get("findings", drawerId); if (f && drawer && document.body.contains(drawer.el)) { drawer.set(drawerHTML(f)); paintClouds(f); } };
 async function refresh() {
   await rerender();
-  if (drawer && document.body.contains(drawer.el)) { const f = db.get("findings", drawerId); if (f) { drawer.set(drawerHTML(f)); paintClouds(f); } else drawer.close(); }
+  await withFocusPreserved(() => {
+    if (drawer && document.body.contains(drawer.el)) { const f = db.get("findings", drawerId); if (f) { drawer.set(drawerHTML(f)); paintClouds(f); } else drawer.close(); }
+  });
 }
 hooks.finding = () => refresh();
 

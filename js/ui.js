@@ -28,6 +28,36 @@ export function safeRefresh(root, fn) {
   fn();
 }
 
+/** Identifica el campo con foco con un selector estable (aunque el repintado reemplace el DOM):
+ *  arma el selector con TODOS sus atributos data-* (sin importar cuáles use cada módulo), así sirve
+ *  para cualquier campo (comentario de auditoría, celda de tabla, campo de una plantilla…). */
+function identifyField(el) {
+  if (!el) return null;
+  const keys = Object.keys(el.dataset || {});
+  if (keys.length) {
+    const parts = keys.map((k) => `[data-${k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())}="${CSS.escape(el.dataset[k])}"]`);
+    return el.tagName.toLowerCase() + parts.join("");
+  }
+  if (el.id) return `#${CSS.escape(el.id)}`;
+  return null;
+}
+/** Repinta `fn` conservando el foco y la posición del cursor del campo donde se estaba escribiendo.
+ *  Así un repintado de fondo (reloj del milestone, refresco al subir evidencia, cambiar de pestaña…)
+ *  ya no interrumpe la escritura: antes solo se evitaba borrar el texto, pero quedaba "pausada" hasta
+ *  volver a hacer clic. */
+export async function withFocusPreserved(fn) {
+  const active = document.activeElement;
+  const editable = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
+  const sel = editable && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
+  const selector = editable ? identifyField(active) : null;
+  await fn();
+  if (!selector) return;
+  const el = document.querySelector(selector);
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  if (sel && el.setSelectionRange) { try { el.setSelectionRange(sel[0], sel[1]); } catch { /* tipo de campo sin selección (select, date…) */ } }
+}
+
 /** data-change="nombre" (selects/checkbox) y data-input="nombre" (texto) */
 const changeH = {}, inputH = {};
 export const onChange = (name, fn) => { changeH[name] = fn; };

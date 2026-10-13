@@ -84,6 +84,8 @@ export async function renderRoute(scroll = true) {
       root.innerHTML = `<div class="panel"><div class="empty">${icon("finding")}<strong>Algo salió mal</strong>${esc(e.message || e)}</div></div>`;
     }
   });
+  // Transición sutil al cambiar de módulo/pestaña: se reinicia la animación aunque ya estuviera puesta
+  root.classList.remove("view-enter"); void root.offsetWidth; root.classList.add("view-enter");
   const key = `${cur.ws}/${cur.tab}/${cur.params.join("/")}`;
   if (!scroll) window.scrollTo({ top: keepY });
   else if (lastKey !== key) window.scrollTo({ top: 0 });

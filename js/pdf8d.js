@@ -35,7 +35,7 @@ async function logo() {
 }
 
 const g = (obj, path, dflt = "") => path.split(".").reduce((o, k) => (o && o[k] != null ? o[k] : undefined), obj) ?? dflt;
-const yn = (v) => (Number(v) ? "Sí" : "No");
+const yn = (v) => (Number(v) ? "Yes" : "No");
 function loadImageEl(url) {
   return new Promise((res, rej) => { const img = new Image(); img.onload = () => res(img); img.onerror = () => rej(new Error("No se pudo cargar la imagen")); img.src = url; });
 }
@@ -47,7 +47,7 @@ async function photosFor(findingId, ref) {
 function actionRows(findingId, key, rows) {
   return (rows || []).map((r, i) => {
     const atts = db.rows("attachments").filter((a) => a.entity === "finding" && a.entity_id === findingId && a.ref === `${key}:${r.id}`).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-    return [i + 1, r.action || "—", r.responsible || "—", fmtDate(r.due), atts.length ? fmtDate(atts[0].created_at) : "Pendiente"];
+    return [i + 1, r.action || "—", r.responsible || "—", fmtDate(r.due), atts.length ? fmtDate(atts[0].created_at) : "Pending"];
   });
 }
 
@@ -63,17 +63,18 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
   const ink = (c) => doc.setTextColor(...c); const fill = (c) => doc.setFillColor(...c); const line = (c) => doc.setDrawColor(...c);
   let y = M;
 
+  const HEAD_H = 76;
   const header = () => {
-    fill(C.navy); doc.rect(0, 0, PW, 64, "F");
+    fill(C.navy); doc.rect(0, 0, PW, HEAD_H, "F");
     if (logoData) {
-      // Encaja el logo dentro de un recuadro de 44x40pt SIN deformarlo (conserva su proporción real)
-      const boxW = 44, boxH = 40, k = Math.min(boxW / logoData.w, boxH / logoData.h);
+      // Encaja el logo dentro de un recuadro grande SIN deformarlo (conserva su proporción real y su nitidez)
+      const boxW = 120, boxH = 56, k = Math.min(boxW / logoData.w, boxH / logoData.h);
       const w = logoData.w * k, h = logoData.h * k;
-      doc.addImage(logoData.url, M, 12 + (boxH - h) / 2, w, h);
+      doc.addImage(logoData.url, M, (HEAD_H - h) / 2, w, h);
     }
-    doc.setFont("helvetica", "bold"); doc.setFontSize(13); ink(C.white); doc.text(`${f.strategy_ps} - REPORT`, PW - M, 30, { align: "right" });
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); ink(C.cyan); doc.text(f.code, PW - M, 44, { align: "right" });
-    y = 84;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(13); ink(C.white); doc.text(`${f.strategy_ps} - REPORT`, PW - M, HEAD_H / 2 - 6, { align: "right" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); ink(C.cyan); doc.text(f.code, PW - M, HEAD_H / 2 + 10, { align: "right" });
+    y = HEAD_H + 20;
   };
   const checkPage = (need = 60) => { if (y + need > PH - 40) { doc.addPage([PW, PH]); header(); } };
   const dBar = (label, title) => {
@@ -126,13 +127,12 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
 
   header();
   const audit = db.get("audits", f.audit_id), process = db.get("areas", audit?.process_area_id || f.area_id);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(14); ink(C.ink); doc.text(f.title, M, y, { maxWidth: PW - 2 * M }); y += 18;
   kv([["Customer", "GUVEL"], ["Part / Process Name", process?.name || f.area || "—"], ["Report No", f.code]]);
-  kv([["Issue Date", fmtDate(f.created_at)], ["Start Date", fmtDate(f.registered_at || f.created_at)], ["Clasificación", `${f.class_id ? db.get("finding_classes", f.class_id)?.code : "—"}`]]);
+  kv([["Issue Date", fmtDate(f.created_at)], ["Start Date", fmtDate(f.registered_at || f.created_at)], ["Classification", `${f.class_id ? db.get("finding_classes", f.class_id)?.code : "—"}`]]);
 
   // D1 — Equipo
   dBar("D1", "Team");
-  table(["No.", "Nombre", "Departamento", "Responsabilidad"], (d.team || []).map((r, i) => [i + 1, r[0], r[1], r[2]]));
+  table(["No.", "Name", "Department", "Responsibility"], (d.team || []).map((r, i) => [i + 1, r[0], r[1], r[2]]));
 
   // D2 — Descripción del problema
   dBar("D2", "Problem Description");
@@ -140,8 +140,8 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
   const w5 = d.problem5w || {};
   table(["What?", "Where?", "When?", "Who?", "Why?", ...(f.strategy_ps === "4D" ? [] : ["How Much?", "Batch"])],
     [[w5.what, w5.where, w5.when, w5.who, w5.why, ...(f.strategy_ps === "4D" ? [] : [w5.how_much, w5.batch])]]);
-  await photoRow("NOT OK (condición encontrada):", await photosFor(f.id, "d2_nok"));
-  await photoRow("OK (condición correcta):", await photosFor(f.id, "d2_ok"));
+  await photoRow("NOT OK (condition found):", await photosFor(f.id, "d2_nok"));
+  await photoRow("OK (corrected condition):", await photosFor(f.id, "d2_ok"));
 
   if (f.strategy_ps === "4D") {
     // D3 — Root Cause (4D)
@@ -164,15 +164,15 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
       const ish = d.ishikawa || {};
       for (let i = 0; i < 3; i++) {
         checkPage(60);
-        doc.setFont("helvetica", "bold"); doc.setFontSize(9); ink(C.ink); doc.text(`Categoría ${i + 1}: ${ish[`cat${i}`] || "—"}`, M, y); y += 10;
-        table(["Causa"], (ish[`causes${i}`] || []).map((r) => [r[0]]));
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); ink(C.ink); doc.text(`Category ${i + 1}: ${ish[`cat${i}`] || "—"}`, M, y); y += 10;
+        table(["Cause"], (ish[`causes${i}`] || []).map((r) => [r[0]]));
       }
       para("Problem:", ish.problem);
     } else {
       const chain = (key, label) => { const r = d[key] || {}; table([label, "Why?", "Why?", "Why?", "Why? - Root Cause"], [["", r.why1, r.why2, r.why3, r.root_cause]]); };
-      para(null, "¿Por qué ocurrió el defecto?"); chain("why_occur", "");
-      para(null, "¿Por qué no se detectó?"); chain("why_detect", "");
-      para(null, "¿Por qué no se previno?"); chain("why_prevent", "");
+      para(null, "Why did the defect occur?"); chain("why_occur", "");
+      para(null, "Why was it not detected?"); chain("why_detect", "");
+      para(null, "Why was it not prevented?"); chain("why_prevent", "");
     }
     // D5-D8 (solo 8D)
     dBar("D5", "Planned Permanent Corrective Action(s)");
@@ -182,26 +182,26 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
     dBar("D7", "Preventive Action(s)");
     table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "preventive", d.preventive));
     const add = d.additional || {};
-    table(["Additional Action", "Necesario", "Responsible", "Due Date", "Completion Date"], [
-      ["¿Actualizar FMEA?", yn(g(add, "fmea.flag")), g(add, "fmea.responsible"), fmtDate(g(add, "fmea.due")), fmtDate(g(add, "fmea.completion"))],
-      ["¿Actualizar Plan de Control?", yn(g(add, "cp.flag")), g(add, "cp.responsible"), fmtDate(g(add, "cp.due")), fmtDate(g(add, "cp.completion"))],
-      ["¿Roll-Across necesario?", yn(g(add, "rollacross.flag")), g(add, "rollacross.responsible"), fmtDate(g(add, "rollacross.due")), fmtDate(g(add, "rollacross.completion"))],
+    table(["Additional Action", "Required", "Responsible", "Due Date", "Completion Date"], [
+      ["Update FMEA?", yn(g(add, "fmea.flag")), g(add, "fmea.responsible"), fmtDate(g(add, "fmea.due")), fmtDate(g(add, "fmea.completion"))],
+      ["Update Control Plan?", yn(g(add, "cp.flag")), g(add, "cp.responsible"), fmtDate(g(add, "cp.due")), fmtDate(g(add, "cp.completion"))],
+      ["Roll-Across required?", yn(g(add, "rollacross.flag")), g(add, "rollacross.responsible"), fmtDate(g(add, "rollacross.due")), fmtDate(g(add, "rollacross.completion"))],
     ]);
     dBar("D8", "Congrats & 8D's Approved");
     para(null, "The team is recognized for their effort & collaboration in solving the problem.");
     const c8 = d.closure8d || {};
     kv([["Prepared By", c8.prepared_by], ["Reviewed By", c8.reviewed_by], ["Approved By", c8.approved_by]]);
-    kv([["Closing Date", fmtDate(c8.closing_date)], ["8D Report Status", c8.status || "Open"], ["Folio", f.code]]);
+    kv([["Closing Date", fmtDate(c8.closing_date)], ["8D Report Status", c8.status || "Open"], ["Report No", f.code]]);
   }
 
-  // Verificación
-  dBar("Verificación", "Resultado");
-  para(null, f.verification_notes || "Pendiente.");
+  // Verification
+  dBar("Verification", "Result");
+  para(null, f.verification_notes || "Pending.");
 
   doc.setFont("helvetica", "normal"); doc.setFontSize(7); ink(C.t3);
-  doc.text(`Generado por GUVEL Quality · ${fmtDateTime(new Date().toISOString())}`, M, PH - 20);
+  doc.text(`Generated by GUVEL Quality · ${fmtDateTime(new Date().toISOString())}`, M, PH - 20);
   const control = db.setting(controlKey(f.strategy_ps, f.strategy_rca), "");
-  doc.text(`N.º de control: ${control || "—"}`, PW - M, PH - 20, { align: "right" });
+  doc.text(`Control No: ${control || "—"}`, PW - M, PH - 20, { align: "right" });
 
   if (preview) { window.open(doc.output("bloburl"), "_blank"); return; }
   doc.save(`${f.code}_${f.strategy_ps}.pdf`);

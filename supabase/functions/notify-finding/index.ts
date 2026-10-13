@@ -4,6 +4,9 @@
 //   transferred → al nuevo responsable
 //   rejected    → al responsable: la verificación fue rechazada y el hallazgo se reabrió
 //   verify      → a los administradores: hay un hallazgo listo para verificar
+//   review_requested → al revisor elegido de un 4D: le toca revisarlo
+//   review_approved  → a quien preparó el 4D: su revisor lo aprobó
+//   review_rejected  → a quien preparó el 4D: su revisor lo rechazó
 // Solo personal (admin / gerente / auditor) puede invocarla y solo sobre hallazgos recientes.
 // Secretos: RESEND_API_KEY · FROM_EMAIL · SITE_URL (opcional: REPLY_TO)
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -41,12 +44,15 @@ function layout(o: { siteUrl: string; preheader: string; title: string; body: st
  </table></td></tr></table></body></html>`;
 }
 
-type Kind = "assigned" | "transferred" | "rejected" | "verify";
+type Kind = "assigned" | "transferred" | "rejected" | "verify" | "review_requested" | "review_approved" | "review_rejected";
 const COPY: Record<Kind, { subject1: (c: string) => string; subjectN: (n: number) => string; title: string; intro: (n: number) => string; preheader: string }> = {
   assigned: { subject1: (c) => `Se te asignó el hallazgo ${c}`, subjectN: (n) => `Se te asignaron ${n} hallazgos`, title: "Se te asignó un hallazgo", intro: (n) => `Se te ${n === 1 ? "asignó 1 hallazgo" : `asignaron ${n} hallazgos`} para que ${n === 1 ? "lo cierres" : "los cierres"} dentro del plazo. Entra al portal, acepta o traslada el hallazgo y registra la acción con su evidencia.`, preheader: "Tienes un hallazgo por atender" },
   transferred: { subject1: (c) => `Te trasladaron el hallazgo ${c}`, subjectN: (n) => `Te trasladaron ${n} hallazgos`, title: "Te trasladaron un hallazgo", intro: (n) => `Te ${n === 1 ? "trasladaron 1 hallazgo" : `trasladaron ${n} hallazgos`}. Acéptalo y registra la acción para cerrarlo a tiempo. Ya no se puede volver a trasladar.`, preheader: "Un hallazgo fue trasladado a ti" },
   rejected: { subject1: (c) => `Verificación rechazada: ${c}`, subjectN: (n) => `${n} verificaciones rechazadas`, title: "Verificación rechazada", intro: () => "Un administrador rechazó la verificación y el hallazgo se reabrió. Corrige y vuelve a cerrar las acciones: el milestone continúa con el tiempo que te quedaba.", preheader: "Un hallazgo se reabrió" },
   verify: { subject1: (c) => `Hallazgo ${c} listo para verificar`, subjectN: (n) => `${n} hallazgos listos para verificar`, title: "Hallazgo listo para verificar", intro: (n) => `${n === 1 ? "Se cerraron las acciones de 1 hallazgo" : `Se cerraron las acciones de ${n} hallazgos`}. Acepta o rechaza la verificación dentro del plazo.`, preheader: "Hay verificaciones pendientes" },
+  review_requested: { subject1: (c) => `Te asignaron revisar el 4D ${c}`, subjectN: (n) => `Te asignaron revisar ${n} reportes 4D`, title: "Te asignaron revisar un 4D", intro: (n) => `${n === 1 ? "Te eligieron como revisor de 1 reporte 4D" : `Te eligieron como revisor de ${n} reportes 4D`}. Entra al portal y da tu aprobación o rechazo.`, preheader: "Tienes un 4D por revisar" },
+  review_approved: { subject1: (c) => `Tu 4D ${c} fue revisado y aprobado`, subjectN: (n) => `${n} de tus reportes 4D fueron aprobados`, title: "Tu 4D fue revisado y aprobado", intro: (n) => `${n === 1 ? "Tu reporte 4D fue revisado y aprobado" : `${n} de tus reportes 4D fueron revisados y aprobados`}. Ahora un administrador hará la verificación final.`, preheader: "Tu 4D fue aprobado en revisión" },
+  review_rejected: { subject1: (c) => `Tu 4D ${c} fue revisado y rechazado`, subjectN: (n) => `${n} de tus reportes 4D fueron rechazados`, title: "Tu 4D fue revisado y rechazado", intro: (n) => `${n === 1 ? "Tu reporte 4D fue revisado y rechazado" : `${n} de tus reportes 4D fueron revisados y rechazados`}. Corrige las acciones en D4 y vuelve a enviarlo a revisar.`, preheader: "Tu 4D necesita correcciones" },
 };
 
 async function sendMail(key: string, payload: Record<string, unknown>): Promise<string> {
@@ -86,18 +92,23 @@ Deno.serve(async (req) => {
 
     /* Hallazgos válidos para ese aviso (recientes y en el estado esperado) */
     const since = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
-    const { data: found } = await admin.from("findings").select("id, code, title, owner_id, class_id, due_at, due_date, status, transfer_count, reject_count, area, module, updated_at").in("id", ids);
+    const { data: found } = await admin.from("findings").select("id, code, title, owner_id, reviewer_id, strategy_ps, d_data, class_id, due_at, due_date, status, transfer_count, reject_count, area, module, updated_at").in("id", ids);
     const valid = (found ?? []).filter((f) => f.updated_at >= since && (
       (kind === "assigned" && f.owner_id) || (kind === "transferred" && f.owner_id && f.transfer_count > 0) ||
-      (kind === "rejected" && f.owner_id && f.reject_count > 0 && f.status === "abierto") || (kind === "verify" && f.status === "verificacion")));
+      (kind === "rejected" && f.owner_id && f.reject_count > 0 && f.status === "abierto") || (kind === "verify" && f.status === "verificacion") ||
+      (kind === "review_requested" && f.reviewer_id && f.status === "d4_revision") ||
+      (kind === "review_approved" && f.strategy_ps === "4D" && f.status === "verificacion" && (f.d_data as any)?.closure4d?.decision === "aprobado") ||
+      (kind === "review_rejected" && f.strategy_ps === "4D" && f.status === "d4" && (f.d_data as any)?.closure4d?.decision === "rechazado")));
     if (!valid.length) return json({ ok: true, sent: 0, skipped: [], failed: [], message: "Nada que avisar." });
 
     /* Destinatarios */
     const byUser = new Map<string, typeof valid>();
+    const recipientOf = (f: (typeof valid)[number]): string | null =>
+      kind === "review_requested" ? f.reviewer_id : kind === "review_approved" || kind === "review_rejected" ? ((f.d_data as any)?.closure4d?.preparer_id ?? null) : f.owner_id;
     if (kind === "verify") {
       const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin").eq("active", true);
       for (const a of admins ?? []) byUser.set(a.id, valid);
-    } else for (const f of valid) byUser.set(f.owner_id, [...(byUser.get(f.owner_id) ?? []), f]);
+    } else for (const f of valid) { const uid = recipientOf(f); if (uid) byUser.set(uid, [...(byUser.get(uid) ?? []), f]); }
     byUser.delete(me.id);                                              // no se avisa a quien hizo la acción
     const userIds = [...byUser.keys()];
     if (!userIds.length) return json({ ok: true, sent: 0, skipped: [], failed: [], message: "Sin destinatarios." });

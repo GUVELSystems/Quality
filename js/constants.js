@@ -86,4 +86,5 @@ export const CATALOG_KINDS = {
   categoria_hallazgo: "Categoría de hallazgo",
   causa_raiz: "Causa raíz",
   tipo_riesgo: "Tipo de riesgo",
+  origen_issues: "Origen de Issues",
 };

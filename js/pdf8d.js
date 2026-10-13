@@ -108,13 +108,11 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
     y = doc.lastAutoTable.finalY + 10;
   };
   /** Fila de fotos (hasta 3, lado a lado) bajo una etiqueta, cada una respetando su proporción real */
-  const photoRow = async (label, atts) => {
-    if (!atts.length) return;
-    checkPage(110);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); ink(C.t2); doc.text(label, M, y); y += 10;
-    const boxW = 150, boxH = 105, gap = 10, n = Math.min(atts.length, 3);
+  /** Hasta 2 fotos, lado a lado dentro de un ancho dado, cada una respetando su proporción real */
+  const photosInBox = async (atts, x0, boxTotalW, boxH) => {
+    const n = Math.min(atts.length, 2), gap = 8, boxW = n > 1 ? (boxTotalW - gap) / 2 : boxTotalW;
     for (let i = 0; i < n; i++) {
-      const x = M + i * (boxW + gap);
+      const x = x0 + i * (boxW + gap);
       try {
         const url = await db.attachmentUrl(atts[i]), img = await loadImageEl(url);
         const k = Math.min(boxW / img.naturalWidth, boxH / img.naturalHeight), w = img.naturalWidth * k, h = img.naturalHeight * k;
@@ -122,6 +120,17 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
         doc.addImage(img, MIME_FMT[atts[i].mime_type] || "JPEG", x + (boxW - w) / 2, y + (boxH - h) / 2, w, h);
       } catch { /* si no se pudo cargar, se deja el recuadro vacío */ }
     }
+  };
+  /** Dos columnas lado a lado (por ejemplo NOT OK / OK), para no gastar el doble de espacio vertical */
+  const photoColumns = async (left, right) => {
+    if (!left.atts.length && !right.atts.length) return;
+    checkPage(120);
+    const colW = (PW - 2 * M - 16) / 2, rightX = M + colW + 16, boxH = 110;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); ink(C.t2);
+    doc.text(left.label, M, y); doc.text(right.label, rightX, y);
+    y += 10;
+    await photosInBox(left.atts, M, colW, boxH);
+    await photosInBox(right.atts, rightX, colW, boxH);
     y += boxH + 12;
   };
 
@@ -140,8 +149,10 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
   const w5 = d.problem5w || {};
   table(["What?", "Where?", "When?", "Who?", "Why?", ...(f.strategy_ps === "4D" ? [] : ["How Much?", "Batch"])],
     [[w5.what, w5.where, w5.when, w5.who, w5.why, ...(f.strategy_ps === "4D" ? [] : [w5.how_much, w5.batch])]]);
-  await photoRow("NOT OK (condition found):", await photosFor(f.id, "d2_nok"));
-  await photoRow("OK (corrected condition):", await photosFor(f.id, "d2_ok"));
+  await photoColumns(
+    { label: "NOT OK (condition found):", atts: await photosFor(f.id, "d2_nok") },
+    { label: "OK (corrected condition):", atts: await photosFor(f.id, "d2_ok") },
+  );
 
   if (f.strategy_ps === "4D") {
     // D3 — Root Cause (4D)

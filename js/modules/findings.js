@@ -8,7 +8,7 @@ import { on, onChange, onInput, badge, userCell, empty, openDrawer, openForm, co
 import { SOURCE, FINDING_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { notifyFindings } from "../notify.js";
-import { catOpts, clientOpts, mapOpts, catName, clientName } from "./shared.js";
+import { catOpts, catNameOpts, clientOpts, mapOpts, catName, clientName } from "./shared.js";
 import {
   classes, classBadge, classOptions, classTag, scopesForWs, classOf, deadlineFields, areaOptions, resolveOwner, milestones, overdueKind, canAct, canTransfer, canVerify, verifyDaysFor,
   STAGES, STAGE_LABEL, stageOf, eventsOf, acceptFinding, transferFinding, savePlan, closeActions, acceptVerification, rejectVerification,
@@ -22,6 +22,17 @@ const F = new Proxy({}, {
   set: (_, k, v) => { (FS[wsId()] ||= blankF())[k] = v; return true; },
 });
 const isIssues = () => wsId() === "issues";
+/** Auditorías Internas e Issues comparten el flujo Registro → Detalles → Solicitud → 8D/4D */
+const usesEightD = () => ["internas", "issues"].includes(wsId());
+/** Orígenes activos del catálogo (Reclamación de cliente, Auditoría externa…): cada uno es su propia sección */
+const issuesOrigins = () => catNameOpts("origen_issues").map(([v]) => v);
+/** Origen seleccionado (sección activa); si cambió el catálogo, cae al primero disponible */
+function currentOrigin() {
+  const origins = issuesOrigins();
+  if (!origins.length) return "";
+  if (!origins.includes(F.source)) F.source = origins[0];
+  return F.source;
+}
 const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
 
 let drawer = null, drawerId = null, viewStage = null, tickTimer = null;
@@ -41,21 +52,22 @@ const findingFields = (editing, current) => ([
 ]);
 
 export function newFinding(defaults = {}) {
-  if (wsId() === "internas") {
-    // Auditorías Internas: el alta solo abre el expediente; la clasificación y el responsable se definen en "Registro"
+  if (usesEightD()) {
+    // Auditorías Internas e Issues: el alta solo abre el expediente; la clasificación y el responsable se definen en "Registro"
+    const internal = wsId() === "internas";
     openForm({
-      eyebrow: WS_LABEL.internas, title: "Registrar hallazgo", submitLabel: "Registrar hallazgo",
-      intro: `<div class="note" style="margin-bottom:14px">Un administrador completará la clasificación, el proceso y el responsable en la etapa <b>Registro</b>.</div>`,
+      eyebrow: WS_LABEL[wsId()], title: internal ? "Registrar hallazgo" : "Nueva notificación", submitLabel: internal ? "Registrar hallazgo" : "Registrar notificación",
+      intro: `<div class="note" style="margin-bottom:14px">Un administrador completará la clasificación${internal ? ", el proceso" : ""} y el responsable en la etapa <b>Registro</b>.</div>`,
       fields: [
-        { name: "title", label: "Título del hallazgo", required: true, span2: true },
+        { name: "title", label: internal ? "Título del hallazgo" : "Título de la notificación", required: true, span2: true },
         { name: "description", label: "Descripción", type: "textarea", span2: true },
-        { name: "clause", label: "Cláusula / punto afectado", placeholder: "Ej. 8.5.1" },
-        { name: "source", label: "Origen", type: "select", required: true, options: mapOpts(SOURCE) },
+        ...(internal ? [{ name: "clause", label: "Cláusula / punto afectado", placeholder: "Ej. 8.5.1" }] : [{ name: "client_id", label: "Cliente", type: "select", options: clientOpts() }]),
+        { name: "source", label: "Origen", type: "select", required: true, options: internal ? mapOpts(SOURCE) : catNameOpts("origen_issues") },
       ],
-      values: { source: "auditoria", ...defaults },
+      values: { source: internal ? "auditoria" : catNameOpts("origen_issues")[0]?.[0], ...defaults },
       onSubmit: async (v) => {
-        const r = await db.insert("findings", { ...v, module: "internas", status: "registro" });
-        toast(`Hallazgo ${r.code} registrado · pendiente de clasificar`, "ok");
+        const r = await db.insert("findings", { ...v, module: wsId(), status: "registro" });
+        toast(`${internal ? "Hallazgo" : "Notificación"} ${r.code} registrada · pendiente de clasificar`, "ok");
         await refresh();
       },
     });
@@ -256,39 +268,51 @@ function plazoCell(f) {
   return `${tag(m1, "")}<span class="sub">Límite ${fmtDateTime(m1.due)}</span>`;
 }
 const filtered = () => {
-  const q = F.q.toLowerCase();
+  const q = F.q.toLowerCase(), origin = isIssues() ? currentOrigin() : null;
   const rank = (f) => (db.get("finding_classes", f.class_id)?.days ?? 999);
   return findingsOf(wsId())
-    .filter((f) => (!F.status || stageOf(f) === F.status) && (!F.cls || f.class_id === F.cls) && (!F.source || f.source === F.source) && (!F.mine || f.owner_id === db.state.profile.id) && (!F.type || (F.type === "none" ? !findingAuditType(f) : findingAuditType(f) === F.type)) &&
+    .filter((f) => (!F.status || stageOf(f) === F.status) && (!F.cls || f.class_id === F.cls) && (origin ? f.source === origin : !F.source || f.source === F.source) && (!F.mine || f.owner_id === db.state.profile.id) && (!F.type || (F.type === "none" ? !findingAuditType(f) : findingAuditType(f) === F.type)) &&
       (!q || `${f.code} ${f.title} ${f.area || ""}`.toLowerCase().includes(q)))
     .sort((a, b) => (a.status === "cerrado") - (b.status === "cerrado") || (!!overdueKind(b) - !!overdueKind(a)) || rank(a) - rank(b) || (a.due_date || "9").localeCompare(b.due_date || "9"));
 };
+/** Una sección por cada origen de Issues (igual que LPA/Producto/Proceso están separados en Auditorías) */
+function originTabs() {
+  const origins = issuesOrigins();
+  if (origins.length < 2) return "";
+  const active = currentOrigin(), all = findingsOf("issues");
+  return `<div class="type-tabs" role="tablist" aria-label="Origen">${origins.map((o) => {
+    const mine = all.filter((f) => f.source === o), pend = mine.filter((f) => f.status === "registro").length, late = mine.filter((f) => overdueKind(f)).length;
+    return `<button type="button" class="type-tab ${o === active ? "active" : ""}" role="tab" aria-selected="${o === active}" data-action="f-origin" data-origin="${esc(o)}"><span class="tt-txt"><b>${esc(o)}</b><small>${mine.length} registro(s) · ${pend} pendiente(s)</small></span>${late ? `<em class="tt-late" title="${late} vencido(s)">${late}</em>` : ""}</button>`;
+  }).join("")}</div>`;
+}
 
 export default {
   id: "findings", label: "Hallazgos", icon: "finding",
   render(root, params) {
-    if (wsId() === "internas" && params?.[0]) { renderInternalFinding(root, params[0], params[1]); return; }
+    if (usesEightD() && params?.[0]) { renderInternalFinding(root, params[0], params[1]); return; }
+    const issues = isIssues(), noun = issues ? "notificación" : "hallazgo";
     setHead({
-      title: "Hallazgos", subtitle: `Hallazgos de ${WS_LABEL[wsId()]}: el responsable acepta y registra la acción; un administrador acepta o rechaza la verificación.`,
-      actions: `<button class="btn" data-action="f-export">${icon("download")} Exportar CSV</button>${db.can.write ? `<button class="btn primary" data-action="f-new">${icon("plus")} Nuevo hallazgo</button>` : ""}`,
+      title: issues ? "Notificaciones" : "Hallazgos", subtitle: issues ? "Reclamaciones, auditorías externas, KPI y demás no conformidades: el responsable acepta y la resuelve; un administrador acepta o rechaza la verificación." : `Hallazgos de ${WS_LABEL[wsId()]}: el responsable acepta y registra la acción; un administrador acepta o rechaza la verificación.`,
+      actions: `<button class="btn" data-action="f-export">${icon("download")} Exportar CSV</button>${db.can.write ? `<button class="btn primary" data-action="f-new">${icon("plus")} ${issues ? "Nueva notificación" : "Nuevo hallazgo"}</button>` : ""}`,
     });
     const list = filtered(), pend = findingsOf(wsId()).filter((f) => f.status === "abierto" && f.owner_id === db.state.profile.id).length;
     root.innerHTML = `
-    ${pend ? `<div class="note warn" style="margin-bottom:14px"><b>Tienes ${pend} hallazgo(s) por aceptar.</b> Ábrelos para aceptarlos o trasladarlos.</div>` : ""}
-    <div class="panel">
+    ${pend ? `<div class="note warn" style="margin-bottom:14px"><b>Tienes ${pend} ${noun}(s) por aceptar.</b> Ábrelos para aceptarlos o trasladarlos.</div>` : ""}
+    ${issues ? originTabs() : ""}
+    <div class="panel" style="${issues ? "margin-top:14px" : ""}">
       <div class="toolbar">
         <input class="input grow" type="search" placeholder="Buscar por folio, título o área…" value="${esc(F.q)}" data-input="f-q" id="f-q">
         <select class="select" data-change="f-filter" data-key="status"><option value="">Todas las etapas</option>${Object.entries(FINDING_STATUS).filter(([k]) => k !== "en_analisis").map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <select class="select" data-change="f-filter" data-key="cls"><option value="">Toda clasificación</option>${classes(scopesForWs(wsId())).map((c) => `<option value="${c.id}" ${F.cls === c.id ? "selected" : ""}>${esc(classTag(c))}</option>`).join("")}</select>
         ${wsId() === "auditorias" ? `<select class="select" data-change="f-filter" data-key="type"><option value="">Todo tipo de auditoría</option>${typesOf("auditorias").map((t) => `<option value="${t}" ${F.type === t ? "selected" : ""}>${t}</option>`).join("")}<option value="none" ${F.type === "none" ? "selected" : ""}>Sin auditoría (manuales)</option></select>` : ""}
-        <select class="select" data-change="f-filter" data-key="source"><option value="">Todo origen</option>${Object.entries(SOURCE).map(([k, [l]]) => `<option value="${k}" ${F.source === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+        ${!issues ? `<select class="select" data-change="f-filter" data-key="source"><option value="">Todo origen</option>${Object.entries(SOURCE).map(([k, [l]]) => `<option value="${k}" ${F.source === k ? "selected" : ""}>${l}</option>`).join("")}</select>` : ""}
         <select class="select" data-change="f-filter" data-key="mine"><option value="">Todos los responsables</option><option value="1" ${F.mine ? "selected" : ""}>Solo los míos</option></select>
         <span class="count">${list.length} registro(s)</span>
       </div>
-      ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Hallazgo</th><th>Origen</th><th>Clasificación</th><th>Etapa</th><th>Responsable</th><th>Plazo</th></tr></thead><tbody>
-        ${list.map((f) => `<tr data-action="f-open" data-id="${f.id}"><td class="code">${esc(f.code)}</td><td><span class="title">${esc(f.title)}</span><span class="sub">${esc(f.area || "Sin área")}</span></td><td>${badge(SOURCE, f.source)}</td><td>${classBadge(f)}</td><td>${badge(FINDING_STATUS, f.status)}${f.reject_count > 0 && f.status === "abierto" ? '<span class="sub overdue">Rechazado</span>' : ""}</td>
+      ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>${issues ? "Notificación" : "Hallazgo"}</th>${issues ? "" : "<th>Origen</th>"}<th>Clasificación</th><th>Etapa</th><th>Responsable</th><th>Plazo</th></tr></thead><tbody>
+        ${list.map((f) => `<tr data-action="f-open" data-id="${f.id}"><td class="code">${esc(f.code)}</td><td><span class="title">${esc(f.title)}</span><span class="sub">${esc(f.area || "Sin área")}</span></td>${issues ? "" : `<td>${badge(SOURCE, f.source)}</td>`}<td>${classBadge(f)}</td><td>${badge(FINDING_STATUS, f.status)}${f.reject_count > 0 && f.status === "abierto" ? '<span class="sub overdue">Rechazado</span>' : ""}</td>
           <td>${esc(db.profileName(f.owner_id))}${f.status === "abierto" && f.owner_id ? '<span class="sub" style="color:var(--watch-ink);font-weight:600">Por aceptar</span>' : !f.owner_id ? '<span class="sub overdue">Sin responsable</span>' : ""}</td><td>${plazoCell(f)}</td></tr>`).join("")}
-      </tbody></table></div>` : empty("Sin hallazgos", "No hay registros con los filtros actuales.", "finding")}
+      </tbody></table></div>` : empty(`Sin ${issues ? "notificaciones" : "hallazgos"}`, "No hay registros con los filtros actuales.", "finding")}
     </div>`;
     if (params?.[0]) { openFinding(params[0], params[1]); replaceHash(`${wsId()}/hallazgos`); }
   },
@@ -299,8 +323,9 @@ const fnd = (el) => db.get("findings", el.dataset.id);
 const run = async (fn, nextStage) => { try { await fn(); if (nextStage) viewStage = nextStage; await refresh(); } catch (e) { toast(e.message, "danger"); } };
 const val = (id) => (document.getElementById(id)?.value || "").trim();
 
-on("f-open", (el) => (wsId() === "internas" ? navigate(`${wsId()}/hallazgos/${el.dataset.id}`) : openFinding(el.dataset.id)));
-on("f-new", () => newFinding());
+on("f-open", (el) => (usesEightD() ? navigate(`${wsId()}/hallazgos/${el.dataset.id}`) : openFinding(el.dataset.id)));
+on("f-new", () => newFinding(isIssues() && currentOrigin() ? { source: currentOrigin() } : {}));
+on("f-origin", (el) => { F.source = el.dataset.origin; rerender(); });
 on("f-edit", (el) => editFinding(fnd(el)));
 on("f-stage", (el) => { viewStage = el.dataset.stage; paintDrawer(); });
 on("f-accept", (el) => run(async () => { await acceptFinding(fnd(el)); toast("Hallazgo aceptado · ahora está En acción", "ok"); }, "en_accion"));

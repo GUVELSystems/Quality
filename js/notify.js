@@ -9,10 +9,19 @@ const TEXT = {
   transferred: (f) => [`Te trasladaron el hallazgo ${f.code}`, "Acéptalo y registra la acción para cerrarlo a tiempo."],
   rejected: (f) => [`Verificación rechazada: ${f.code}`, f.rejection_reason ? `Motivo: ${f.rejection_reason}` : "Corrige y vuelve a cerrar las acciones."],
   verify: (f) => [`Hallazgo ${f.code} listo para verificar`, "El responsable cerró las acciones; acepta o rechaza la verificación."],
+  review_requested: (f) => [`Te asignaron revisar el 4D ${f.code}`, "Entra a revisarlo y da tu aprobación o rechazo."],
+  review_approved: (f) => [`Tu 4D ${f.code} fue revisado y aprobado`, "Pasa a verificación."],
+  review_rejected: (f) => [`Tu 4D ${f.code} fue revisado y rechazado`, f.d_data?.closure4d?.review_notes ? `Motivo: ${f.d_data.closure4d.review_notes}` : "Corrige las acciones y vuelve a enviarlo a revisar."],
 };
 
-/** Quién recibe el aviso: el responsable (asignado, trasladado, rechazado) o los administradores (verificar) */
-const recipients = (f, kind) => (kind === "verify" ? db.rows("profiles").filter((p) => p.active && p.role === "admin").map((p) => p.id) : [f.owner_id]);
+/** Quién recibe el aviso: el responsable (asignado, trasladado, rechazado), los administradores (verificar),
+ *  el revisor elegido (review_requested) o quien preparó el 4D (review_approved / review_rejected) */
+function recipients(f, kind) {
+  if (kind === "verify") return db.rows("profiles").filter((p) => p.active && p.role === "admin").map((p) => p.id);
+  if (kind === "review_requested") return [f.reviewer_id];
+  if (kind === "review_approved" || kind === "review_rejected") return [f.d_data?.closure4d?.preparer_id];
+  return [f.owner_id];
+}
 
 /** Crea los avisos en la bandeja y envía el correo. Nunca bloquea ni rompe la acción que lo origina. */
 export async function notifyFindings(list, kind) {

@@ -31,6 +31,7 @@ export function buildSeed() {
   addCls("categoria_hallazgo", ["Seguridad", "Calidad de producto", "Proceso", "Documentación", "Ambiental", "Mantenimiento"]);
   addCls("causa_raiz", ["Método", "Máquina", "Material", "Mano de obra", "Medición", "Medio ambiente"]);
   addCls("tipo_riesgo", ["Operativo", "Cliente", "Proveedor", "Seguridad", "Regulatorio"]);
+  addCls("origen_issues", ["Reclamación de Cliente", "Auditoría Externa", "KPI", "Alerta de Calidad", "Proceso", "Devolución"]);
   const catId = (n) => cls.find((c) => c.name === n)?.id;
 
   /* Niveles LPA, clasificaciones (días hábiles) y parámetros */

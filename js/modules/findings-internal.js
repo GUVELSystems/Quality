@@ -49,7 +49,7 @@ function detailsHTML(f) {
     ${standard ? row("Norma aplicable", esc(standard.name)) : ""}
     ${item?.clause ? row("Cláusula", `<span class="mono">${esc(item.clause)}</span>`) : ""}
     ${row("Categoría", esc(catName(f.classification_id)))}
-    ${row("Origen", audit ? `<a href="#/internas/audit/${audit.id}">${esc(audit.code)}</a>` : esc(SOURCE[f.source]?.[0] || "—"))}
+    ${row("Origen", audit ? `<a href="#/${f.module}/audit/${audit.id}">${esc(audit.code)}</a>` : esc(SOURCE[f.source]?.[0] || f.source || "—"))}
     ${f.client_id ? row("Cliente", esc(clientName(f.client_id))) : ""}
     ${row("Registrado", fmtDateTime(f.created_at))}
     ${row("Límite de acciones", fmtDateTime(f.due_at || f.due_date))}
@@ -400,7 +400,7 @@ function e8dDetailsHTML(f) {
     ${row("Proceso / Área", esc(process?.name || area?.name || f.area || "—"))}
     ${standard ? row("Norma aplicable", esc(standard.name)) : ""}
     ${(f.clause || item?.clause) ? row("Cláusula", `<span class="mono">${esc(f.clause || item?.clause)}</span>`) : ""}
-    ${row("Origen", audit ? `<a href="#/internas/audit/${audit.id}">${esc(audit.code)}</a>` : esc(SOURCE[f.source]?.[0] || "—"))}
+    ${row("Origen", audit ? `<a href="#/${f.module}/audit/${audit.id}">${esc(audit.code)}</a>` : esc(SOURCE[f.source]?.[0] || f.source || "—"))}
     ${row("Registrado", fmtDateTime(f.created_at))}
     ${f.due_at ? row("Límite de acciones", fmtDateTime(f.due_at)) : ""}
     ${f.transfer_count > 0 ? row("Traslado", `De <b>${esc(db.profileName(f.transferred_from))}</b> a <b>${esc(db.profileName(f.owner_id))}</b><br><span class="muted">«${esc(f.transfer_reason || "")}»</span>`) : ""}
@@ -682,16 +682,9 @@ on("e8-d-advance", (el) => {
   run(async () => { await advanceD(f, el.dataset.stage, collectDD(f, el.dataset.stage)); clearGridDrafts(f.id); clearActionDrafts(f.id); viewStage = null; toast("Guardado · siguiente etapa", "ok"); });
 });
 /* --------------------------- Revisión del 4D: notificaciones --------------------------- */
-async function notifyReviewer(f, reviewerId) {
-  try { await db.insert("notifications", { user_id: reviewerId, module: f.module || "internas", kind: "finding_review_requested", title: "Te asignaron revisar un 4D", body: `${esc(f.title)} · ${f.code}. Entra a revisarlo y dar tu aprobación o rechazo.`, href: `internas/hallazgos/${f.id}`, ref_id: f.id }); }
-  catch { /* la bandeja es secundaria */ }
-}
-async function notifyPreparer(f, approved) {
-  const preparerId = f.d_data?.closure4d?.preparer_id;
-  if (!preparerId) return;
-  try { await db.insert("notifications", { user_id: preparerId, module: f.module || "internas", kind: approved ? "finding_review_approved" : "finding_review_rejected", title: approved ? "Tu 4D fue revisado y aprobado" : "Tu 4D fue revisado y rechazado", body: `${esc(f.title)} · ${f.code}.`, href: `internas/hallazgos/${f.id}`, ref_id: f.id }); }
-  catch { /* secundaria */ }
-}
+/** Avisos de la revisión del 4D: bandeja + correo (reutiliza notifyFindings, como el resto de los hallazgos) */
+const notifyReviewer = (f) => notifyFindings([f], "review_requested");
+const notifyPreparer = (f, approved) => notifyFindings([f], approved ? "review_approved" : "review_rejected");
 on("e8-send-review", (el) => {
   const f = fnd(el.dataset.id);
   const reviewerId = document.querySelector(`[data-key="${f.id}:dd.closure4d.__reviewer"]`)?.value;
@@ -703,7 +696,7 @@ on("e8-send-review", (el) => {
     if (patch.closure4d) delete patch.closure4d.__reviewer;
     const r = await sendToReview4D(f, reviewerId, patch);
     clearGridDrafts(f.id); clearActionDrafts(f.id); viewStage = null;
-    await notifyReviewer(r, reviewerId);
+    await notifyReviewer(r);
     toast(`Enviado a revisar · se avisó a ${db.profileName(reviewerId)}`, "ok");
   });
 });

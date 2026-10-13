@@ -7,14 +7,18 @@ import { SEVERITY, NOTIF_TYPE, NOTIF_FLOW, NOTIF_STATUS } from "../constants.js"
 import { attachmentsSection, hooks } from "./attachments.js";
 import { classOptions, areaOptions, resolveOwner, deadlineFields } from "../workflow.js";
 import { notifyFindings } from "../notify.js";
-import { userOpts, clientOpts, mapOpts, clientName } from "./shared.js";
+import { userOpts, clientOpts, mapOpts, clientName, catNameOpts } from "./shared.js";
 
 const F = { q: "", status: "", type: "", client: "" };
 let drawer = null, drawerId = null;
+/** El tipo (Queja, Devolución…) ahora vive en el catálogo "Origen de Issues" (Config → Catálogos),
+ *  así se puede agregar o quitar; los registros antiguos siguen mostrándose con este mapa heredado. */
+const typesOf = () => catNameOpts("origen_issues");
+const typeLabel = (v) => NOTIF_TYPE[v] || v || "—";
 
 const fields = (editing) => [
   { name: "client_id", label: "Cliente", type: "select", required: true, options: clientOpts() },
-  { name: "notification_type", label: "Tipo de notificación", type: "select", required: true, options: Object.entries(NOTIF_TYPE) },
+  { name: "notification_type", label: "Tipo de notificación", type: "select", required: true, options: typesOf() },
   { name: "subject", label: "Asunto", required: true, span2: true },
   { name: "description", label: "Descripción / detalle del cliente", type: "textarea", span2: true },
   { name: "part_number", label: "Número de parte" },
@@ -26,10 +30,10 @@ const fields = (editing) => [
   ...(editing ? [{ name: "status", label: "Estado", type: "select", required: true, options: mapOpts(NOTIF_STATUS) }] : []),
 ];
 
-function openForm_(n) {
+function openForm_(n, defaultType) {
   openForm({
     eyebrow: n ? n.code : "Nueva notificación", title: n ? "Editar notificación" : "Registrar notificación de cliente", size: "wide", fields: fields(!!n),
-    values: n || { notification_type: "queja", severity: "mayor", received_at: today(), response_due: addDays(today(), 5), owner_id: db.state.profile.id },
+    values: n || { notification_type: defaultType || typesOf()[0]?.[0], severity: "mayor", received_at: today(), response_due: addDays(today(), 5), owner_id: db.state.profile.id },
     submitLabel: n ? "Guardar" : "Registrar",
     onSubmit: async (v) => {
       if (n) await db.update("customer_notifications", n.id, v); else { const r = await db.insert("customer_notifications", v); toast(`Notificación ${r.code} registrada`, "ok"); }
@@ -49,7 +53,7 @@ function drawerHTML(n) {
   const idx = NOTIF_FLOW.indexOf(n.status), finding = db.get("findings", n.finding_id), s = sla(n);
   return `
   <div class="dialog-head"><div><span class="eyebrow mono">${esc(n.code)}</span><h2>${esc(n.subject)}</h2>
-    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">${badge(SEVERITY, n.severity)}${badge(NOTIF_STATUS, n.status)}<span class="badge" data-tone="neutral">${esc(NOTIF_TYPE[n.notification_type])}</span></div></div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">${badge(SEVERITY, n.severity)}${badge(NOTIF_STATUS, n.status)}<span class="badge" data-tone="neutral">${esc(typeLabel(n.notification_type))}</span></div></div>
     <button class="btn ghost icon" data-close aria-label="Cerrar">${icon("close")}</button></div>
   <div class="dialog-body">
     <div class="stepper">${NOTIF_FLOW.map((st, i) => `<button class="step ${i < idx ? "done" : ""} ${i === idx ? "current" : ""}" ${db.can.write ? "" : "disabled"} data-action="n-status" data-id="${n.id}" data-status="${st}">${NOTIF_STATUS[st][0]}</button>`).join("")}</div>
@@ -84,12 +88,30 @@ async function refresh() {
 
 hooks.notification = () => refresh();
 
+/** Tipo activo (sección): si el catálogo cambió, cae al primero disponible */
+function currentType() {
+  const types = typesOf().map(([v]) => v);
+  if (!types.length) return "";
+  if (!types.includes(F.type)) F.type = types[0];
+  return F.type;
+}
 const filtered = () => {
-  const q = F.q.toLowerCase();
-  return db.rows("customer_notifications").filter((n) => (!F.status || n.status === F.status) && (!F.type || n.notification_type === F.type) && (!F.client || n.client_id === F.client) &&
+  const q = F.q.toLowerCase(), type = currentType();
+  return db.rows("customer_notifications").filter((n) => (!F.status || n.status === F.status) && (!type || n.notification_type === type) && (!F.client || n.client_id === F.client) &&
     (!q || `${n.code} ${n.subject} ${n.part_number || ""}`.toLowerCase().includes(q)))
     .sort((a, b) => (a.status === "cerrada") - (b.status === "cerrada") || (a.response_due || "9").localeCompare(b.response_due || "9"));
 };
+/** Una sección (ventana) por cada tipo del catálogo: Queja separada de Devolución, igual que
+ *  LPA está separado de Producto en Auditorías */
+function typeTabs() {
+  const types = typesOf().map(([v]) => v);
+  if (types.length < 2) return "";
+  const active = currentType(), all = db.rows("customer_notifications");
+  return `<div class="type-tabs" role="tablist" aria-label="Tipo de notificación">${types.map((t) => {
+    const mine = all.filter((n) => n.notification_type === t), open = mine.filter((n) => n.status !== "cerrada").length, late = mine.filter((n) => n.response_due && n.response_due < today() && n.status !== "cerrada").length;
+    return `<button type="button" class="type-tab ${t === active ? "active" : ""}" role="tab" aria-selected="${t === active}" data-action="n-type" data-type="${esc(t)}"><span class="tt-txt"><b>${esc(typeLabel(t))}</b><small>${mine.length} registro(s) · ${open} abierta(s)</small></span>${late ? `<em class="tt-late" title="${late} vencida(s)">${late}</em>` : ""}</button>`;
+  }).join("")}</div>`;
+}
 
 export default {
   id: "notifications", label: "Notif. de cliente", icon: "bell",
@@ -108,16 +130,16 @@ export default {
         <div class="kpi" data-tone="warn"><label>Críticas abiertas</label><strong>${open.filter((n) => n.severity === "critico").length}</strong><small>Severidad crítica</small></div>
         <div class="kpi" data-tone="ok"><label>Cerradas</label><strong>${all.length - open.length}</strong><small>Total histórico</small></div>
       </div>
+      ${typeTabs()}
       <div class="panel">
         <div class="toolbar">
           <input class="input grow" id="n-q" type="search" placeholder="Buscar folio, asunto o número de parte…" value="${esc(F.q)}" data-input="n-q">
           <select class="select" data-change="n-filter" data-key="status"><option value="">Todos los estados</option>${Object.entries(NOTIF_STATUS).map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-          <select class="select" data-change="n-filter" data-key="type"><option value="">Todo tipo</option>${Object.entries(NOTIF_TYPE).map(([k, l]) => `<option value="${k}" ${F.type === k ? "selected" : ""}>${l}</option>`).join("")}</select>
           <select class="select" data-change="n-filter" data-key="client"><option value="">Todos los clientes</option>${clientOpts().map(([k, l]) => `<option value="${k}" ${F.client === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
           <span class="count">${list.length} registro(s)</span>
         </div>
         ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Cliente / Asunto</th><th>Tipo</th><th>Severidad</th><th>Estado</th><th>Responsable</th><th>Respuesta límite</th></tr></thead><tbody>
-        ${list.map((n) => { const s = sla(n); return `<tr data-action="n-open" data-id="${n.id}"><td class="code">${esc(n.code)}</td><td><span class="title">${esc(n.subject)}</span><span class="sub">${esc(clientName(n.client_id))}${n.part_number ? " · " + esc(n.part_number) : ""}</span></td><td>${esc(NOTIF_TYPE[n.notification_type])}</td><td>${badge(SEVERITY, n.severity)}</td><td>${badge(NOTIF_STATUS, n.status)}</td><td>${esc(db.profileName(n.owner_id))}</td><td class="${s.late ? "overdue" : ""}">${s.text}</td></tr>`; }).join("")}
+        ${list.map((n) => { const s = sla(n); return `<tr data-action="n-open" data-id="${n.id}"><td class="code">${esc(n.code)}</td><td><span class="title">${esc(n.subject)}</span><span class="sub">${esc(clientName(n.client_id))}${n.part_number ? " · " + esc(n.part_number) : ""}</span></td><td>${esc(typeLabel(n.notification_type))}</td><td>${badge(SEVERITY, n.severity)}</td><td>${badge(NOTIF_STATUS, n.status)}</td><td>${esc(db.profileName(n.owner_id))}</td><td class="${s.late ? "overdue" : ""}">${s.text}</td></tr>`; }).join("")}
         </tbody></table></div>` : empty("Sin notificaciones", "No hay notificaciones con los filtros actuales.", "bell")}
       </div>
     </div>`;
@@ -126,7 +148,8 @@ export default {
 };
 
 on("n-open", (el) => openNotif(el.dataset.id));
-on("n-new", () => openForm_(null));
+on("n-new", () => openForm_(null, currentType()));
+on("n-type", (el) => { F.type = el.dataset.type; rerender(); });
 on("n-edit", (el) => openForm_(db.get("customer_notifications", el.dataset.id)));
 on("n-status", async (el) => { try { await db.update("customer_notifications", el.dataset.id, { status: el.dataset.status }); await refresh(); } catch (e) { toast(e.message, "danger"); } });
 on("n-finding", (el) => {
@@ -143,7 +166,7 @@ on("n-finding", (el) => {
     onSubmit: async (v) => {
       const owner = resolveOwner(v.area_id, null) || v.owner_id || null;
       const f = await db.insert("findings", {
-        module: "issues", title: `[${NOTIF_TYPE[n.notification_type]}] ${n.subject}`, description: n.description, source: "cliente", status: "abierto",
+        module: "issues", title: `[${typeLabel(n.notification_type)}] ${n.subject}`, description: n.description, source: "cliente", status: "abierto",
         client_id: n.client_id, class_id: v.class_id, area_id: v.area_id || null, area: db.get("areas", v.area_id)?.name || null, owner_id: owner, ...deadlineFields(v.class_id),
       });
       await db.update("customer_notifications", n.id, { finding_id: f.id });
@@ -154,7 +177,7 @@ on("n-finding", (el) => {
   });
 });
 on("n-export", () => downloadCSV("notificaciones_cliente.csv", [
-  { label: "Folio", value: (r) => r.code }, { label: "Cliente", value: (r) => clientName(r.client_id) }, { label: "Tipo", value: (r) => NOTIF_TYPE[r.notification_type] },
+  { label: "Folio", value: (r) => r.code }, { label: "Cliente", value: (r) => clientName(r.client_id) }, { label: "Tipo", value: (r) => typeLabel(r.notification_type) },
   { label: "Asunto", value: (r) => r.subject }, { label: "No. parte", value: (r) => r.part_number }, { label: "Cantidad", value: (r) => r.quantity },
   { label: "Severidad", value: (r) => SEVERITY[r.severity][0] }, { label: "Estado", value: (r) => NOTIF_STATUS[r.status][0] },
   { label: "Recibida", value: (r) => r.received_at }, { label: "Límite respuesta", value: (r) => r.response_due },

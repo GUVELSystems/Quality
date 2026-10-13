@@ -9,7 +9,7 @@ import * as db from "./db.js";
 import { overdueKind } from "./workflow.js";
 
 export const WS_LABEL = {
-  dashboard: "Dashboard", auditorias: "Auditorías", internas: "Auditorías Internas", issues: "Notificaciones de Calidad y No Conformidades",
+  dashboard: "Dashboard", auditorias: "Auditorías", internas: "Auditorías Internas", issues: "Issues",
   riesgos: "Riesgos", oportunidades: "Oportunidades", config: "Configuración",
 };
 export const WS_ICON = { dashboard: "dashboard", auditorias: "audit", internas: "internal", issues: "finding", riesgos: "risk", oportunidades: "opportunity", config: "tag" };

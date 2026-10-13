@@ -31,7 +31,7 @@ export function buildSeed() {
   addCls("categoria_hallazgo", ["Seguridad", "Calidad de producto", "Proceso", "Documentación", "Ambiental", "Mantenimiento"]);
   addCls("causa_raiz", ["Método", "Máquina", "Material", "Mano de obra", "Medición", "Medio ambiente"]);
   addCls("tipo_riesgo", ["Operativo", "Cliente", "Proveedor", "Seguridad", "Regulatorio"]);
-  addCls("origen_issues", ["Reclamación de Cliente", "Auditoría Externa", "KPI", "Alerta de Calidad", "Proceso", "Devolución"]);
+  addCls("origen_issues", ["Queja", "Devolución", "SCAR / Acción correctiva", "Alerta de calidad", "Auditoría de cliente"]);
   const catId = (n) => cls.find((c) => c.name === n)?.id;
 
   /* Niveles LPA, clasificaciones (días hábiles) y parámetros */
@@ -292,11 +292,11 @@ export function buildSeed() {
     /* Notificaciones de cliente (Issues) */
   const notifs = [];
   const mkNotif = (o) => notifs.push({ id: uuid(), code: code("NCL"), description: null, part_number: null, quantity: null, severity: "mayor", received_at: T, response_due: null, status: "recibida", owner_id: "u-maria", finding_id: null, closed_at: null, created_by: "u-maria", created_at: daysAgoISO(3), updated_at: daysAgoISO(1), ...o });
-  mkNotif({ client_id: cNorte.id, notification_type: "queja", subject: "Rebaba excesiva en pieza AN-4471", description: "El cliente reporta rebaba fuera de tolerancia en 120 piezas del embarque semanal.", part_number: "AN-4471", quantity: 120, severity: "mayor", received_at: addDays(T, -3), response_due: addDays(T, 2), status: "contencion" });
-  mkNotif({ client_id: cDelta.id, notification_type: "devolucion", subject: "Devolución por dimensión fuera de especificación", part_number: "CD-2208", quantity: 480, severity: "critico", received_at: addDays(T, -10), response_due: addDays(T, -2), status: "analisis", owner_id: "u-carlos" });
-  mkNotif({ client_id: cAurora.id, notification_type: "scar", subject: "SCAR-2291 · Falta de identificación en empaque", part_number: "IA-9012", quantity: 60, severity: "menor", received_at: addDays(T, -20), response_due: addDays(T, -8), status: "respuesta_enviada" });
-  mkNotif({ client_id: cMetal.id, notification_type: "alerta", subject: "Alerta de calidad por variación de dureza", part_number: "GM-3310", severity: "mayor", received_at: addDays(T, -1), response_due: addDays(T, 4), status: "recibida" });
-  mkNotif({ client_id: cNorte.id, notification_type: "auditoria_cliente", subject: "Auditoría de segunda parte · Resultados", severity: "observacion", received_at: addDays(T, -45), response_due: addDays(T, -30), status: "cerrada", closed_at: daysAgoISO(30) });
+  mkNotif({ client_id: cNorte.id, notification_type: "Queja", subject: "Rebaba excesiva en pieza AN-4471", description: "El cliente reporta rebaba fuera de tolerancia en 120 piezas del embarque semanal.", part_number: "AN-4471", quantity: 120, severity: "mayor", received_at: addDays(T, -3), response_due: addDays(T, 2), status: "contencion" });
+  mkNotif({ client_id: cDelta.id, notification_type: "Devolución", subject: "Devolución por dimensión fuera de especificación", part_number: "CD-2208", quantity: 480, severity: "critico", received_at: addDays(T, -10), response_due: addDays(T, -2), status: "analisis", owner_id: "u-carlos" });
+  mkNotif({ client_id: cAurora.id, notification_type: "SCAR / Acción correctiva", subject: "SCAR-2291 · Falta de identificación en empaque", part_number: "IA-9012", quantity: 60, severity: "menor", received_at: addDays(T, -20), response_due: addDays(T, -8), status: "respuesta_enviada" });
+  mkNotif({ client_id: cMetal.id, notification_type: "Alerta de calidad", subject: "Alerta de calidad por variación de dureza", part_number: "GM-3310", severity: "mayor", received_at: addDays(T, -1), response_due: addDays(T, 4), status: "recibida" });
+  mkNotif({ client_id: cNorte.id, notification_type: "Auditoría de cliente", subject: "Auditoría de segunda parte · Resultados", severity: "observacion", received_at: addDays(T, -45), response_due: addDays(T, -30), status: "cerrada", closed_at: daysAgoISO(30) });
   const linked = mkFinding({ module: "issues", title: "Etiqueta de embarque con número de parte incorrecto", source: "cliente", class_id: klass("N2").id, client_id: cAurora.id, area_id: A("Logística"), owner_id: "u-maria", classification_id: catId("Calidad de producto"), start_date: bd(4), created_at: daysAgoISO(6) });
   stage(linked, "en_accion"); notifs[2].finding_id = linked.id;
   const rebaba = mkFinding({ module: "issues", title: "[Queja] Rebaba excesiva en pieza AN-4471", description: "El cliente reporta rebaba fuera de tolerancia.", source: "cliente", class_id: klass("N1").id, client_id: cNorte.id, area_id: A("Producción"), owner_id: "u-maria", start_date: bd(2), created_at: daysAgoISO(3) });

@@ -10,13 +10,14 @@ export function buildSeed() {
   const bd = (n) => { let d = T; for (let i = 0; i < n; i++) { d = addDays(d, -1); while ([0, 6].includes(new Date(d + "T12:00:00").getDay())) d = addDays(d, -1); } return d; }; // n días hábiles atrás
 
   /* Usuarios */
-  const mk = (id, full_name, email, role, area) => ({ id, full_name, email, role, area, active: true, created_at: daysAgoISO(90) });
+  const mk = (id, full_name, email, role, area) => ({ id, full_name, email, role, area, active: true, company_id: "co-guvel", platform_role: id === "u-carlos" ? "super_admin" : null, created_at: daysAgoISO(90) });
   const profiles = [
     mk("u-carlos", "Carlos Gutiérrez", "carlos.gutierrez@guvel.com", "admin", "Calidad"),
-    mk("u-maria", "María López", "maria.lopez@guvel.com", "quality_manager", "Calidad"),
+    mk("u-maria", "María López", "maria.lopez@guvel.com", "manager", "Calidad"),
     mk("u-juan", "Juan Pérez", "juan.perez@guvel.com", "auditor", "Producción"),
     mk("u-pedro", "Pedro Ramírez", "pedro.ramirez@guvel.com", "auditor", "Calidad"),
     mk("u-ana", "Ana Torres", "ana.torres@guvel.com", "viewer", "Logística"),
+    { id: "u-soporte", full_name: "Equipo de Soporte GUVEL", email: "soporte@guvel.com", role: "viewer", area: null, active: true, company_id: null, platform_role: "support", created_at: daysAgoISO(90) },
   ];
 
   /* Clientes */
@@ -328,9 +329,9 @@ export function buildSeed() {
     op("Programa de auditores certificados internos", "Cobertura de auditorías sin depender de calidad", "alto", "identificada", 90),
   ];
 
-  return {
-    currentUser: "u-carlos",
-    counters,
-    tables: { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions: [], customer_notifications: notifs, risks, opportunities, attachments: [], lpa_levels, finding_classes, areas, area_level_owners, app_settings, notifications, finding_events, standards, capa_templates, rca_templates, finding_documents },
-  };
+  const companies = [{ id: "co-guvel", name: "GUVEL", slug: "guvel", status: "active", created_at: daysAgoISO(400) }];
+  const tables = { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions: [], customer_notifications: notifs, risks, opportunities, attachments: [], lpa_levels, finding_classes, areas, area_level_owners, app_settings, notifications, finding_events, standards, capa_templates, rca_templates, finding_documents, companies, support_grants: [], support_access_log: [] };
+  // Todo lo de la demo pertenece a GUVEL (en producción cada fila queda marcada por las reglas de seguridad)
+  for (const [name, rows] of Object.entries(tables)) if (name !== "companies") for (const r of rows) if (!r.platform_role) r.company_id ??= "co-guvel";
+  return { currentUser: "u-carlos", counters, tables };
 }

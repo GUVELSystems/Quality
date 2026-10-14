@@ -12,6 +12,9 @@ export const registerWs = (w) => workspaces.set(w.id, w);
 export const getWs = (id) => workspaces.get(id);
 export const allWs = () => [...workspaces.values()];
 
+/** Módulos que solo tienen sentido para quien pertenece a una empresa (no para Soporte/Super Admin "puros") */
+const MENU_COMPANY_WS = new Set(["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades"]);
+
 let cur = { ws: "dashboard", tab: "inicio", params: [] };
 export const current = () => cur;
 export const wsId = () => cur.ws;
@@ -66,6 +69,15 @@ export async function renderRoute(scroll = true) {
   if (parts[0] === "config" && parts[1] === "niveles") { parts[1] = "clasificaciones"; aliased = true; }   // los niveles ahora viven con las clasificaciones
   const to = parts.length ? legacy(parts) : null;
   if (to) { replaceHash(to); parts = to.split("/"); }
+  // Quien no pertenece a ninguna empresa (personal puro de plataforma) aterriza en su propia pantalla, no
+  // en el Dashboard — tanto al entrar con el hash vacío como si trae una ruta de una sesión anterior en
+  // otro rol. Si además de Super Admin también es miembro de una empresa, entra como siempre.
+  const noCompany = !db.state.profile?.company_id;
+  if (noCompany && (!parts.length || MENU_COMPANY_WS.has(parts[0]))) {
+    if (db.can.support) parts = ["soporte"];
+    else if (db.can.superAdmin) parts = ["config", "portales"];
+    if (parts.length) replaceHash(parts.join("/"));
+  }
   const w = getWs(parts[0]) || getWs("dashboard");
   const tab = w.tabs.find((t) => t.id === parts[1]) || w.tabs[0];
   const canonical = w.hideTabs ? parts[0] === w.id : parts[0] === w.id && parts[1] === tab.id;

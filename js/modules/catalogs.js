@@ -5,6 +5,7 @@ import { RISK_STATUS, OPP_STATUS, EFFORT, ROLES, CATALOG_KINDS } from "../consta
 import { makeCrud } from "./crud.js";
 import { rerender } from "../router.js";
 import { userOpts, catNameOpts, mapOpts } from "./shared.js";
+import { pendingGrantsHTML, activeGrantsHTML } from "./support.js";
 
 const yesNo = (v) => (v ? pill("Activo", "ok") : pill("Inactivo", "neutral"));
 const riskTone = (s) => (s >= 15 ? "danger" : s >= 10 ? "warn" : s >= 5 ? "info" : "ok");
@@ -146,6 +147,7 @@ export const users = makeCrud({
   search: (r) => `${r.full_name} ${r.email} ${r.area || ""}`, sort: (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
   filters: [{ key: "role", label: "Todos los roles", options: Object.entries(ROLES), test: (r, v) => r.role === v }],
   intro: `<div class="note"><b>Cómo funciona:</b> al invitar, la persona recibe un correo con un enlace para crear su contraseña. Los usuarios desactivados no pueden ver ningún dato. Para dar de baja a alguien, desmarca «Usuario activo».</div>`,
+  top: () => (db.can.admin ? pendingGrantsHTML() + activeGrantsHTML() : ""),
   editIntro: (r) => (db.state.demo || !r.email ? "" : `<p style="margin-bottom:14px"><button type="button" class="btn sm" data-action="user-reset" data-email="${esc(r.email)}">${"Enviar enlace de acceso"}</button> <small class="muted">Útil si perdió su contraseña o su invitación venció.</small></p>`),
   fields: () => [
     { name: "full_name", label: "Nombre completo", required: true, span2: true },

@@ -14,6 +14,8 @@ import notifications from "./modules/notifications.js";
 import { risks, opportunities, clients, classifications, users } from "./modules/catalogs.js";
 import forms from "./modules/forms.js";
 import { classesAndLevels, areas, standards, capaFiles } from "./modules/config.js";
+import portales, { isSuperAdmin } from "./modules/superadmin.js";
+import soporte from "./modules/support.js";
 import { updateBell, showReminder, closeInbox, inboxCounts } from "./inbox.js";
 import "./modules/attachments.js";
 import { findingsOf, lateActionsOf, WS_LABEL, WS_ICON, auditWs, findingWs } from "./scope.js";
@@ -31,6 +33,7 @@ const auditTabs = () => [
   { id: "audit", hidden: true, icon: "audit", activeAs: "lista", render: audits.renderAudit },
 ];
 registerWs({ id: "dashboard", label: "Dashboard", hideTabs: true, tabs: [{ id: "inicio", render: dashboard.render }] });
+registerWs({ id: "soporte", label: "Soporte", hideTabs: true, tabs: [{ id: "inicio", render: soporte.render }] });
 registerWs({ id: "auditorias", label: WS_LABEL.auditorias, tabs: auditTabs() });
 registerWs({ id: "internas", label: WS_LABEL.internas, tabs: auditTabs() });
 registerWs({ id: "issues", label: WS_LABEL.issues, tabs: [
@@ -48,11 +51,16 @@ registerWs({ id: "config", label: WS_LABEL.config, tabs: [
   { id: "capa", label: "CAPA Files", icon: "capa", render: capaFiles.render },
   { id: "catalogos", label: "Catálogos", icon: "list", render: classifications.render },
   { id: "usuarios", label: "Usuarios", icon: "users", render: users.render },
+  { id: "portales", label: "Empresas", icon: "monitor", render: portales.render },
 ] });
 
 const app = document.getElementById("app");
-const MENU = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades"];
-const CONFIG_MENU = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"]];
+const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades"];
+/** Quien no pertenece a ninguna empresa (personal puro de plataforma) no tiene nada que ver en estos módulos */
+const visibleMenu = () => { if (db.state.profile?.company_id) return MENU_COMPANY; return db.can.support ? ["soporte"] : db.can.superAdmin ? [] : MENU_COMPANY; };
+const CONFIG_MENU_BASE = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"]];
+/** "Portales" solo aparece para quien tenga permiso de Super Admin en el portal de casa de GUVEL */
+const configMenu = () => (isSuperAdmin() ? [...CONFIG_MENU_BASE, ["portales", "Empresas", "monitor"]] : CONFIG_MENU_BASE);
 const MENU_ICON = WS_ICON;
 let appShown = false;
 
@@ -208,10 +216,10 @@ function renderNav() {
   if (!w || !document.getElementById("wsBtn")) return;
   document.getElementById("wsBtn").innerHTML = `${esc(w.label)} ${icon("more")}`;
   const tile = (href, label, ico, active) => `<a href="${href}" class="ws-tile ${active ? "active" : ""}" role="menuitem" aria-label="${esc(label)}" title="${esc(label)}">${icon(ico)}<span class="ws-tip">${esc(label)}</span></a>`;
-  document.getElementById("wsMenu").innerHTML = `<div class="ws-grid">${MENU.map((id) => tile(`#/${id}`, getWs(id).label, MENU_ICON[id], id === c.ws)).join("")}</div>`
-    + `<div class="menu-sep">Configuración</div><div class="ws-grid">${CONFIG_MENU.map(([id, l, ico]) => tile(`#/config/${id}`, l, ico, c.ws === "config" && c.tab === id)).join("")}</div>`;
+  document.getElementById("wsMenu").innerHTML = `<div class="ws-grid">${visibleMenu().map((id) => tile(`#/${id}`, getWs(id).label, MENU_ICON[id], id === c.ws)).join("")}</div>`
+    + (db.can.auditorOnly ? "" : `<div class="menu-sep">Configuración</div><div class="ws-grid">${configMenu().map(([id, l, ico]) => tile(`#/config/${id}`, l, ico, c.ws === "config" && c.tab === id)).join("")}</div>`);
   document.getElementById("wsMenu").classList.add("hidden");
-  document.getElementById("navTabs").innerHTML = w.hideTabs ? "" : w.tabs.filter((t) => !t.hidden).map((t) => {
+  document.getElementById("navTabs").innerHTML = w.hideTabs ? "" : w.tabs.filter((t) => !t.hidden && (t.id !== "portales" || isSuperAdmin())).map((t) => {
     const k = t.count?.(w.id), active = t.id === c.tab || t.activeAs === c.tab;
     return `<a class="nav-item ${active ? "active" : ""}" href="#/${w.id}/${t.id}">${t.icon ? icon(t.icon) : ""}<span>${esc(t.label)}</span>${k && k.n ? `<span class="nav-count ${k.hot ? "hot" : ""}">${k.n}</span>` : ""}</a>`;
   }).join("");

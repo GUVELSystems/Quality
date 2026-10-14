@@ -7,6 +7,11 @@
 
    Si los valores están vacíos, la app arranca en MODO DEMO
    (datos de ejemplo guardados en el navegador).
+
+   Todas las empresas comparten esta misma base de datos: lo que separa los
+   datos de cada una es `company_id` y las reglas de seguridad (RLS), no el
+   dominio desde el que se entra. El subdominio de cada empresa apunta a
+   este mismo portal.
    ===================================================================== */
 export const CONFIG = {
   SUPABASE_URL: "https://vaalezcebtxdoluwayde.supabase.co",

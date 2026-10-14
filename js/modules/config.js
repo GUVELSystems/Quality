@@ -7,7 +7,7 @@ import { on, onInput, empty, openForm, openDialog, confirmDialog, toast, pill } 
 import { makeCrud } from "./crud.js";
 import { classes, classTone, levels, levelLabel, verifyDays, verifyDaysForType, VERIFY_TYPES, SCOPES, scopesOf, controlKey } from "../workflow.js";
 
-const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
+const staff = () => db.activeProfiles().filter((p) => ["admin", "manager", "auditor"].includes(p.role));
 const yesNo = (v) => (v ? pill("Activo", "ok") : pill("Inactivo", "neutral"));
 
 /* ------------------- Clasificaciones (N1, N2… con días hábiles) ------------------- */

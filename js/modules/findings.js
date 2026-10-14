@@ -33,7 +33,7 @@ function currentOrigin() {
   if (!origins.includes(F.source)) F.source = origins[0];
   return F.source;
 }
-const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
+const staff = () => db.activeProfiles().filter((p) => ["admin", "manager", "auditor"].includes(p.role));
 
 let drawer = null, drawerId = null, viewStage = null, tickTimer = null;
 const drafts = {}; // texto escrito y aún no guardado, por hallazgo y etapa

@@ -24,7 +24,7 @@ import {
 } from "../workflow.js";
 import { exportFinding8D4D } from "../pdf8d.js";
 
-const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
+const staff = () => db.activeProfiles().filter((p) => ["admin", "manager", "auditor"].includes(p.role));
 const drafts = {};                         // texto sin guardar: `${id}:${campo}`
 const tplState = {};                       // plantilla elegida y datos sin guardar: `${id}:${kind}`
 let tick = null;
@@ -307,7 +307,7 @@ onChange("lif-tpl-pick", (el) => { tplDraftFor(fnd(el.dataset.id), el.dataset.ki
 /* =====================================================================
    Flujo 8D / 4D (nuevo) · Registro → Detalles → Solicitud → D1…D8/D4 → Verificación
    ===================================================================== */
-const staffAll = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
+const staffAll = () => db.activeProfiles().filter((p) => ["admin", "manager", "auditor"].includes(p.role));
 const gridFieldId = (key) => `g_${key}`;
 /** Lo que hay escrito en cada tabla AHORA MISMO (aunque no se haya guardado): evita que un repintado
  *  de fondo (reloj del milestone, refresco al subir una evidencia…) borre lo que la persona ya tecleó. */

@@ -38,7 +38,7 @@ export function auditStatus(a) {
 }
 const itemsOf = (formId) => db.rows("form_items").filter((i) => i.form_id === formId).sort((a, b) => a.position - b.position);
 const firstName = (id) => (db.get("profiles", id)?.full_name || "Sin asignar").split(" ")[0];
-const staff = () => db.activeProfiles().filter((p) => ["admin", "quality_manager", "auditor"].includes(p.role));
+const staff = () => db.activeProfiles().filter((p) => ["admin", "manager", "auditor"].includes(p.role));
 /** Tipo activo del módulo: el de la ruta (#/auditorias/planes/LPA), el último elegido o el primero */
 function pickType(ws, tab, params) {
   const types = typesOf(ws);

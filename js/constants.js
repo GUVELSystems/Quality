@@ -77,7 +77,7 @@ export const EFFORT = { bajo: "Bajo", medio: "Medio", alto: "Alto" };
 
 export const ROLES = {
   admin: "Administrador",
-  quality_manager: "Gerente de Calidad",
+  manager: "Manager",
   auditor: "Auditor",
   viewer: "Consulta",
 };

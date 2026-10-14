@@ -13,6 +13,7 @@ export const TABLES = [
   "customer_notifications", "risks", "opportunities", "attachments",
   "lpa_levels", "finding_classes", "areas", "area_level_owners", "app_settings", "notifications", "finding_events",
   "standards", "capa_templates", "rca_templates", "finding_documents",
+  "companies", "support_grants", "support_access_log",
 ];
 const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP" };
 const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);
@@ -120,6 +121,27 @@ export async function inviteUser({ email, full_name, role, area }) {
   await reload("profiles");
 }
 
+/** Conteo agregado de hallazgos de una empresa, sin exponer ni una fila (función de Postgres) */
+export async function companyFindingCounts(companyId) {
+  if (state.demo) { const f = rows("findings").filter((x) => x.company_id === companyId); return { total: f.length, open: f.filter((x) => x.status !== "cerrado").length }; }
+  const { data, error } = await sb.rpc("company_finding_counts", { target_company: companyId });
+  if (error) throw new Error(error.message);
+  return { total: Number(data?.[0]?.total || 0), open: Number(data?.[0]?.open || 0) };
+}
+
+/* --------------- Alta de empresas (solo Super Admin) ------------------ */
+/** Crea la empresa y su primer usuario (Administrador) con la contraseña que el Super Admin define aquí mismo */
+export async function createCompany({ company_name, slug, email, full_name, password }) {
+  if (state.demo) {
+    const company = await insert("companies", { name: company_name, slug: slug || company_name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), status: "active" });
+    await insert("profiles", { id: uuid(), email, full_name, role: "admin", company_id: company.id, active: true });
+    return company;
+  }
+  const r = await invokeFn("create-company", { company_name, slug, email, full_name, password });
+  await reload("companies", "profiles");
+  return r.company;
+}
+
 /* ----------------- Notificación de planes de auditoría --------------- */
 /** Agrupa por auditor las auditorías pendientes de notificar de un plan */
 export function planRecipients(planId, { all = false } = {}) {
@@ -216,9 +238,13 @@ export const rows = (t) => state.data[t] || [];
 export const get = (t, id) => (id ? rows(t).find((r) => r.id === id) : undefined);
 export const profileName = (id) => get("profiles", id)?.full_name || "—";
 export const can = {
-  get write() { return ["admin", "quality_manager", "auditor"].includes(state.profile?.role); },
-  get manage() { return ["admin", "quality_manager"].includes(state.profile?.role); },
+  get write() { return ["admin", "manager", "auditor"].includes(state.profile?.role); },
+  get manage() { return ["admin", "manager"].includes(state.profile?.role); },
   get admin() { return state.profile?.role === "admin"; },
+  /** El auditor solo ve sus propias asignaciones: sin catálogos, áreas, normas, CAPA Files ni listas generales */
+  get auditorOnly() { return state.profile?.role === "auditor" && !state.profile?.platform_role; },
+  get superAdmin() { return state.profile?.platform_role === "super_admin"; },
+  get support() { return state.profile?.platform_role === "support"; },
 };
 
 /* ----------------------------- Escritura ----------------------------- */

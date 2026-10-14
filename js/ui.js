@@ -1,6 +1,7 @@
 /* Componentes de interfaz reutilizables */
 import { esc, initials } from "./utils.js";
 import { icon } from "./icons.js";
+import { t } from "./i18n.js";
 
 /* ------------------------ Delegación de eventos ---------------------- */
 const handlers = {};
@@ -163,13 +164,13 @@ export function readForm(form, fields) {
   return out;
 }
 
-export function openForm({ eyebrow, title, fields, values = {}, submitLabel = "Guardar", onSubmit, onDelete, size = "", intro = "", aside }) {
+export function openForm({ eyebrow, title, fields, values = {}, submitLabel = t("save"), onSubmit, onDelete, size = "", intro = "", aside }) {
   const id = "form_" + Math.random().toString(36).slice(2, 8);
   const formHTML = `${intro}<form id="${id}" class="form-grid" novalidate>${fields.map((f) => fieldHTML(f, values)).join("")}</form><div id="${id}_err" class="alert hidden" style="margin-top:16px"></div>`;
   const dlg = openDialog({
     eyebrow, title, size,
     body: aside ? `<div class="form-with-aside"><div class="form-main">${formHTML}</div><div class="form-aside" id="${id}_aside">${aside(values)}</div></div>` : formHTML,
-    footer: `${onDelete ? `<button type="button" class="btn danger" data-del style="margin-right:auto">Eliminar</button>` : ""}<button type="button" class="btn" data-close>Cancelar</button><button type="submit" form="${id}" class="btn primary">${esc(submitLabel)}</button>`,
+    footer: `${onDelete ? `<button type="button" class="btn danger" data-del style="margin-right:auto">${t("delete")}</button>` : ""}<button type="button" class="btn" data-close>${t("cancel")}</button><button type="submit" form="${id}" class="btn primary">${esc(submitLabel)}</button>`,
   });
   const form = dlg.el.querySelector("form");
   const err = dlg.el.querySelector(`#${id}_err`);
@@ -195,13 +196,13 @@ export function openForm({ eyebrow, title, fields, values = {}, submitLabel = "G
   return dlg;
 }
 
-export function confirmDialog({ title, message, confirmLabel = "Confirmar", danger = false }) {
+export function confirmDialog({ title, message, confirmLabel = t("confirm"), danger = false }) {
   return new Promise((resolve) => {
     let answer = false;
     const d = openDialog({
       eyebrow: "Confirmación", title, size: "sm",
       body: `<p class="muted">${esc(message)}</p>`,
-      footer: `<button class="btn" data-close>Cancelar</button><button class="btn ${danger ? "danger solid" : "primary"}" data-ok>${esc(confirmLabel)}</button>`,
+      footer: `<button class="btn" data-close>${t("cancel")}</button><button class="btn ${danger ? "danger solid" : "primary"}" data-ok>${esc(confirmLabel)}</button>`,
     });
     d.el.querySelector("[data-ok]").addEventListener("click", () => { answer = true; d.close(); });
     new MutationObserver((_, o) => { if (!document.body.contains(d.el)) { o.disconnect(); resolve(answer); } }).observe(document.body, { childList: true });

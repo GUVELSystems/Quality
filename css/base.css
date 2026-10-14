@@ -168,3 +168,5 @@ strong, b { font-weight: 600; }
 @media (max-width: 520px) { .head-actions { width: 100%; } .head-actions > .btn { flex: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media print { .topbar { display: none !important; } body { background: #fff; color: #000; } .panel { break-inside: avoid; } }
+.auth-lang { position: absolute; top: 14px; right: 14px; padding: 4px 10px; font-size: 12px; font-weight: 700; border: 1px solid var(--line); border-radius: var(--r, 4px); background: var(--surface-2); color: var(--text-2); cursor: pointer; }
+.auth-lang:hover { background: var(--surface-3); }

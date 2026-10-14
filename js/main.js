@@ -3,6 +3,7 @@ import * as db from "./db.js";
 import { esc, initials, today } from "./utils.js";
 import { icon } from "./icons.js";
 import { on, onInput, toast, confirmDialog } from "./ui.js";
+import * as i18n from "./i18n.js";
 import { registerWs, getWs, current, renderRoute, onAfterRender } from "./router.js";
 import { ROLES } from "./constants.js";
 
@@ -84,16 +85,19 @@ const msg = (m, err) => (m ? `<div class="auth-msg ${err ? "error" : ""}" role="
 
 function showLogin(error = "", info = "") {
   appShown = false;
-  app.innerHTML = `<div class="auth-screen"><div class="auth-card">${authBrand}
-    <span class="eyebrow">Quality</span><h1>Iniciar sesión</h1>${msg(error, true)}${msg(info, false)}
+  app.innerHTML = `<div class="auth-screen"><div class="auth-card">
+    <button class="auth-lang" type="button" id="authLang">${i18n.state.lang === "en" ? "ES" : "EN"}</button>
+    ${authBrand}
+    <span class="eyebrow">Quality</span><h1>${i18n.t("signIn")}</h1>${msg(error, true)}${msg(info, false)}
     <form class="auth-form" id="loginForm" novalidate>
       ${db.state.demo
-        ? `<div class="auth-msg"><b>Modo demo.</b> Aún no se ha configurado Supabase; los datos de ejemplo se guardan solo en este navegador.</div><button class="btn primary" type="submit">Entrar al modo demo</button>`
-        : `<label>Correo<input class="input" type="email" name="email" autocomplete="username" required></label>
-           <label>Contraseña<input class="input" type="password" name="password" autocomplete="current-password" required></label>
-           <button class="btn primary" type="submit">Entrar</button>
-           <button class="auth-link" type="button" id="forgot">¿Olvidaste tu contraseña?</button>`}
+        ? `<div class="auth-msg"><b>${i18n.t("demoMode")}</b> ${i18n.t("demoModeDesc")}</div><button class="btn primary" type="submit">${i18n.t("enterDemo")}</button>`
+        : `<label>${i18n.t("email")}<input class="input" type="email" name="email" autocomplete="username" required></label>
+           <label>${i18n.t("password")}<input class="input" type="password" name="password" autocomplete="current-password" required></label>
+           <button class="btn primary" type="submit">${i18n.t("enter")}</button>
+           <button class="auth-link" type="button" id="forgot">${i18n.t("forgotPassword")}</button>`}
     </form><div class="auth-foot">Acceso solo por invitación · GUVEL Quality</div></div></div>`;
+  document.getElementById("authLang").addEventListener("click", () => i18n.setLang(i18n.state.lang === "en" ? "es" : "en"));
   document.getElementById("loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.target, btn = f.querySelector("button[type=submit]");
@@ -175,13 +179,14 @@ function shell() {
     </nav>
     <div class="ws-menu hidden" id="wsMenu" role="menu"></div><div class="inbox hidden" id="inbox" role="dialog" aria-label="Notificaciones"></div>
     <div class="top-actions">
-      <label class="search">${icon("search")}<input id="gsearch" type="search" placeholder="Buscar folio o título…" data-input="gsearch" autocomplete="off" aria-label="Búsqueda global"><div id="sresults"></div></label>
+      <label class="search">${icon("search")}<input id="gsearch" type="search" placeholder="${i18n.t("search")}" data-input="gsearch" autocomplete="off" aria-label="Búsqueda global"><div id="sresults"></div></label>
       <span class="bell-wrap"><button class="top-btn" id="bellBtn" data-action="inbox-toggle" title="Notificaciones" aria-label="Notificaciones" aria-expanded="false">${icon("bell")}</button><span class="bell-badge hidden" id="bellBadge"></span></span>
       <button class="top-btn" data-action="theme" title="Cambiar tema" aria-label="Cambiar tema">${icon(currentTheme() === "dark" ? "sun" : "moon")}</button>
+      <button class="top-btn lang-btn" data-action="lang-toggle" title="${i18n.t("language")}" aria-label="${i18n.t("language")}">${i18n.state.lang === "en" ? "ES" : "EN"}</button>
       ${db.state.demo ? "" : `<button class="top-btn" data-action="reload" title="Actualizar datos" aria-label="Actualizar datos">${icon("refresh")}</button>`}
       <div class="user-chip"><div class="user-meta"><strong>${esc(p.full_name)}</strong><small>${esc(ROLES[p.role])}${db.state.demo ? " · demo" : ""}</small></div><div class="avatar">${esc(initials(p.full_name))}</div></div>
       ${db.state.demo ? `<button class="top-btn" data-action="reset-demo" title="Restablecer datos demo" aria-label="Restablecer datos demo">${icon("wand")}</button>` : ""}
-      <button class="top-btn" data-action="logout" title="Cerrar sesión" aria-label="Cerrar sesión">${icon("logout")}</button>
+      <button class="top-btn" data-action="logout" title="${i18n.t("logout")}" aria-label="${i18n.t("logout")}">${icon("logout")}</button>
     </div>
   </header>
   <main class="content"><div class="page-head" id="pageHead"></div><section id="view"></section></main>`;
@@ -246,6 +251,7 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".search")) { 
 
 /* ------------------------------ Acciones ----------------------------- */
 on("logout", async () => { await db.signOut(); location.hash = ""; showLogin(); });
+on("lang-toggle", () => i18n.setLang(i18n.state.lang === "en" ? "es" : "en"));
 on("reload", async () => { await db.loadAll(); await renderRoute(false); toast("Datos actualizados", "ok"); });
 on("reset-demo", async () => {
   if (await confirmDialog({ title: "Restablecer demo", message: "Se borrarán los cambios y volverán los datos de ejemplo.", confirmLabel: "Restablecer", danger: true })) {

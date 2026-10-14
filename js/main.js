@@ -16,6 +16,7 @@ import forms from "./modules/forms.js";
 import { classesAndLevels, areas, standards, capaFiles } from "./modules/config.js";
 import portales, { isSuperAdmin } from "./modules/superadmin.js";
 import soporte from "./modules/support.js";
+import historial from "./modules/historial.js";
 import { updateBell, showReminder, closeInbox, inboxCounts } from "./inbox.js";
 import "./modules/attachments.js";
 import { findingsOf, lateActionsOf, WS_LABEL, WS_ICON, auditWs, findingWs } from "./scope.js";
@@ -51,6 +52,7 @@ registerWs({ id: "config", label: WS_LABEL.config, tabs: [
   { id: "capa", label: "CAPA Files", icon: "capa", render: capaFiles.render },
   { id: "catalogos", label: "Catálogos", icon: "list", render: classifications.render },
   { id: "usuarios", label: "Usuarios", icon: "users", render: users.render },
+  { id: "historial", label: "Historial", icon: "clock", render: historial.render },
   { id: "portales", label: "Empresas", icon: "monitor", render: portales.render },
 ] });
 
@@ -58,7 +60,7 @@ const app = document.getElementById("app");
 const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades"];
 /** Quien no pertenece a ninguna empresa (personal puro de plataforma) no tiene nada que ver en estos módulos */
 const visibleMenu = () => { if (db.state.profile?.company_id) return MENU_COMPANY; return db.can.support ? ["soporte"] : db.can.superAdmin ? [] : MENU_COMPANY; };
-const CONFIG_MENU_BASE = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"]];
+const CONFIG_MENU_BASE = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"], ["historial", "Historial", "clock"]];
 /** "Portales" solo aparece para quien tenga permiso de Super Admin en el portal de casa de GUVEL */
 const configMenu = () => (isSuperAdmin() ? [...CONFIG_MENU_BASE, ["portales", "Empresas", "monitor"]] : CONFIG_MENU_BASE);
 const MENU_ICON = WS_ICON;

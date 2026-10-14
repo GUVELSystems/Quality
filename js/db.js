@@ -13,7 +13,7 @@ export const TABLES = [
   "customer_notifications", "risks", "opportunities", "attachments",
   "lpa_levels", "finding_classes", "areas", "area_level_owners", "app_settings", "notifications", "finding_events",
   "standards", "capa_templates", "rca_templates", "finding_documents",
-  "companies", "support_grants", "support_access_log",
+  "companies", "support_grants", "support_access_log", "activity_log",
 ];
 const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP" };
 const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);
@@ -258,6 +258,12 @@ function clean(row, t) {
   return out;
 }
 
+/** Mismas tablas que llevan bitácora automática en Supabase (01_schema.sql · log_activity) */
+const LOGGED = new Set(["audits", "findings", "actions", "customer_notifications", "risks", "opportunities"]);
+function logActivity(t, action, r) {
+  if (!LOGGED.has(t)) return;
+  state.data.activity_log.push({ id: state.data.activity_log.length + 1, entity: t, entity_id: r.id, action, actor: state.profile?.id, company_id: r.company_id, created_at: new Date().toISOString(), summary: `${r.code || ""} · ${r.title || r.subject || r.status || ""}` });
+}
 function derive(t, r, old) {
   const now = new Date().toISOString();
   r.updated_at = now;
@@ -280,6 +286,7 @@ export async function insert(t, row) {
     if (HAS_CREATED_BY.has(t)) r.created_by = state.profile.id;
     derive(t, r);
     state.data[t].push(r);
+    logActivity(t, "INSERT", r);
     persist();
     return r;
   }
@@ -297,6 +304,7 @@ export async function update(t, id, patch) {
     const old = { ...cur };
     Object.assign(cur, data);
     derive(t, cur, old);
+    logActivity(t, "UPDATE", cur);
     persist();
     return cur;
   }
@@ -330,11 +338,13 @@ export async function upsertMany(t, list, keys) {
 }
 
 export async function remove(t, id) {
+  const row = state.demo ? get(t, id) : null;
   if (!state.demo) {
     await purgeStorageFor(t, id);
     const { error } = await retrySkew(() => sb.from(t).delete().eq("id", id));
     if (error) throw new Error(friendly(error));
   }
+  if (row) logActivity(t, "DELETE", row);
   purge(t, id);
   persist();
 }

@@ -104,25 +104,36 @@ export const clients = makeCrud({
 });
 
 /* --------------------------- Clasificaciones ------------------------- */
+/** Cada catálogo (Categoría de hallazgo, Causa raíz, Tipo de riesgo, Origen de Issues…) tiene su propia
+ *  ventana: una sección aparte, no una sola lista combinada con un filtro. Igual que LPA/Producto están
+ *  separados en Auditorías. */
+let selectedKind = Object.keys(CATALOG_KINDS)[0];
+function kindTabsHTML() {
+  const kinds = Object.entries(CATALOG_KINDS), all = db.rows("classifications");
+  return `<div class="type-tabs" role="tablist" aria-label="Catálogo">${kinds.map(([k, l]) => {
+    const mine = all.filter((r) => r.kind === k);
+    return `<button type="button" class="type-tab ${k === selectedKind ? "active" : ""}" role="tab" aria-selected="${k === selectedKind}" data-action="cat-kind" data-kind="${k}"><span class="tt-txt"><b>${esc(l)}</b><small>${mine.length} elemento(s) · ${mine.filter((r) => r.active).length} activo(s)</small></span></button>`;
+  }).join("")}</div>`;
+}
 export const classifications = makeCrud({
   id: "classifications", label: "Catálogos", icon: "list", eyebrow: "Configuración", singular: "elemento",
-  title: "Catálogos", subtitle: "Listas configurables: categorías de hallazgo, causas raíz y tipos de riesgo. (Las áreas y las clasificaciones N1/N2 tienen su propia pestaña.)",
-  scope: (r) => r.kind !== "area",
+  title: "Catálogos", subtitle: "Listas configurables: categorías de hallazgo, causas raíz, tipos de riesgo y orígenes de Issues. (Las áreas y las clasificaciones N1/N2 tienen su propia pestaña.)",
+  scope: (r) => r.kind === selectedKind,
+  top: () => kindTabsHTML(),
   table: "classifications", newLabel: "Nuevo elemento", canWrite: () => db.can.manage,
-  defaults: () => ({ kind: "categoria_hallazgo", active: true }),
-  search: (r) => `${r.kind} ${r.name} ${r.description || ""}`, sort: (a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name),
-  filters: [{ key: "kind", label: "Todos los catálogos", options: Object.entries(CATALOG_KINDS), test: (r, v) => r.kind === v }],
+  defaults: () => ({ kind: selectedKind, active: true }),
+  search: (r) => `${r.name} ${r.description || ""}`, sort: (a, b) => a.name.localeCompare(b.name),
   fields: () => [
     { name: "kind", label: "Catálogo", type: "select", required: true, options: Object.entries(CATALOG_KINDS) },
     { name: "name", label: "Nombre", required: true }, { name: "description", label: "Descripción", span2: true },
     { name: "active", label: "Activo", type: "checkbox" },
   ],
   columns: [
-    { label: "Catálogo", cell: (r) => pill(CATALOG_KINDS[r.kind] || r.kind, "info") },
     { label: "Nombre", cell: (r) => `<span class="title">${esc(r.name)}</span>` },
     { label: "Descripción", cell: (r) => esc(r.description || "—") }, { label: "Estado", cell: (r) => yesNo(r.active) },
   ],
 });
+on("cat-kind", (el) => { selectedKind = el.dataset.kind; rerender(); });
 
 /* -------------------------------- Usuarios --------------------------- */
 const inviteForm = () => openForm({

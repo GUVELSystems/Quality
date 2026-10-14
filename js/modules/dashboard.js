@@ -1,5 +1,5 @@
 import * as db from "../db.js";
-import { esc, today, addDays, fmtDate, timeAgo, dueText, MONTHS_LONG, isoDate } from "../utils.js";
+import { esc, today, addDays, fmtDate, dueText, MONTHS_LONG, isoDate } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead } from "../router.js";
 import { badge, donut, bars, columns, empty } from "../ui.js";
@@ -59,11 +59,6 @@ export default {
       const verif = overdueKind(f) === "verificacion";
       return { k: `${WS_LABEL[findingWs(f)]} · ${verif ? "Verificación" : "Cierre de acciones"}`, code: f.code, text: f.title, date: verif ? f.verify_due : f.due_date, to: `${findingWs(f)}/hallazgos/${f.id}` };
     }).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 7);
-    const activity = [
-      ...all.map((r) => ({ at: r.updated_at || r.created_at, text: `${WS_LABEL[findingWs(r)]} · Hallazgo ${r.code} · ${r.title}`, to: `${findingWs(r)}/hallazgos/${r.id}` })),
-      ...notifs.map((r) => ({ at: r.updated_at || r.created_at, text: `Issues · ${r.code} · ${r.subject}`, to: `issues/notificaciones/${r.id}` })),
-    ].filter((x) => x.at).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6);
-
     const livePlans = (ws) => plansOf(ws).filter((p) => p.end_date >= t).length;
     root.innerHTML = `
     <div class="stack">
@@ -106,10 +101,6 @@ export default {
           ${upcoming.length ? `<div class="table-wrap"><table class="table"><tbody>${upcoming.map((a) => { const p = db.get("audit_plans", a.plan_id); return `<tr><td><a href="#/${auditWs(a)}/audit/${a.id}" class="code">${esc(a.code)}</a><span class="sub">${esc(p?.audit_type || "")}</span></td><td>${esc(db.profileName(a.assigned_to))}<span class="sub">${WS_LABEL[auditWs(a)]}</span></td><td>${fmtDate(a.scheduled_date)}</td><td class="end">${badge(AUDIT_STATUS, auditStatus(a))}</td></tr>`; }).join("")}</tbody></table></div>` : empty("Sin auditorías próximas", "Crea un plan en el módulo de Auditorías.", "calendar")}
         </div>
       </div>
-
-      <div class="panel"><div class="panel-head"><h2>Actividad reciente</h2></div><div class="panel-body">
-        ${activity.length ? `<ul class="timeline">${activity.map((a) => `<li><a href="#/${a.to}">${esc(a.text)}</a><time>${timeAgo(a.at)}</time></li>`).join("")}</ul>` : empty("Sin actividad", "Aún no hay registros.")}
-      </div></div>
     </div>`;
   },
 };

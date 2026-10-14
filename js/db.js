@@ -116,7 +116,8 @@ export async function saveSetting(key, value) { await upsertMany("app_settings",
 
 /* ------------------- Invitación de usuarios (admin) ------------------ */
 export async function inviteUser({ email, full_name, role, area }) {
-  if (state.demo) return insert("profiles", { id: uuid(), email, full_name, role, area, active: true });
+  // Siempre a la MISMA empresa de quien invita (nunca sin empresa, nunca a otra)
+  if (state.demo) return insert("profiles", { id: uuid(), email, full_name, role, area, active: true, company_id: state.profile.company_id });
   await invokeFn("invite-user", { email, full_name, role, area, site_url: siteUrl() });
   await reload("profiles");
 }

@@ -1,9 +1,9 @@
 // GUVEL Quality · invite-user (archivo único para pegar en el editor de Supabase)
 // Edge Function: invite-user
-// Solo un administrador puede invitar. Envía la invitación de Supabase Auth
-// (enlace para crear contraseña) y deja el perfil activo con el rol indicado.
-//
-// Opcional: SITE_URL (URL pública del portal; destino del enlace de la invitación)
+// Solo un administrador puede invitar, y SIEMPRE a su propia empresa (nunca a otra,
+// aunque lo intente a propósito). Envía la invitación de Supabase Auth (enlace para
+// crear contraseña) apuntando al MISMO portal desde el que se invitó, y deja el
+// perfil activo con el rol indicado, ya asignado a esa empresa.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const CORS = {
@@ -12,7 +12,7 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...CORS, "Content-Type": "application/json" } });
-const ROLES = ["admin", "quality_manager", "auditor", "viewer"];
+const ROLES = ["admin", "manager", "auditor", "viewer"];
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 Deno.serve(async (req) => {
@@ -24,24 +24,28 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return json({ error: "No autenticado" }, 401);
     const admin = createClient(url, service, { auth: { persistSession: false } });
-    const { data: me } = await admin.from("profiles").select("role, active").eq("id", user.id).maybeSingle();
+    const { data: me } = await admin.from("profiles").select("role, active, company_id").eq("id", user.id).maybeSingle();
     if (!me?.active || me.role !== "admin") return json({ error: "Solo un administrador puede invitar usuarios." }, 403);
+    if (!me.company_id) return json({ error: "Tu cuenta no pertenece a ninguna empresa; no puedes invitar usuarios." }, 403);
 
     const b = await req.json().catch(() => ({}));
     const email = String(b.email ?? "").trim().toLowerCase(), full_name = String(b.full_name ?? "").trim(), role = String(b.role ?? "viewer"), area = String(b.area ?? "").trim();
     if (!EMAIL.test(email)) return json({ error: "Correo inválido." }, 400);
     if (!full_name) return json({ error: "Escribe el nombre completo." }, 400);
     if (!ROLES.includes(role)) return json({ error: "Rol inválido." }, 400);
-    const redirectTo = Deno.env.get("SITE_URL") || String(b.site_url ?? "");
+    // El destino del enlace de invitación SIEMPRE es el portal desde el que se invitó (nunca un valor
+    // fijo): así la persona invitada cae en el subdominio correcto de SU empresa, no en el de GUVEL.
+    const redirectTo = String(b.site_url ?? "") || Deno.env.get("SITE_URL") || "";
 
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, { data: { full_name }, redirectTo });
     if (error) {
       if (/already|registered|exists/i.test(error.message)) return json({ error: "Ese correo ya tiene una cuenta. Abre su perfil y usa «Enviar enlace de acceso»." }, 409);
       return json({ error: error.message }, 400);
     }
-    // El trigger handle_new_user crea el perfil inactivo; aquí se activa con su rol.
-    const { error: upErr } = await admin.from("profiles").update({ full_name, role, area: area || null, active: true }).eq("id", data.user.id);
-    if (upErr) return json({ error: "Invitación enviada, pero no se pudo asignar el rol: " + upErr.message }, 500);
+    // El trigger handle_new_user crea el perfil inactivo y sin empresa; aquí se activa, con su rol
+    // Y SIEMPRE con la MISMA empresa de quien invita (nunca otra, ni ninguna).
+    const { error: upErr } = await admin.from("profiles").update({ full_name, role, area: area || null, active: true, company_id: me.company_id }).eq("id", data.user.id);
+    if (upErr) return json({ error: "Invitación enviada, pero no se pudo terminar de configurar la cuenta: " + upErr.message }, 500);
     return json({ ok: true, user_id: data.user.id });
   } catch (e) {
     console.error(e);

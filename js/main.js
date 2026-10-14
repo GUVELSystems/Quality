@@ -253,9 +253,34 @@ on("reset-demo", async () => {
 
 /* -------------------------------- Inicio ----------------------------- */
 let hashListener = false;
+/** quality.guvelsystems.com → "guvel" · quality.<slug>.guvelsystems.com → "<slug>" · otros dominios (pruebas
+ *  locales, vistas previas, etc.) → null, y entonces no se aplica esta validación */
+function expectedSlugFromHost(hostname = location.hostname) {
+  if (hostname === "quality.guvelsystems.com") return "guvel";
+  const m = /^quality\.([a-z0-9-]+)\.guvelsystems\.com$/.exec(hostname);
+  return m ? m[1] : null;
+}
+/** Tu cuenta es de una empresa; si entraste por la puerta de otra, aquí se corta antes de mostrar nada */
+async function checkPortalMatchesAccount() {
+  const expected = expectedSlugFromHost();
+  if (!expected) return true; // dominio no reconocido (pruebas, vista previa…): no se puede validar, se deja pasar
+  if (!db.state.profile?.company_id) {
+    if (expected !== "guvel") { await db.signOut().catch(() => {}); showLogin(`Esta cuenta es del equipo de GUVEL y no entra por el portal de otra empresa. Entra por quality.guvelsystems.com.`); return false; }
+    return true;
+  }
+  const mine = db.rows("companies").find((c) => c.id === db.state.profile.company_id);
+  if (mine && mine.slug !== expected) {
+    await db.signOut().catch(() => {});
+    showLogin(`Esta cuenta pertenece a «${mine.name}» y no a este portal. Entra por quality.${mine.slug}.guvelsystems.com.`);
+    return false;
+  }
+  return true;
+}
+
 async function start() {
   try {
     await db.loadAll();
+    if (!(await checkPortalMatchesAccount())) return;
     shell();
     if (!hashListener) { window.addEventListener("hashchange", () => appShown && renderRoute()); hashListener = true; }
     await renderRoute();

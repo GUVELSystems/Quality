@@ -111,8 +111,8 @@ export async function reload(...tables) {
 }
 
 /* ------------------------------- Ajustes ----------------------------- */
-export const setting = (key, fallback) => { const r = rows("app_settings").find((x) => x.key === key); return r ? r.value : fallback; };
-export async function saveSetting(key, value) { await upsertMany("app_settings", [{ key, value }], ["key"]); }
+export const setting = (key, fallback) => { const r = rows("app_settings").find((x) => x.key === key && x.company_id === state.profile?.company_id); return r ? r.value : fallback; };
+export async function saveSetting(key, value) { await upsertMany("app_settings", [{ key, value, company_id: state.profile.company_id }], ["company_id", "key"]); }
 
 /* ------------------- Invitación de usuarios (admin) ------------------ */
 export async function inviteUser({ email, full_name, role, area }) {

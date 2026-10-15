@@ -17,7 +17,8 @@ const TEXT = {
 /** Quién recibe el aviso: el responsable (asignado, trasladado, rechazado), los administradores (verificar),
  *  el revisor elegido (review_requested) o quien preparó el 4D (review_approved / review_rejected) */
 function recipients(f, kind) {
-  if (kind === "verify") return db.rows("profiles").filter((p) => p.active && p.role === "admin").map((p) => p.id);
+  // "verify" avisa a los administradores — SOLO los de la MISMA empresa del hallazgo, nunca de otra
+  if (kind === "verify") return db.rows("profiles").filter((p) => p.active && p.role === "admin" && p.company_id === f.company_id).map((p) => p.id);
   if (kind === "review_requested") return [f.reviewer_id];
   if (kind === "review_approved" || kind === "review_rejected") return [f.d_data?.closure4d?.preparer_id];
   return [f.owner_id];

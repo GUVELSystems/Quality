@@ -136,7 +136,7 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
 
   header();
   const audit = db.get("audits", f.audit_id), process = db.get("areas", audit?.process_area_id || f.area_id);
-  kv([["Customer", "GUVEL"], ["Part / Process Name", process?.name || f.area || "—"], ["Report No", f.code]]);
+  kv([["Customer", db.get("companies", f.company_id)?.name || "—"], ["Part / Process Name", process?.name || f.area || "—"], ["Report No", f.code]]);
   kv([["Issue Date", fmtDate(f.created_at)], ["Start Date", fmtDate(f.registered_at || f.created_at)], ["Classification", `${f.class_id ? db.get("finding_classes", f.class_id)?.code : "—"}`]]);
 
   // D1 — Equipo

@@ -86,13 +86,14 @@ Deno.serve(async (req) => {
     const ids: string[] = Array.isArray(body.finding_ids) ? (body.finding_ids as unknown[]).map(String).filter((x: string) => UUID.test(x)).slice(0, 20) : [];
     if (!COPY[kind]) return json({ error: "Tipo de aviso inválido" }, 400);
     if (!ids.length) return json({ error: "finding_ids inválido" }, 400);
-    const siteUrl = (Deno.env.get("SITE_URL") || String(body.site_url || "")).replace(/\/$/, "");
+    // El enlace del correo SIEMPRE apunta al portal desde el que se originó el aviso (nunca a un valor fijo)
+    const siteUrl = (String(body.site_url || "") || Deno.env.get("SITE_URL") || "").replace(/\/$/, "");
     if (!/^https?:\/\//.test(siteUrl)) return json({ error: "Falta SITE_URL (URL pública del portal)." }, 500);
     const replyTo = Deno.env.get("REPLY_TO") || undefined;
 
     /* Hallazgos válidos para ese aviso (recientes y en el estado esperado) */
     const since = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
-    const { data: found } = await admin.from("findings").select("id, code, title, owner_id, reviewer_id, strategy_ps, d_data, class_id, due_at, due_date, status, transfer_count, reject_count, area, module, updated_at").in("id", ids);
+    const { data: found } = await admin.from("findings").select("id, code, title, owner_id, reviewer_id, strategy_ps, d_data, class_id, due_at, due_date, status, transfer_count, reject_count, area, module, updated_at, company_id").in("id", ids);
     const valid = (found ?? []).filter((f) => f.updated_at >= since && (
       (kind === "assigned" && f.owner_id) || (kind === "transferred" && f.owner_id && f.transfer_count > 0) ||
       (kind === "rejected" && f.owner_id && f.reject_count > 0 && f.status === "abierto") || (kind === "verify" && f.status === "verificacion") ||
@@ -106,8 +107,13 @@ Deno.serve(async (req) => {
     const recipientOf = (f: (typeof valid)[number]): string | null =>
       kind === "review_requested" ? f.reviewer_id : kind === "review_approved" || kind === "review_rejected" ? ((f.d_data as any)?.closure4d?.preparer_id ?? null) : f.owner_id;
     if (kind === "verify") {
-      const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin").eq("active", true);
-      for (const a of admins ?? []) byUser.set(a.id, valid);
+      // Un admin SOLO se entera de los hallazgos de SU PROPIA empresa — nunca de otra.
+      const byCompany = new Map<string, typeof valid>();
+      for (const f of valid) { if (!f.company_id) continue; byCompany.set(f.company_id, [...(byCompany.get(f.company_id) ?? []), f]); }
+      for (const [companyId, findingsOfCompany] of byCompany) {
+        const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin").eq("active", true).eq("company_id", companyId);
+        for (const a of admins ?? []) byUser.set(a.id, [...(byUser.get(a.id) ?? []), ...findingsOfCompany]);
+      }
     } else for (const f of valid) { const uid = recipientOf(f); if (uid) byUser.set(uid, [...(byUser.get(uid) ?? []), f]); }
     byUser.delete(me.id);                                              // no se avisa a quien hizo la acción
     const userIds = [...byUser.keys()];

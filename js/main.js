@@ -4,6 +4,7 @@ import { esc, initials, today } from "./utils.js";
 import { icon } from "./icons.js";
 import { on, onInput, toast, confirmDialog } from "./ui.js";
 import * as i18n from "./i18n.js";
+import { registerServiceWorker, initInstallButton, canShowInstallButton } from "./pwa.js";
 import { registerWs, getWs, current, renderRoute, onAfterRender } from "./router.js";
 import { ROLES } from "./constants.js";
 
@@ -181,6 +182,7 @@ function shell() {
     <div class="top-actions">
       <label class="search">${icon("search")}<input id="gsearch" type="search" placeholder="${i18n.t("search")}" data-input="gsearch" autocomplete="off" aria-label="Búsqueda global"><div id="sresults"></div></label>
       <span class="bell-wrap"><button class="top-btn" id="bellBtn" data-action="inbox-toggle" title="Notificaciones" aria-label="Notificaciones" aria-expanded="false">${icon("bell")}</button><span class="bell-badge hidden" id="bellBadge"></span></span>
+      <button class="top-btn ${canShowInstallButton() ? "" : "hidden"}" id="pwaInstallBtn" data-action="pwa-install" title="Obtener app" aria-label="Obtener app">${icon("download")}</button>
       <button class="top-btn" data-action="theme" title="Cambiar tema" aria-label="Cambiar tema">${icon(currentTheme() === "dark" ? "sun" : "moon")}</button>
       <button class="top-btn lang-btn" data-action="lang-toggle" title="${i18n.t("language")}" aria-label="${i18n.t("language")}">${i18n.state.lang === "en" ? "ES" : "EN"}</button>
       ${db.state.demo ? "" : `<button class="top-btn" data-action="reload" title="Actualizar datos" aria-label="Actualizar datos">${icon("refresh")}</button>`}
@@ -300,6 +302,9 @@ async function start() {
     showLogin(e.message);
   }
 }
+
+registerServiceWorker();
+initInstallButton(() => { const b = document.getElementById("pwaInstallBtn"); if (b) b.classList.toggle("hidden", !canShowInstallButton()); });
 
 (async function boot() {
   app.innerHTML = `<div class="loading"><img src="assets/guvel-logo.png" alt="Cargando"></div>`;

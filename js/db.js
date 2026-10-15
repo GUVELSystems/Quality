@@ -279,10 +279,16 @@ export async function insert(t, row) {
   const data = clean(row, t);
   if (state.demo) {
     const r = { id: uuid(), created_at: new Date().toISOString(), ...data };
+    if (r.company_id === undefined) r.company_id = state.profile?.company_id ?? null;   // mismo valor por defecto que en Supabase
     if (PREFIX[t] && !r.code) {
       const prefix = t === "findings" && r.module === "internas" ? "IF" : PREFIX[t];   // folio propio para hallazgos internos
-      demo.counters[prefix] = (demo.counters[prefix] || 0) + 1;
-      r.code = `${prefix}-${String(demo.counters[prefix]).padStart(4, "0")}`;
+      const counterKey = `${r.company_id || "sin-empresa"}:${prefix}`;                 // cada empresa numera desde su propio 0001
+      // Los datos de ejemplo de GUVEL ya traían su contador con la clave vieja (sin empresa); SOLO para
+      // GUVEL se continúa desde ahí, en vez de reiniciar a 0001 en plena demo con datos ya existentes
+      // (una empresa nueva sí debe arrancar limpio desde 0001, sin heredar nada)
+      if (r.company_id === "co-guvel" && demo.counters[counterKey] === undefined && demo.counters[prefix] !== undefined) demo.counters[counterKey] = demo.counters[prefix];
+      demo.counters[counterKey] = (demo.counters[counterKey] || 0) + 1;
+      r.code = `${prefix}-${String(demo.counters[counterKey]).padStart(4, "0")}`;
     }
     if (HAS_CREATED_BY.has(t)) r.created_by = state.profile.id;
     derive(t, r);

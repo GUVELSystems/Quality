@@ -59,7 +59,7 @@ registerWs({ id: "config", label: WS_LABEL.config, tabs: [
 ] });
 
 const app = document.getElementById("app");
-const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades"];
+const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades", "soporte"];
 /** Quien no pertenece a ninguna empresa (personal puro de plataforma) no tiene nada que ver en estos módulos */
 const visibleMenu = () => { if (db.state.profile?.company_id) return MENU_COMPANY; return db.can.support ? ["soporte"] : db.can.superAdmin ? [] : MENU_COMPANY; };
 const CONFIG_MENU_BASE = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"], ["historial", "Historial", "clock"]];

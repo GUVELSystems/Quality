@@ -39,7 +39,8 @@ function layout(o: { siteUrl: string; preheader: string; title: string; body: st
   <tr><td style="padding:30px 28px 26px;font:15px/1.55 Arial,Helvetica,sans-serif;color:${INK}">
     <h1 style="margin:0 0 16px;font:700 22px/1.25 Arial,Helvetica,sans-serif;color:${INK}">${esc(o.title)}</h1>${o.body}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 8px"><tr><td style="background:${CYAN};border-radius:3px"><a href="${esc(o.button.url)}" style="display:inline-block;padding:13px 26px;font:700 15px Arial,Helvetica,sans-serif;color:${NAVY};text-decoration:none">${esc(o.button.label)}</a></td></tr></table>
-    <p style="margin:0;font:12.5px/1.5 Arial,Helvetica,sans-serif;color:${MUTED}">Si el botón no funciona, copia este enlace en tu navegador:<br><a href="${esc(o.button.url)}" style="color:#067A8E;word-break:break-all">${esc(o.button.url)}</a></p></td></tr>
+    <p style="margin:0 0 10px;font:12.5px/1.5 Arial,Helvetica,sans-serif;color:${MUTED}">Si el botón no funciona, copia este enlace en tu navegador:<br><a href="${esc(o.button.url)}" style="color:#067A8E;word-break:break-all">${esc(o.button.url)}</a></p>
+    <p style="margin:0;font:12.5px/1.5 Arial,Helvetica,sans-serif;color:${MUTED}">¿Ya tienes GUVEL Quality instalada en tu celular? Ábrela desde ahí directamente en vez de este enlace — en Android puede abrir directo en la app; en iPhone, ábrela tú mismo desde su ícono.</p></td></tr>
   <tr><td style="padding:16px 28px;background:#F4F8FB;border-top:1px solid ${LINE};font:12px/1.5 Arial,Helvetica,sans-serif;color:${MUTED}">Este mensaje es automático. Para entrar debes iniciar sesión con tu correo en GUVEL Quality.<br>GUVEL Quality</td></tr>
  </table></td></tr></table></body></html>`;
 }

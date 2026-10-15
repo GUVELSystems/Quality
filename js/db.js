@@ -13,7 +13,7 @@ export const TABLES = [
   "customer_notifications", "risks", "opportunities", "attachments",
   "lpa_levels", "finding_classes", "areas", "area_level_owners", "app_settings", "notifications", "finding_events",
   "standards", "capa_templates", "rca_templates", "finding_documents",
-  "companies", "support_grants", "support_access_log", "activity_log",
+  "companies", "support_grants", "support_access_log", "activity_log", "support_tickets",
 ];
 const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP" };
 const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);

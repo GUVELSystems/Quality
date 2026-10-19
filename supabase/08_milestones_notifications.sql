@@ -36,7 +36,7 @@ update public.findings set status = 'en_accion' where status = 'en_analisis';
 
 -- Verificación: 5 días hábiles (solo si seguía en el valor anterior de 15)
 update public.app_settings set value = '5'::jsonb, updated_at = now() where key = 'verification_days' and value = '15'::jsonb;
-insert into public.app_settings (key, value) values ('verification_days', '5'::jsonb) on conflict (key) do nothing;
+-- (el valor por defecto se siembra por empresa en 19_company_scoped_unique.sql)
 
 -- ---------------------------------------------------------------------
 -- Historial de eventos del hallazgo (trazabilidad de rechazos y cierres)

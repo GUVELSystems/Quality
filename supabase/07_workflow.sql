@@ -36,7 +36,7 @@ create table if not exists public.lpa_levels (
 );
 insert into public.lpa_levels (level, name)
 select n, 'Nivel ' || n from generate_series(1, 5) n
-on conflict (level) do nothing;
+where not exists (select 1 from public.lpa_levels l where l.level = n);
 
 -- El nivel de una auditoría ya no se limita a 1–5
 alter table public.audits drop constraint if exists audits_level_check;
@@ -79,13 +79,13 @@ create table if not exists public.area_level_owners (
 -- Migración: las áreas que ya existían como catálogo y las secciones de los checklists
 insert into public.areas (name)
 select c.name from public.classifications c where c.kind = 'area' and c.active
-on conflict (name) do nothing;
+  and not exists (select 1 from public.areas a where a.name = c.name);
 
 alter table public.form_items add column if not exists area_id uuid references public.areas(id) on delete set null;
 
 insert into public.areas (name)
 select distinct btrim(fi.section) from public.form_items fi where fi.section is not null and btrim(fi.section) <> ''
-on conflict (name) do nothing;
+  and not exists (select 1 from public.areas a where a.name = btrim(fi.section));
 
 update public.form_items fi set area_id = a.id
   from public.areas a where fi.area_id is null and fi.section is not null and a.name = btrim(fi.section);
@@ -98,8 +98,8 @@ create table if not exists public.app_settings (
   value      jsonb not null,
   updated_at timestamptz not null default now()
 );
-insert into public.app_settings (key, value) values ('verification_days', '15'::jsonb)
-on conflict (key) do nothing;
+-- (el valor por defecto de 'verification_days' se siembra más adelante, por empresa, en
+--  19_company_scoped_unique.sql — antes de que exista company_id no hay dónde ponerlo)
 
 -- ---------------------------------------------------------------------
 -- Respuestas del checklist: clasificación elegida al marcar "No cumple"

@@ -94,5 +94,4 @@ create trigger trg_findings_workflow before update on public.findings
 -- ---------------------------------------------------------------------
 -- CAPA Files ahora es solo el logo que se imprime en el PDF del 8D/4D
 -- ---------------------------------------------------------------------
-insert into public.app_settings (key, value) values ('capa_logo', 'null'::jsonb)
-  on conflict (key) do nothing;
+-- (el valor por defecto se siembra por empresa en 19_company_scoped_unique.sql)

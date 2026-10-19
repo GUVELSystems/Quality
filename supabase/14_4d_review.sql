@@ -73,6 +73,4 @@ create trigger trg_findings_workflow before update on public.findings
 
 -- El número de control ahora es por FORMATO (8D-5 Porqués, 8D-Ishikawa, 4D), no por hallazgo
 alter table public.findings drop column if exists control_number;
-insert into public.app_settings (key, value) values
-  ('control_8D_5whys', '""'::jsonb), ('control_8D_ishikawa', '""'::jsonb), ('control_4D', '""'::jsonb)
-  on conflict (key) do nothing;
+-- (los valores por defecto se siembran por empresa en 19_company_scoped_unique.sql)

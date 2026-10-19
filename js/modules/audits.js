@@ -10,6 +10,7 @@ import { notifyFindings } from "../notify.js";
 import { isDimension, parseValue, dimEval, dimSpec, specText, rangeText as dimRange, fmtNum, KINDS, SECTION_ORDER } from "../dimension.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts } from "./shared.js";
+import { t as tr } from "../i18n.js";
 
 const F = { q: "", status: "", mine: "" };
 let currentPlanId = null;
@@ -279,42 +280,42 @@ function moduleKpis(ws, type) {
   const fs = findingsOf(ws).filter((f) => !type || findingAuditType(f) === type), openF = fs.filter((f) => f.status !== "cerrado"), late = fs.filter((f) => overdueKind(f) === "cierre");
   const live = plans.filter((p) => p.end_date >= t).length;
   return `<div class="kpi-strip">
-    <div class="kpi" data-tone="info"><label>Planes vigentes</label><strong>${live}</strong><small>${plans.length} en total${type ? " · " + type : ""}</small></div>
-    <div class="kpi" data-tone="${!month.length ? "" : pct >= 90 ? "ok" : pct >= 70 ? "warn" : "danger"}"><label>Cumplimiento del mes</label><strong>${pct}%</strong><small>${done} de ${month.length} realizadas</small></div>
-    <a class="kpi" href="${H("hallazgos")}" data-tone="${openF.length ? "warn" : "ok"}"><label>Hallazgos abiertos</label><strong>${openF.length}</strong><small>${openF.filter((f) => f.status === "abierto").length} por aceptar${type ? " · de " + type : ""}</small></a>
-    <a class="kpi" href="${H("acciones")}" data-tone="${late.length ? "danger" : "ok"}"><label>Acciones vencidas</label><strong>${late.length}</strong><small>Plazo en días hábiles superado</small></a></div>`;
+    <div class="kpi" data-tone="info"><label>${tr("livePlans2")}</label><strong>${live}</strong><small>${plans.length} ${tr("total2")}${type ? " · " + type : ""}</small></div>
+    <div class="kpi" data-tone="${!month.length ? "" : pct >= 90 ? "ok" : pct >= 70 ? "warn" : "danger"}"><label>${tr("monthCompliance2")}</label><strong>${pct}%</strong><small>${done} ${tr("ofPrep")} ${month.length} ${tr("completedOf")}</small></div>
+    <a class="kpi" href="${H("hallazgos")}" data-tone="${openF.length ? "warn" : "ok"}"><label>${tr("openFindings2")}</label><strong>${openF.length}</strong><small>${openF.filter((f) => f.status === "abierto").length} ${tr("toAccept2")}${type ? " · " + tr("ofWord2") + " " + type : ""}</small></a>
+    <a class="kpi" href="${H("acciones")}" data-tone="${late.length ? "danger" : "ok"}"><label>${tr("overdueActions2")}</label><strong>${late.length}</strong><small>${tr("businessDaysExceeded")}</small></a></div>`;
 }
 
 function renderPlanes(root, params) {
   const ws = wsId(), internal = ws === "internas", type = pickType(ws, "planes", params);
   setHead({
-    title: internal ? "Planes de auditoría interna" : `Planes · ${type}`,
-    subtitle: internal ? "Planifica las auditorías internas por periodo, asigna a tu equipo y envía las notificaciones." : `Planes de auditoría ${type}: crea el calendario, asigna a tu equipo y envía las notificaciones para que realicen cada auditoría.`,
-    actions: db.can.write ? `<button class="btn primary" data-action="au-plan-new">${icon("plus")} Crear plan de auditoría${internal ? "" : " " + type}</button>` : "",
+    title: internal ? tr("internalAuditPlans") : `${tr("plansOf")} ${type}`,
+    subtitle: internal ? tr("planInternalSubtitle") : `${tr("plansOf")} ${type}: ${tr("planInternalSubtitle").toLowerCase()}`,
+    actions: db.can.write ? `<button class="btn primary" data-action="au-plan-new">${icon("plus")} ${tr("createAuditPlan")}${internal ? "" : " " + type}</button>` : "",
   });
   const plans = plansOf(ws).filter((p) => p.audit_type === type).sort((a, b) => b.start_date.localeCompare(a.start_date)), all = auditsOf(ws);
-  const body = plans.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Plan</th><th>Frecuencia</th><th>Periodo</th><th style="min-width:170px">Avance</th><th>Envío</th><th></th></tr></thead><tbody>
+  const body = plans.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>${tr("plan")}</th><th>${tr("frequency")}</th><th>${tr("period")}</th><th style="min-width:170px">${tr("progress")}</th><th>${tr("sentCol")}</th><th></th></tr></thead><tbody>
       ${plans.map((p) => { const au = all.filter((a) => a.plan_id === p.id && a.status !== "cancelada"), done = au.filter((a) => a.status === "completada").length, pct = au.length ? Math.round((done / au.length) * 100) : 0, st = p.status || "borrador";
-        return `<tr data-action="au-plan-open" data-id="${p.id}"><td><span class="title">${esc(planName(p))}</span><span class="sub mono">${esc(p.code)}</span></td><td>${p.frequency === "Custom" ? "Personalizado" : esc(p.frequency)}</td><td>${rangeText(p.start_date, p.end_date)}</td>
+        return `<tr data-action="au-plan-open" data-id="${p.id}"><td><span class="title">${esc(planName(p))}</span><span class="sub mono">${esc(p.code)}</span></td><td>${p.frequency === "Custom" ? tr("custom") : esc(p.frequency)}</td><td>${rangeText(p.start_date, p.end_date)}</td>
         <td><div class="progress"><i style="width:${pct}%"></i></div><span class="sub mono">${done}/${au.length} realizadas · ${pct}%</span></td><td>${badge(PLAN_STATUS, st)}${p.sent_at ? `<span class="sub">${fmtDate(p.sent_at.slice(0, 10))}</span>` : ""}</td>
-        <td class="end"><a class="btn sm" href="${H("plan/" + p.id)}">${icon("calendar")} Calendario</a> <button class="btn sm icon" data-action="au-export" data-id="${p.id}" title="Exportar PDF" aria-label="Exportar PDF">${icon("download")}</button></td></tr>`; }).join("")}
-      </tbody></table></div>` : empty(`Aún no hay planes ${internal ? "internos" : "de " + type}`, "Crea el primero: elige frecuencia y fecha de inicio; el calendario se genera solo.", "calendar");
+        <td class="end"><a class="btn sm" href="${H("plan/" + p.id)}">${icon("calendar")} ${tr("calendarBtn")}</a> <button class="btn sm icon" data-action="au-export" data-id="${p.id}" title="${tr("exportPdf")}" aria-label="${tr("exportPdf")}">${icon("download")}</button></td></tr>`; }).join("")}
+      </tbody></table></div>` : empty(`${tr("noPlansYet")} ${internal ? tr("internalWord") : tr("ofWord") + " " + type}`, tr("createFirstPlanHint"), "calendar");
   root.innerHTML = `<div class="stack">${typeTabs(ws, "planes", type)}${moduleKpis(ws, internal ? null : type)}<div class="panel">${body}</div></div>`;
 }
 
 function renderLista(root, params) {
   const ws = wsId(), type = pickType(ws, "lista", params), internal = ws === "internas";
-  setHead({ title: internal ? "Auditorías internas" : `Auditorías · ${type}`, subtitle: `Todas las auditorías ${internal ? "internas" : "de " + type} programadas, en proceso y completadas. Entra a una para ejecutar su checklist.` });
+  setHead({ title: internal ? tr("internalAudits") : `${tr("auditsOf")} ${type}`, subtitle: tr("allAuditsSubtitle") });
   const ids = new Set(plansOf(ws).filter((p) => p.audit_type === type).map((p) => p.id)), q = F.q.toLowerCase();
   const all = auditsOf(ws).filter((a) => ids.has(a.plan_id));
   const list = all.filter((a) => (!F.status || auditStatus(a) === F.status) && (!F.mine || a.assigned_to === db.state.profile.id) && (!q || a.code.toLowerCase().includes(q)))
     .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date));
-  root.innerHTML = `<div class="stack">${typeTabs(ws, "lista", type)}<div class="panel"><div class="toolbar"><input class="input grow" id="au-q" type="search" placeholder="Buscar por folio…" value="${esc(F.q)}" data-input="au-q">
-      <select class="select" data-change="au-filter" data-key="status"><option value="">Todos los estados</option>${Object.entries(AUDIT_STATUS).map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-      <select class="select" data-change="au-filter" data-key="mine"><option value="">Todos los auditores</option><option value="1" ${F.mine ? "selected" : ""}>Solo mis auditorías</option></select><span class="count">${list.length} auditoría(s)</span></div>
-      ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Plan</th><th>Fecha</th><th>Asignado a</th><th>Formato</th><th>Estado</th><th class="num">Resultado</th></tr></thead><tbody>
+  root.innerHTML = `<div class="stack">${typeTabs(ws, "lista", type)}<div class="panel"><div class="toolbar"><input class="input grow" id="au-q" type="search" placeholder="${tr("searchByFolio")}" value="${esc(F.q)}" data-input="au-q">
+      <select class="select" data-change="au-filter" data-key="status"><option value="">${tr("allStatuses")}</option>${Object.entries(AUDIT_STATUS).map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <select class="select" data-change="au-filter" data-key="mine"><option value="">${tr("allAuditors")}</option><option value="1" ${F.mine ? "selected" : ""}>${tr("onlyMyAudits")}</option></select><span class="count">${list.length} ${tr("auditsCount")}</span></div>
+      ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>${tr("folio")}</th><th>${tr("plan")}</th><th>${tr("scheduledDate")}</th><th>${tr("assignedTo")}</th><th>${tr("formatCol")}</th><th>${tr("statusCol")}</th><th class="num">${tr("resultCol")}</th></tr></thead><tbody>
       ${list.map((a) => { const p = db.get("audit_plans", a.plan_id), f = db.get("forms", a.form_id); return `<tr data-action="au-open" data-id="${a.id}"><td class="code">${esc(a.code)}</td><td>${esc(p?.name || p?.code || "—")}${a.level ? `<span class="sub">${esc(levelLabel(a.level))}</span>` : `<span class="sub">${esc(p?.code || "")}</span>`}</td><td>${fmtDate(a.scheduled_date)}</td><td>${esc(db.profileName(a.assigned_to))}</td><td class="mono">${esc(f?.code || "—")}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="num mono">${a.score != null ? Number(a.score).toFixed(0) + "%" : "—"}</td></tr>`; }).join("")}
-      </tbody></table></div>` : empty(`Sin auditorías ${internal ? "internas" : "de " + type}`, "No hay auditorías con los filtros actuales.", "audit")}</div></div>`;
+      </tbody></table></div>` : empty(`${tr("noAudits")} ${internal ? tr("internalWord") : tr("ofWord") + " " + type}`, tr("noAuditsFilters"), "audit")}</div></div>`;
 }
 
 function calendarView(root, planId) {

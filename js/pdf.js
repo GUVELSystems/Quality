@@ -186,6 +186,23 @@ export async function buildPlanPDF(planId) {
     });
   }
 
+  /* ---------- Procesos involucrados ---------- */
+  const procIds = [...new Set(audits.map((a) => a.process_id).filter(Boolean))];
+  if (procIds.length) {
+    const procs = procIds.map((id) => db.get("processes", id)).filter(Boolean).sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+    let py = doc.lastAutoTable.finalY + 26;
+    if (py > PH - 130) { doc.addPage(); py = M + 8; }
+    sectionTitle("Procesos involucrados", py);
+    doc.autoTable({
+      startY: py + 14, margin: { left: M, right: M, bottom: 44 }, theme: "grid",
+      head: [["Código", "Proceso", "Auditorías"]],
+      body: procs.map((p) => [p.code || "—", p.name, String(audits.filter((a) => a.process_id === p.id).length)]),
+      styles: { font: "helvetica", fontSize: 8.5, cellPadding: 5, lineColor: C.line, lineWidth: 0.4, textColor: C.ink },
+      headStyles: { fillColor: C.navy, textColor: C.white, fontStyle: "bold", fontSize: 8 },
+      alternateRowStyles: { fillColor: C.panel }, columnStyles: { 0: { fontStyle: "bold", cellWidth: 70 }, 2: { halign: "center", cellWidth: 80 } },
+    });
+  }
+
   /* ---------- Pie de página ---------- */
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {

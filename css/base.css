@@ -159,7 +159,7 @@ strong, b { font-weight: 600; }
   .topbar { flex-wrap: wrap; gap: 0 12px; padding: 6px 14px 0; }
   .brand { min-height: 46px; }
   .top-actions { margin-left: auto; min-height: 46px; }
-  .top-nav { order: 3; flex-basis: 100%; margin: 0 -14px; padding: 0 6px; border-top: 1px solid #22354F; }
+  .top-nav { order: 3; flex-basis: 100%; margin: 0 -14px; padding: 0 6px; border-top: 1px solid #22354F; background: var(--glass-navy-dense); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
   .nav-item { min-height: 46px; }
   .content { padding: 18px 16px 40px; }
   .brand-product { display: none; }

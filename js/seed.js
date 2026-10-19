@@ -48,6 +48,12 @@ export function buildSeed() {
   const areas = areaList.map(([name, owner_id]) => ({ id: uuid(), name, owner_id, active: true, created_at: daysAgoISO(80) }));
   const area = (n) => areas.find((a) => a.name === n);
   const area_level_owners = [];
+
+  /* Procesos a auditar (para LPA) */
+  const processList = ["Inyección de plástico", "Ensamble final", "Soldadura", "Empaque"];
+  const processes = processList.map((name, i) => ({ id: uuid(), code: `PI-${String(i + 1).padStart(2, "0")}`, name, active: true, created_at: daysAgoISO(80) }));
+  const process = (n) => processes.find((p) => p.name === n);
+  counters.PI = processes.length;   // para que el próximo proceso que se cree en vivo siga desde aquí, no reinicie
   [["Calidad", 1, "u-juan"], ["Calidad", 2, "u-carlos"], ["Calidad", 3, "u-pedro"], ["Producción", 1, "u-juan"], ["Producción", 2, "u-maria"], ["Almacén", 2, "u-pedro"]]
     .forEach(([a, level, owner_id]) => area_level_owners.push({ id: uuid(), area_id: area(a).id, level, owner_id }));
   const ownerFor = (areaName, level) => area_level_owners.find((r) => r.area_id === area(areaName).id && r.level === level)?.owner_id || area(areaName).owner_id;
@@ -126,14 +132,14 @@ export function buildSeed() {
   ];
   const audits = [], audit_answers = [];
   const auditors = ["u-juan", "u-maria", "u-carlos"];
-  const addAudits = (plan, form, step, who, levelCycle) => {
+  const addAudits = (plan, form, step, who, levelCycle, withProcess) => {
     for (let k = 0, d = plan.start_date; d <= plan.end_date; k++, d = addDays(d, step)) {
       const past = d < addDays(T, -1);
       let status = "programada";
       if (past && k % 5 !== 3) status = "completada";
       if (d === T) status = "en_proceso";
       const level = levelCycle ? (k % 3) + 1 : null;
-      const a = { id: uuid(), code: code("AUD"), plan_id: plan.id, scheduled_date: d, assigned_to: who[k % who.length], level, process_area_id: plan.audit_type === "Interna" ? [area("Calidad").id, area("Producción").id, area("Almacén").id][k % 3] : null, form_id: form.id, due_at: iso(d + "T17:00:00"), status, score: null, notes: null, completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1), notified_at: plan.status === "enviado" ? daysAgoISO(4) : null, notified_to: plan.status === "enviado" ? who[k % who.length] : null };
+      const a = { id: uuid(), code: code("AUD"), plan_id: plan.id, scheduled_date: d, assigned_to: who[k % who.length], level, process_id: withProcess ? processes[k % processes.length].id : null, process_area_id: plan.audit_type === "Interna" ? [area("Calidad").id, area("Producción").id, area("Almacén").id][k % 3] : null, form_id: form.id, due_at: iso(d + "T17:00:00"), status, score: null, notes: null, completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1), notified_at: plan.status === "enviado" ? daysAgoISO(4) : null, notified_to: plan.status === "enviado" ? who[k % who.length] : null };
       if (status === "completada") {
         const items = form_items.filter((i) => i.form_id === form.id);
         let ok = 0, nok = 0;
@@ -157,11 +163,16 @@ export function buildSeed() {
       audits.push(a);
     }
   };
-  addAudits(audit_plans[0], fLPA, 7, auditors, true);
-  addAudits(audit_plans[1], fPRO, 14, ["u-juan", "u-carlos"], false);
-  addAudits(audit_plans[2], fINT, 9, ["u-maria", "u-carlos"], false);
+  addAudits(audit_plans[0], fLPA, 7, auditors, true, true);
+  addAudits(audit_plans[1], fPRO, 14, ["u-juan", "u-carlos"], false, false);
+  addAudits(audit_plans[2], fINT, 9, ["u-maria", "u-carlos"], false, false);
   const sat = (() => { for (let d = audit_plans[0].start_date; d <= audit_plans[0].end_date; d = addDays(d, 1)) if (d > T && new Date(d + "T12:00:00").getDay() === 6) return d; return null; })();
-  if (sat) audits.push({ id: uuid(), code: code("AUD"), plan_id: audit_plans[0].id, scheduled_date: sat, assigned_to: "u-juan", level: 2, form_id: fLPA.id, due_at: iso(sat + "T17:00:00"), status: "programada", score: null, notes: "Turno especial en sábado", completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1), notified_at: null, notified_to: null });
+  if (sat) audits.push({ id: uuid(), code: code("AUD"), plan_id: audit_plans[0].id, scheduled_date: sat, assigned_to: "u-juan", level: 2, process_id: process("Ensamble final").id, form_id: fLPA.id, due_at: iso(sat + "T17:00:00"), status: "programada", score: null, notes: "Turno especial en sábado", completed_at: null, created_by: "u-maria", created_at: daysAgoISO(30), updated_at: daysAgoISO(1), notified_at: null, notified_to: null });
+  // Una auditoría de Nivel 3 (LPA) y una de Producto SIEMPRE pendientes (sin importar qué día real sea
+  // hoy), para poder hacer su checklist en cualquier momento — las del ciclo normal van quedando
+  // "completada" con el paso del tiempo real.
+  audits.push({ id: uuid(), code: code("AUD"), plan_id: audit_plans[0].id, scheduled_date: T, assigned_to: "u-pedro", level: 3, process_id: process("Soldadura").id, form_id: fLPA.id, due_at: iso(T + "T17:00:00"), status: "en_proceso", score: null, notes: null, completed_at: null, created_by: "u-maria", created_at: daysAgoISO(2), updated_at: daysAgoISO(1), notified_at: daysAgoISO(2), notified_to: "u-pedro" });
+  audits.push({ id: uuid(), code: code("AUD"), plan_id: audit_plans[1].id, scheduled_date: T, assigned_to: "u-juan", level: null, form_id: fPRO.id, due_at: iso(T + "T17:00:00"), status: "programada", score: null, notes: null, completed_at: null, created_by: "u-maria", created_at: daysAgoISO(2), updated_at: daysAgoISO(1), notified_at: daysAgoISO(2), notified_to: "u-juan" });
 
   /* Hallazgos de ejemplo en cada etapa del flujo */
   const [cNorte, cDelta, cAurora, cMetal] = clients;
@@ -330,7 +341,7 @@ export function buildSeed() {
   ];
 
   const companies = [{ id: "co-guvel", name: "GUVEL", slug: "guvel", status: "active", created_at: daysAgoISO(400) }];
-  const tables = { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions: [], customer_notifications: notifs, risks, opportunities, attachments: [], lpa_levels, finding_classes, areas, area_level_owners, app_settings, notifications, finding_events, standards, capa_templates, rca_templates, finding_documents, companies, support_grants: [], support_access_log: [] };
+  const tables = { profiles, clients, classifications: cls, forms, form_items, audit_plans, audits, audit_answers, findings, actions: [], customer_notifications: notifs, risks, opportunities, attachments: [], lpa_levels, finding_classes, areas, processes, area_level_owners, app_settings, notifications, finding_events, standards, capa_templates, rca_templates, finding_documents, companies, support_grants: [], support_access_log: [] };
   // Todo lo de la demo pertenece a GUVEL (en producción cada fila queda marcada por las reglas de seguridad)
   for (const [name, rows] of Object.entries(tables)) if (name !== "companies") for (const r of rows) if (!r.platform_role) r.company_id ??= "co-guvel";
   return { currentUser: "u-carlos", counters, tables };

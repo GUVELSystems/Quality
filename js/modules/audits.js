@@ -159,6 +159,7 @@ function scheduleForm(audit, plan, date) {
       { name: "assigned_to", label: "Asignado a", type: "select", options: staff().map((p) => [p.id, p.full_name]) },
       ...(internal ? [{ name: "process_area_id", label: "Proceso declarado a auditar", type: "select", required: true, span2: true, options: areaOptions(), hint: "El proceso real que se auditará en esta visita; el responsable se muestra a la derecha." }] : []),
       ...(type === "LPA" || internal ? [{ name: "level", label: internal ? "Nivel (opcional)" : "Nivel (LPA)", type: "select", options: internal ? [["", "— Sin nivel —"], ...levelOptions()] : levelOptions(), parse: (v) => (v ? Number(v) : null) }] : []),
+      ...(type === "LPA" ? [{ name: "process_id", label: "Proceso a auditar", type: "select", options: [["", "— Sin proceso —"], ...db.rows("processes").filter((p) => p.active).sort((a, b) => (a.code || "").localeCompare(b.code || "")).map((p) => [p.id, `${p.code} · ${p.name}`])], parse: (v) => v || null }] : []),
       { name: "form_id", label: "Formato / checklist", type: "select", options: db.rows("forms").filter((f) => f.active && (!type || f.audit_type === type)).map((f) => [f.id, `${f.code} · ${f.name}`]) },
       { name: "due_at", label: "Límite de entrega", type: "datetime" },
       ...(audit ? [{ name: "status", label: "Estado", type: "select", required: true, options: ["programada", "en_proceso", "completada", "cancelada"].map((s) => [s, AUDIT_STATUS[s][0]]) }] : []),
@@ -199,7 +200,8 @@ function bulkAssign(plan) {
         <div class="pick-list" id="b-people">${people.map((p) => `<label><input type="checkbox" value="${p.id}">${esc(p.full_name)}<small>${esc(p.area || "")}</small></label>`).join("") || '<div class="muted" style="padding:12px">No hay usuarios con rol de auditor.</div>'}</div></div>
       <div class="wiz-step"><div class="wiz-label"><i>3</i>Formato y límite</div><div class="form-grid">
         <label class="field span-2"><span>Formato / checklist</span><select class="select" id="b-form">${forms.map((f) => `<option value="${f.id}">${esc(f.code)} · ${esc(f.name)}</option>`).join("")}</select></label>
-        ${plan.audit_type === "LPA" ? `<label class="field"><span>Nivel (LPA)</span><select class="select" id="b-level">${levelOptions().map(([n, l]) => `<option value="${n}">${esc(l)}</option>`).join("")}</select></label>` : ""}
+        ${plan.audit_type === "LPA" ? `<label class="field"><span>Nivel (LPA)</span><select class="select" id="b-level">${levelOptions().map(([n, l]) => `<option value="${n}">${esc(l)}</option>`).join("")}</select></label>
+        <label class="field"><span>Proceso a auditar</span><select class="select" id="b-process"><option value="">— Sin proceso —</option>${db.rows("processes").filter((p) => p.active).sort((a, b) => (a.code || "").localeCompare(b.code || "")).map((p) => `<option value="${p.id}">${esc(p.code)} · ${esc(p.name)}</option>`).join("")}</select></label>` : ""}
         <label class="field"><span>Hora límite de entrega</span><input class="input" type="time" id="b-time" value="17:00"></label>
         <label class="check span-2"><input type="checkbox" id="b-skip" checked> Omitir días que ya tienen una auditoría</label></div></div>
       <div class="note" id="b-sum"></div><div class="alert hidden" id="b-err" style="margin-top:12px"></div>`,
@@ -221,7 +223,7 @@ function bulkAssign(plan) {
     e.target.disabled = true;
     try {
       for (const [i, d] of list.entries()) {
-        await db.insert("audits", { plan_id: plan.id, scheduled_date: d, assigned_to: who.length ? who[i % who.length] : null, form_id: $("#b-form").value || null, level: $("#b-level") ? Number($("#b-level").value) : null, due_at: new Date(`${d}T${$("#b-time").value || "17:00"}:00`).toISOString(), status: "programada" });
+        await db.insert("audits", { plan_id: plan.id, scheduled_date: d, assigned_to: who.length ? who[i % who.length] : null, form_id: $("#b-form").value || null, level: $("#b-level") ? Number($("#b-level").value) : null, process_id: $("#b-process")?.value || null, due_at: new Date(`${d}T${$("#b-time").value || "17:00"}:00`).toISOString(), status: "programada" });
       }
       dlg.close(); toast(`${list.length} auditoría(s) creadas`, "ok"); await rerender();
     } catch (ex) { $("#b-err").textContent = ex.message; $("#b-err").classList.remove("hidden"); e.target.disabled = false; }
@@ -314,7 +316,7 @@ function renderLista(root, params) {
       <select class="select" data-change="au-filter" data-key="status"><option value="">${tr("allStatuses")}</option>${Object.entries(AUDIT_STATUS).map(([k, [l]]) => `<option value="${k}" ${F.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>
       <select class="select" data-change="au-filter" data-key="mine"><option value="">${tr("allAuditors")}</option><option value="1" ${F.mine ? "selected" : ""}>${tr("onlyMyAudits")}</option></select><span class="count">${list.length} ${tr("auditsCount")}</span></div>
       ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>${tr("folio")}</th><th>${tr("plan")}</th><th>${tr("scheduledDate")}</th><th>${tr("assignedTo")}</th><th>${tr("formatCol")}</th><th>${tr("statusCol")}</th><th class="num">${tr("resultCol")}</th></tr></thead><tbody>
-      ${list.map((a) => { const p = db.get("audit_plans", a.plan_id), f = db.get("forms", a.form_id); return `<tr data-action="au-open" data-id="${a.id}"><td class="code">${esc(a.code)}</td><td>${esc(p?.name || p?.code || "—")}${a.level ? `<span class="sub">${esc(levelLabel(a.level))}</span>` : `<span class="sub">${esc(p?.code || "")}</span>`}</td><td>${fmtDate(a.scheduled_date)}</td><td>${esc(db.profileName(a.assigned_to))}</td><td class="mono">${esc(f?.code || "—")}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="num mono">${a.score != null ? Number(a.score).toFixed(0) + "%" : "—"}</td></tr>`; }).join("")}
+      ${list.map((a) => { const p = db.get("audit_plans", a.plan_id), f = db.get("forms", a.form_id), proc = a.process_id ? db.get("processes", a.process_id) : null; return `<tr data-action="au-open" data-id="${a.id}"><td class="code">${esc(a.code)}</td><td>${esc(p?.name || p?.code || "—")}${a.level ? `<span class="sub">${esc(levelLabel(a.level))}${proc ? " · " + esc(proc.code) : ""}</span>` : `<span class="sub">${esc(p?.code || "")}</span>`}</td><td>${fmtDate(a.scheduled_date)}</td><td>${esc(db.profileName(a.assigned_to))}</td><td class="mono">${esc(f?.code || "—")}</td><td>${badge(AUDIT_STATUS, auditStatus(a))}</td><td class="num mono">${a.score != null ? Number(a.score).toFixed(0) + "%" : "—"}</td></tr>`; }).join("")}
       </tbody></table></div>` : empty(`${tr("noAudits")} ${internal ? tr("internalWord") : tr("ofWord") + " " + type}`, tr("noAuditsFilters"), "audit")}</div></div>`;
 }
 
@@ -341,7 +343,7 @@ function calendarView(root, planId) {
     const dd = parseDate(d), showMon = inR && (dd.getDate() === 1 || d === plan.start_date);
     if (!inR) return `<div class="day out"><div class="day-top"><span class="day-num" style="color:var(--text-3)">${dd.getDate()}</span></div></div>`;
     return `<div class="day ${off ? "weekend" : ""} ${d === t ? "today" : ""}"><div class="day-top"><span class="day-num">${dd.getDate()}${showMon ? ` <span class="day-mon">${fmtDate(d).split(" ")[1]}</span>` : ""}</span>${off ? '<span class="day-off">Inhábil</span>' : ""}</div>
-      ${list.map((a) => { const un = !a.assigned_to; return `<button class="slot ${un ? "unassigned" : ""}" data-action="au-slot" data-id="${a.id}" data-status="${auditStatus(a)}"><b><span>${esc(a.code)}${a.level ? " · N" + a.level : ""}</span>${a.notified_at && a.notified_to === a.assigned_to ? icon("mail") : ""}</b><small>${un ? "Sin asignar" : esc(firstName(a.assigned_to))}</small></button>`; }).join("")}
+      ${list.map((a) => { const un = !a.assigned_to, proc = a.process_id ? db.get("processes", a.process_id) : null; return `<button class="slot ${un ? "unassigned" : ""}" data-action="au-slot" data-id="${a.id}" data-status="${auditStatus(a)}"><b><span>${esc(a.code)}${a.level ? " · N" + a.level : ""}</span>${a.notified_at && a.notified_to === a.assigned_to ? icon("mail") : ""}</b><small>${un ? "Sin asignar" : esc(firstName(a.assigned_to))}${proc ? " · " + esc(proc.code) : ""}</small></button>`; }).join("")}
       ${db.can.write ? `<button class="add-day" data-action="au-add" data-date="${d}">＋ ${off ? "Habilitar y asignar" : "Asignar"}</button>` : ""}</div>`;
   };
   root.innerHTML = `<div class="stack">

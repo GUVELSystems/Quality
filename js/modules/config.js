@@ -103,22 +103,64 @@ function areaForm(area) {
 }
 
 let areaQ = "";
-export const areas = {
-  id: "areas", label: "Áreas", icon: "area",
-  render(root) {
-    setHead({ title: "Áreas", subtitle: "Áreas de la planta con su responsable y los responsables por nivel de LPA. Los formatos asignan cada pregunta a un área.", actions: db.can.manage ? `<button class="btn primary" data-action="ar-new">${icon("plus")} Nueva área</button>` : "" });
-    const list = db.rows("areas").filter((a) => !areaQ || a.name.toLowerCase().includes(areaQ)).sort((a, b) => a.name.localeCompare(b.name));
-    root.innerHTML = `<div class="panel">
+function areasHTML() {
+  const list = db.rows("areas").filter((a) => !areaQ || a.name.toLowerCase().includes(areaQ)).sort((a, b) => a.name.localeCompare(b.name));
+  return `<div class="panel">
       <div class="toolbar"><input class="input grow" id="ar-q" type="search" placeholder="Buscar área…" value="${esc(areaQ)}" data-input="ar-q"><span class="count">${list.length} área(s)</span></div>
       ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Área</th><th>Dueño</th><th>Responsables por nivel</th><th>Preguntas</th><th>Estado</th></tr></thead><tbody>
       ${list.map((a) => { const o = ownersOf(a.id); return `<tr ${db.can.manage ? `data-action="ar-edit" data-id="${a.id}"` : ""}><td><span class="title">${esc(a.name)}</span></td><td>${esc(db.profileName(a.owner_id))}</td>
         <td>${o.length ? o.map((r) => `<span class="badge" data-tone="info" style="margin:2px 10px 2px 0;text-transform:none">N${r.level} · ${esc(db.profileName(r.owner_id).split(" ")[0])}</span>`).join("") : '<span class="muted">Solo el dueño</span>'}</td>
         <td class="mono">${db.rows("form_items").filter((i) => i.area_id === a.id).length}</td><td>${yesNo(a.active)}</td></tr>`; }).join("")}</tbody></table></div>` : empty("Sin áreas", "Crea tu primera área, por ejemplo «Calidad».", "area")}</div>`;
-  },
-};
+}
 on("ar-new", () => areaForm(null));
 on("ar-edit", (el) => areaForm(db.get("areas", el.dataset.id)));
 onInput("ar-q", (el) => { areaQ = el.value.toLowerCase(); const p = el.selectionStart; rerender().then(() => { const i = document.getElementById("ar-q"); i?.focus(); i?.setSelectionRange(p, p); }); });
+
+/* ------------------------------ Procesos a auditar (para LPA) ------------------------------ */
+let processQ = "";
+function processesHTML() {
+  const list = db.rows("processes").filter((p) => !processQ || p.name.toLowerCase().includes(processQ)).sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+  return `<div class="panel">
+    <div class="toolbar"><input class="input grow" id="pr-q" type="search" placeholder="Buscar proceso…" value="${esc(processQ)}" data-input="pr-q"><span class="count">${list.length} proceso(s)</span></div>
+    ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>Proceso</th><th>Estado</th></tr></thead><tbody>
+    ${list.map((p) => `<tr ${db.can.manage ? `data-action="pr-edit" data-id="${p.id}"` : ""}><td class="mono">${esc(p.code || "—")}</td><td><span class="title">${esc(p.name)}</span></td><td>${yesNo(p.active)}</td></tr>`).join("")}
+    </tbody></table></div>` : empty("Sin procesos", "Crea el primero, por ejemplo «Inyección de plástico».", "process")}</div>`;
+}
+function processForm(process) {
+  openForm({
+    eyebrow: "Áreas y Procesos", title: process ? "Editar proceso" : "Nuevo proceso", submitLabel: "Guardar",
+    fields: [
+      { name: "name", label: "Nombre del proceso", required: true, span2: true },
+      ...(process ? [{ name: "active", label: "Activo", type: "checkbox" }] : []),
+    ],
+    values: process || { active: true },
+    onSubmit: async (v) => {
+      if (process) await db.update("processes", process.id, { name: v.name.trim(), active: !!v.active });
+      else await db.insert("processes", { name: v.name.trim(), active: true });
+      toast(process ? "Proceso actualizado" : "Proceso creado", "ok"); await rerender();
+    },
+    onDelete: process && db.can.manage ? async () => { await db.remove("processes", process.id); toast("Proceso eliminado"); await rerender(); } : null,
+  });
+}
+on("processes-new", () => processForm(null));
+on("pr-edit", (el) => processForm(db.get("processes", el.dataset.id)));
+onInput("pr-q", (el) => { processQ = el.value.toLowerCase(); const p = el.selectionStart; rerender().then(() => { const i = document.getElementById("pr-q"); i?.focus(); i?.setSelectionRange(p, p); }); });
+
+/* ------------------------------ Áreas y Procesos en una sola pantalla ----------------------- */
+let areasProcessesSel = "areas";
+export const areasAndProcesses = {
+  id: "areas", label: "Áreas y Procesos", icon: "area",
+  render(root) {
+    const tabs = [["areas", "Áreas"], ["processes", "Procesos"]];
+    setHead({
+      title: "Áreas y Procesos", subtitle: "Áreas de la planta con su responsable, y los procesos que se pueden auditar (por ejemplo en LPA).",
+      actions: areasProcessesSel === "areas" ? (db.can.manage ? `<button class="btn primary" data-action="ar-new">${icon("plus")} Nueva área</button>` : "") : (db.can.manage ? `<button class="btn primary" data-action="processes-new">${icon("plus")} Nuevo proceso</button>` : ""),
+    });
+    const tabsHTML = `<div class="type-tabs" role="tablist" aria-label="Áreas y Procesos">${tabs.map(([k, l]) => `<button type="button" class="type-tab ${k === areasProcessesSel ? "active" : ""}" role="tab" aria-selected="${k === areasProcessesSel}" data-action="arpr-tab" data-tab="${k}"><span class="tt-txt"><b>${l}</b><small>${db.rows(k).length} registro(s)</small></span></button>`).join("")}</div>`;
+    root.innerHTML = `<div class="stack">${tabsHTML}<div id="arpr-body">${areasProcessesSel === "areas" ? areasHTML() : processesHTML()}</div></div>`;
+  },
+};
+on("arpr-tab", (el) => { areasProcessesSel = el.dataset.tab; rerender(); });
 
 /* ------------------ Clasificaciones y niveles en una sola página ----------------- */
 export const classesAndLevels = {

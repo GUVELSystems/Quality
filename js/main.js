@@ -15,7 +15,7 @@ import actions from "./modules/actions.js";
 import notifications from "./modules/notifications.js";
 import { risks, opportunities, clients, classifications, users } from "./modules/catalogs.js";
 import forms from "./modules/forms.js";
-import { classesAndLevels, areas, standards, capaFiles } from "./modules/config.js";
+import { classesAndLevels, areasAndProcesses, standards, capaFiles } from "./modules/config.js";
 import portales, { isSuperAdmin } from "./modules/superadmin.js";
 import soporte from "./modules/support.js";
 import historial from "./modules/historial.js";
@@ -49,7 +49,7 @@ registerWs({ id: "oportunidades", label: WS_LABEL.oportunidades, hideTabs: true,
 registerWs({ id: "config", label: WS_LABEL.config, tabs: [
   { id: "clientes", label: "Clientes", icon: "client", render: clients.render },
   { id: "clasificaciones", label: "Clasificaciones y niveles", icon: "tag", render: classesAndLevels.render },
-  { id: "areas", label: "Áreas", icon: "area", render: areas.render },
+  { id: "areas", label: "Áreas y Procesos", icon: "area", render: areasAndProcesses.render },
   { id: "normas", label: "Normas", icon: "standard", render: standards.render },
   { id: "capa", label: "CAPA Files", icon: "capa", render: capaFiles.render },
   { id: "catalogos", label: "Catálogos", icon: "list", render: classifications.render },
@@ -62,7 +62,7 @@ const app = document.getElementById("app");
 const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades", "soporte"];
 /** Quien no pertenece a ninguna empresa (personal puro de plataforma) no tiene nada que ver en estos módulos */
 const visibleMenu = () => { if (db.state.profile?.company_id) return MENU_COMPANY; return db.can.support ? ["soporte"] : db.can.superAdmin ? [] : MENU_COMPANY; };
-const CONFIG_MENU_BASE = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"], ["historial", "Historial", "clock"]];
+const CONFIG_MENU_BASE = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas y Procesos", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"], ["historial", "Historial", "clock"]];
 /** "Portales" solo aparece para quien tenga permiso de Super Admin en el portal de casa de GUVEL */
 const configMenu = () => (isSuperAdmin() ? [...CONFIG_MENU_BASE, ["portales", "Empresas", "monitor"]] : CONFIG_MENU_BASE);
 const MENU_ICON = WS_ICON;

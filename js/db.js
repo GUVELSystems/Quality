@@ -11,11 +11,12 @@ export const TABLES = [
   "profiles", "clients", "classifications", "forms", "form_items",
   "audit_plans", "audits", "audit_answers", "findings", "actions",
   "customer_notifications", "risks", "opportunities", "attachments",
-  "lpa_levels", "finding_classes", "areas", "area_level_owners", "app_settings", "notifications", "finding_events",
+  "lpa_levels", "finding_classes", "areas", "processes", "area_level_owners", "app_settings", "notifications", "finding_events",
   "standards", "capa_templates", "rca_templates", "finding_documents",
   "companies", "support_grants", "support_access_log", "activity_log", "support_tickets",
 ];
-const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP" };
+const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP", processes: "PI" };
+const CODE_DIGITS = { processes: 2 };   // PI-01, no PI-0001 — el resto sigue con 4 dígitos
 const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);
 const READONLY = new Set(["id", "created_at", "updated_at", "created_by"]);
 const GENERATED = { risks: ["score"] }; // columnas calculadas por la base de datos
@@ -288,7 +289,7 @@ export async function insert(t, row) {
       // (una empresa nueva sí debe arrancar limpio desde 0001, sin heredar nada)
       if (r.company_id === "co-guvel" && demo.counters[counterKey] === undefined && demo.counters[prefix] !== undefined) demo.counters[counterKey] = demo.counters[prefix];
       demo.counters[counterKey] = (demo.counters[counterKey] || 0) + 1;
-      r.code = `${prefix}-${String(demo.counters[counterKey]).padStart(4, "0")}`;
+      r.code = `${prefix}-${String(demo.counters[counterKey]).padStart(CODE_DIGITS[t] || 4, "0")}`;
     }
     if (HAS_CREATED_BY.has(t)) r.created_by = state.profile.id;
     derive(t, r);

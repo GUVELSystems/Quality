@@ -135,7 +135,7 @@ export async function buildPlanPDF(planId) {
         fill(statusColor(a, effStatus(a))); doc.rect(x + 4, cy, 2.5, 15, "F");
         doc.setFont("helvetica", "bold"); doc.setFontSize(6.6); ink(C.ink); doc.text(a.code, x + 10, cy + 6.3);
         doc.setFont("helvetica", "normal"); doc.setFontSize(6.6); ink(C.t2);
-        doc.text(`${shortName(p)}${a.level ? " · N" + a.level : ""}`, x + 10, cy + 12.6, { maxWidth: colW - 18 });
+        doc.text(`${shortName(p)}${a.level ? " · N" + a.level : ""}${a.process_id ? " · " + (db.get("processes", a.process_id)?.code || "") : ""}`, x + 10, cy + 12.6, { maxWidth: colW - 18 });
       });
       if (list.length > 4) { doc.setFont("helvetica", "bold"); doc.setFontSize(6.6); ink(C.t2); doc.text(`+${list.length - 4} más`, x + 8, y + 20 + 4 * 17 + 8); }
     });
@@ -155,8 +155,8 @@ export async function buildPlanPDF(planId) {
   const form = (id) => db.get("forms", id);
   doc.autoTable({
     startY: M + 22, margin: { left: M, right: M, bottom: 44 }, theme: "grid",
-    head: [["Fecha", "Folio", "Auditor", "Tipo / Nivel", "Formato", "Límite de entrega", "Estado"]],
-    body: audits.map((a) => [shortDate(a.scheduled_date), a.code, db.get("profiles", a.assigned_to)?.full_name || "Sin asignar", `${plan.audit_type}${a.level ? " · Nivel " + a.level : ""}`, form(a.form_id)?.code || "—", fmtDateTime(a.due_at), AUDIT_STATUS[effStatus(a)]?.[0] || a.status]),
+    head: [["Fecha", "Folio", "Auditor", "Tipo / Nivel", "Proceso", "Formato", "Límite de entrega", "Estado"]],
+    body: audits.map((a) => [shortDate(a.scheduled_date), a.code, db.get("profiles", a.assigned_to)?.full_name || "Sin asignar", `${plan.audit_type}${a.level ? " · Nivel " + a.level : ""}`, a.process_id ? (db.get("processes", a.process_id)?.code || "—") : "—", form(a.form_id)?.code || "—", fmtDateTime(a.due_at), AUDIT_STATUS[effStatus(a)]?.[0] || a.status]),
     styles: { font: "helvetica", fontSize: 8.5, cellPadding: 5, lineColor: C.line, lineWidth: 0.4, textColor: C.ink },
     headStyles: { fillColor: C.navy, textColor: C.white, fontStyle: "bold", fontSize: 8 },
     alternateRowStyles: { fillColor: C.panel },

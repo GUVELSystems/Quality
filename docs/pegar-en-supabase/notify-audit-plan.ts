@@ -7,7 +7,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 // compatibles con Outlook/Gmail). Funciones puras: sin dependencias de Deno.
 
 interface PlanInfo { id: string; code: string; name: string | null; audit_type: string; frequency: string; start_date: string; end_date: string; notes?: string | null }
-interface AuditInfo { id: string; code: string; scheduled_date: string; due_at: string | null; level: number | null; form_name: string | null; notes?: string | null }
+interface AuditInfo { id: string; code: string; scheduled_date: string; due_at: string | null; level: number | null; process_code: string | null; form_name: string | null; notes?: string | null }
 
 const NAVY = "#0F1B2D", CYAN = "#0CC0DF", ICE = "#EAF2F8", INK = "#0F1B2D", MUTED = "#52647A", LINE = "#DDE6EE";
 
@@ -47,13 +47,13 @@ const row = (k: string, v: string): string => `<tr><td style="padding:9px 12px;b
 function planEmail(o: { person: string; plan: PlanInfo; audits: AuditInfo[]; siteUrl: string }): { subject: string; html: string; text: string } {
   const n = o.audits.length;
   const planUrl = `${o.siteUrl.replace(/\/$/, "")}/#/audits/plan/${o.plan.id}`;
-  const lines = o.audits.map((a) => `<tr><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:600 14px Arial,Helvetica,sans-serif">${esc(dateShort(a.scheduled_date))}</td><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:600 13px Arial,Helvetica,sans-serif;color:#067A8E">${esc(a.code)}</td><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:14px Arial,Helvetica,sans-serif">${a.level ? "Nivel " + a.level : "—"}</td><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:13px Arial,Helvetica,sans-serif;color:${MUTED}">${esc(dateTime(a.due_at))}</td></tr>`).join("");
+  const lines = o.audits.map((a) => `<tr><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:600 14px Arial,Helvetica,sans-serif">${esc(dateShort(a.scheduled_date))}</td><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:600 13px Arial,Helvetica,sans-serif;color:#067A8E">${esc(a.code)}</td><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:14px Arial,Helvetica,sans-serif">${a.level ? "Nivel " + a.level : "—"}</td><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:14px Arial,Helvetica,sans-serif">${a.process_code ? esc(a.process_code) : "—"}</td><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:13px Arial,Helvetica,sans-serif;color:${MUTED}">${esc(dateTime(a.due_at))}</td></tr>`).join("");
   const body = `<p style="margin:0 0 14px">Hola <b>${esc(o.person)}</b>,</p>
    <p style="margin:0 0 18px">Se te asignaron <b>${n} auditoría${n === 1 ? "" : "s"}</b> en el plan <b>${esc(planTitle(o.plan))}</b> (${esc(o.plan.audit_type)} · ${esc(freq(o.plan.frequency))}, ${esc(range(o.plan))}).</p>
-   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${LINE};border-collapse:collapse"><tr style="background:#F4F8FB"><th align="left" style="padding:9px 12px;font:700 11.5px Arial,Helvetica,sans-serif;color:${MUTED};letter-spacing:.5px">FECHA</th><th align="left" style="padding:9px 12px;font:700 11.5px Arial,Helvetica,sans-serif;color:${MUTED}">FOLIO</th><th align="left" style="padding:9px 12px;font:700 11.5px Arial,Helvetica,sans-serif;color:${MUTED}">NIVEL</th><th align="left" style="padding:9px 12px;font:700 11.5px Arial,Helvetica,sans-serif;color:${MUTED}">LÍMITE</th></tr>${lines}</table>
+   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${LINE};border-collapse:collapse"><tr style="background:#F4F8FB"><th align="left" style="padding:9px 12px;font:700 11.5px Arial,Helvetica,sans-serif;color:${MUTED};letter-spacing:.5px">FECHA</th><th align="left" style="padding:9px 12px;font:700 11.5px Arial,Helvetica,sans-serif;color:${MUTED}">FOLIO</th><th align="left" style="padding:9px 12px;font:700 11.5px Arial,Helvetica,sans-serif;color:${MUTED}">NIVEL</th><th align="left" style="padding:9px 12px;font:700 11.5px Arial,Helvetica,sans-serif;color:${MUTED}">PROCESO</th><th align="left" style="padding:9px 12px;font:700 11.5px Arial,Helvetica,sans-serif;color:${MUTED}">LÍMITE</th></tr>${lines}</table>
    <p style="margin:16px 0 0;color:${MUTED};font-size:13.5px">Recibirás un aviso individual por cada auditoría. Adjuntamos el plan completo en PDF.</p>${o.plan.notes ? `<p style="margin:12px 0 0;font-size:13.5px"><b>Notas:</b> ${esc(o.plan.notes)}</p>` : ""}`;
   const subject = `Plan de auditoría ${o.plan.code}: ${n} auditoría${n === 1 ? "" : "s"} asignada${n === 1 ? "" : "s"}`;
-  const text = `Hola ${o.person},\n\nSe te asignaron ${n} auditoría(s) en el plan ${planTitle(o.plan)} (${o.plan.audit_type}, ${range(o.plan)}).\n\n${o.audits.map((a) => `- ${dateShort(a.scheduled_date)} · ${a.code}${a.level ? " · Nivel " + a.level : ""} · límite ${dateTime(a.due_at)}`).join("\n")}\n\nVer el plan: ${planUrl}\n`;
+  const text = `Hola ${o.person},\n\nSe te asignaron ${n} auditoría(s) en el plan ${planTitle(o.plan)} (${o.plan.audit_type}, ${range(o.plan)}).\n\n${o.audits.map((a) => `- ${dateShort(a.scheduled_date)} · ${a.code}${a.level ? " · Nivel " + a.level : ""}${a.process_code ? " · Proceso " + a.process_code : ""} · límite ${dateTime(a.due_at)}`).join("\n")}\n\nVer el plan: ${planUrl}\n`;
   return { subject, html: layout({ siteUrl: o.siteUrl, preheader: `${n} auditoría(s) asignadas en ${planTitle(o.plan)}`, title: "Plan de auditoría asignado", body, button: { label: "Ver mi plan", url: planUrl } }), text };
 }
 
@@ -63,11 +63,11 @@ function auditEmail(o: { person: string; plan: PlanInfo; audit: AuditInfo; siteU
   const body = `<p style="margin:0 0 14px">Hola <b>${esc(o.person)}</b>,</p>
    <p style="margin:0 0 18px">Se te asignó la auditoría <b>${esc(a.code)}</b>. Entra con tu cuenta para realizar el checklist y registrar tus resultados.</p>
    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${LINE};border-collapse:collapse">
-     ${row("Folio", `<b style="color:#067A8E">${esc(a.code)}</b>`)}${row("Plan", esc(planTitle(o.plan)))}${row("Tipo", esc(o.plan.audit_type) + (a.level ? " · Nivel " + a.level : ""))}
+     ${row("Folio", `<b style="color:#067A8E">${esc(a.code)}</b>`)}${row("Plan", esc(planTitle(o.plan)))}${row("Tipo", esc(o.plan.audit_type) + (a.level ? " · Nivel " + a.level : ""))}${a.process_code ? row("Proceso a auditar", `<b>${esc(a.process_code)}</b>`) : ""}
      ${row("Fecha programada", `<b>${esc(dateLong(a.scheduled_date))}</b>`)}${row("Límite de entrega", esc(dateTime(a.due_at)))}${a.form_name ? row("Formato", esc(a.form_name)) : ""}${a.notes ? row("Notas", esc(a.notes)) : ""}
    </table>`;
   const subject = `Auditoría ${a.code} · ${dateShort(a.scheduled_date)} · ${o.plan.audit_type}${a.level ? " N" + a.level : ""}`;
-  const text = `Hola ${o.person},\n\nSe te asignó la auditoría ${a.code} (${planTitle(o.plan)}).\nFecha: ${dateLong(a.scheduled_date)}\nLímite: ${dateTime(a.due_at)}\n${a.form_name ? "Formato: " + a.form_name + "\n" : ""}\nRealizar auditoría: ${url}\n`;
+  const text = `Hola ${o.person},\n\nSe te asignó la auditoría ${a.code} (${planTitle(o.plan)}).\nFecha: ${dateLong(a.scheduled_date)}\nLímite: ${dateTime(a.due_at)}\n${a.process_code ? "Proceso a auditar: " + a.process_code + "\n" : ""}${a.form_name ? "Formato: " + a.form_name + "\n" : ""}\nRealizar auditoría: ${url}\n`;
   return { subject, html: layout({ siteUrl: o.siteUrl, preheader: `${a.code} · ${dateLong(a.scheduled_date)}`, title: "Nueva auditoría asignada", body, button: { label: "Realizar auditoría", url } }), text, url };
 }
 
@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
     /* 3. Datos */
     const { data: plan } = await admin.from("audit_plans").select("id, code, name, audit_type, frequency, start_date, end_date, notes").eq("id", planId).maybeSingle();
     if (!plan) return json({ error: "Plan no encontrado" }, 404);
-    const { data: audits } = await admin.from("audits").select("id, code, scheduled_date, due_at, level, form_id, notes, assigned_to, status, notified_at, notified_to").eq("plan_id", planId).neq("status", "cancelada").not("assigned_to", "is", null).order("scheduled_date");
+    const { data: audits } = await admin.from("audits").select("id, code, scheduled_date, due_at, level, process_id, form_id, notes, assigned_to, status, notified_at, notified_to").eq("plan_id", planId).neq("status", "cancelada").not("assigned_to", "is", null).order("scheduled_date");
     const pending = (audits ?? []).filter((a) => resendAll || !a.notified_at || a.notified_to !== a.assigned_to);
     if (!pending.length) return json({ ok: true, sent_plan: 0, sent_audits: 0, failed: [], skipped: [], message: "No hay auditorías pendientes de notificar." });
 
@@ -152,6 +152,9 @@ Deno.serve(async (req) => {
     const formIds = [...new Set(pending.map((a) => a.form_id).filter(Boolean))] as string[];
     const { data: forms } = formIds.length ? await admin.from("forms").select("id, code, name").in("id", formIds) : { data: [] };
     const formName = (id: string | null) => { const f = (forms ?? []).find((x) => x.id === id); return f ? `${f.code} · ${f.name}` : null; };
+    const processIds = [...new Set(pending.map((a) => a.process_id).filter(Boolean))] as string[];
+    const { data: processesData } = processIds.length ? await admin.from("processes").select("id, code").in("id", processIds) : { data: [] };
+    const processCode = (id: string | null) => (processesData ?? []).find((x) => x.id === id)?.code || null;
 
     /* 4. Envío (plan + una notificación por auditoría) */
     const result = { ok: true, sent_plan: 0, sent_audits: 0, failed: [] as { email: string; kind: string; error: string }[], skipped: [] as { name: string; reason: string }[] };
@@ -165,7 +168,7 @@ Deno.serve(async (req) => {
       const person = (people ?? []).find((p) => p.id === pid);
       const mine = pending.filter((a) => a.assigned_to === pid);
       if (!person || !person.active || !person.email) { result.skipped.push({ name: person?.full_name ?? pid, reason: "Sin correo o usuario inactivo" }); continue; }
-      const infos: AuditInfo[] = mine.map((a) => ({ id: a.id, code: a.code, scheduled_date: a.scheduled_date, due_at: a.due_at, level: a.level, form_name: formName(a.form_id), notes: a.notes }));
+      const infos: AuditInfo[] = mine.map((a) => ({ id: a.id, code: a.code, scheduled_date: a.scheduled_date, due_at: a.due_at, level: a.level, process_code: processCode(a.process_id), form_name: formName(a.form_id), notes: a.notes }));
 
       // Correo del plan
       const pm = planEmail({ person: person.full_name, plan: planInfo, audits: infos, siteUrl });

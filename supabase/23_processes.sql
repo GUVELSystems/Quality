@@ -18,12 +18,14 @@
 
 create table if not exists public.processes (
   id         uuid primary key default gen_random_uuid(),
-  company_id uuid not null references public.companies(id),
+  company_id uuid not null references public.companies(id) default coalesce(public.my_company(), '00000000-0000-0000-0000-000000000001'),
   code       text,
   name       text not null,
   active     boolean not null default true,
   created_at timestamptz not null default now()
 );
+-- por si la tabla ya existía de una corrida anterior sin este valor por defecto
+alter table public.processes alter column company_id set default coalesce(public.my_company(), '00000000-0000-0000-0000-000000000001');
 do $$ begin
   if not exists (select 1 from information_schema.table_constraints where table_name = 'processes' and constraint_name = 'processes_company_name_unique') then
     alter table public.processes add constraint processes_company_name_unique unique (company_id, name);

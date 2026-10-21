@@ -290,10 +290,10 @@ export default {
   id: "findings", label: "Hallazgos", icon: "finding",
   render(root, params) {
     if (usesEightD() && params?.[0]) { renderInternalFinding(root, params[0], params[1]); return; }
-    const issues = isIssues(), noun = issues ? "notificación" : "hallazgo";
+    const issues = isIssues(), noun = "hallazgo";
     setHead({
-      title: issues ? "Notificaciones" : "Hallazgos", subtitle: issues ? "Reclamaciones, auditorías externas, KPI y demás no conformidades: el responsable acepta y la resuelve; un administrador acepta o rechaza la verificación." : `Hallazgos de ${WS_LABEL[wsId()]}: el responsable acepta y registra la acción; un administrador acepta o rechaza la verificación.`,
-      actions: `<button class="btn" data-action="f-export">${icon("download")} Exportar CSV</button>${db.can.write ? `<button class="btn primary" data-action="f-new">${icon("plus")} ${issues ? "Nueva notificación" : "Nuevo hallazgo"}</button>` : ""}`,
+      title: "Hallazgos", subtitle: issues ? "Hallazgos de Issues, con su propio flujo 8D/4D: el responsable acepta y lo resuelve; un administrador acepta o rechaza la verificación." : `Hallazgos de ${WS_LABEL[wsId()]}: el responsable acepta y registra la acción; un administrador acepta o rechaza la verificación.`,
+      actions: `<button class="btn" data-action="f-export">${icon("download")} Exportar CSV</button>${db.can.write ? `<button class="btn primary" data-action="f-new">${icon("plus")} Nuevo hallazgo</button>` : ""}`,
     });
     const list = filtered(), pend = findingsOf(wsId()).filter((f) => f.status === "abierto" && f.owner_id === db.state.profile.id).length;
     root.innerHTML = `
@@ -309,10 +309,10 @@ export default {
         <select class="select" data-change="f-filter" data-key="mine"><option value="">Todos los responsables</option><option value="1" ${F.mine ? "selected" : ""}>Solo los míos</option></select>
         <span class="count">${list.length} registro(s)</span>
       </div>
-      ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>${issues ? "Notificación" : "Hallazgo"}</th>${issues ? "" : "<th>Origen</th>"}<th>Clasificación</th><th>Etapa</th><th>Responsable</th><th>Plazo</th></tr></thead><tbody>
+      ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Hallazgo</th>${issues ? "" : "<th>Origen</th>"}<th>Clasificación</th><th>Etapa</th><th>Responsable</th><th>Plazo</th></tr></thead><tbody>
         ${list.map((f) => `<tr data-action="f-open" data-id="${f.id}"><td class="code">${esc(f.code)}</td><td><span class="title">${esc(f.title)}</span><span class="sub">${esc(f.area || "Sin área")}</span></td>${issues ? "" : `<td>${badge(SOURCE, f.source)}</td>`}<td>${classBadge(f)}</td><td>${badge(FINDING_STATUS, f.status)}${f.reject_count > 0 && f.status === "abierto" ? '<span class="sub overdue">Rechazado</span>' : ""}</td>
           <td>${esc(db.profileName(f.owner_id))}${f.status === "abierto" && f.owner_id ? '<span class="sub" style="color:var(--watch-ink);font-weight:600">Por aceptar</span>' : !f.owner_id ? '<span class="sub overdue">Sin responsable</span>' : ""}</td><td>${plazoCell(f)}</td></tr>`).join("")}
-      </tbody></table></div>` : empty(`Sin ${issues ? "notificaciones" : "hallazgos"}`, "No hay registros con los filtros actuales.", "finding")}
+      </tbody></table></div>` : empty("Sin hallazgos", "No hay registros con los filtros actuales.", "finding")}
     </div>`;
     if (params?.[0]) { openFinding(params[0], params[1]); replaceHash(`${wsId()}/hallazgos`); }
   },
@@ -347,7 +347,7 @@ on("f-verify-accept", (el) => {
 on("f-verify-reject", (el) => rejectForm(fnd(el)));
 onInput("f-draft", (el) => { drafts[el.dataset.key] = el.value; });
 on("f-export", () => downloadCSV(`hallazgos_${wsId()}.csv`, [
-  { label: "Folio", value: (r) => r.code }, { label: "Título", value: (r) => r.title }, { label: "Origen", value: (r) => SOURCE[r.source]?.[0] },
+  { label: "Folio", value: (r) => r.code }, { label: "Título", value: (r) => r.title }, { label: "Origen", value: (r) => SOURCE[r.source]?.[0] || r.source },
   { label: "Clasificación", value: (r) => classOf(r)?.code }, { label: "Etapa", value: (r) => FINDING_STATUS[r.status][0] }, { label: "Responsable", value: (r) => db.profileName(r.owner_id) },
   { label: "Área", value: (r) => r.area }, { label: "Inicio", value: (r) => r.start_date }, { label: "Límite acciones", value: (r) => r.due_at || r.due_date }, { label: "Acciones cerradas", value: (r) => r.actions_closed_at || r.actions_closed_on },
   { label: "Límite verificación", value: (r) => r.verify_due_at || r.verify_due }, { label: "Verificado", value: (r) => r.verified_at || r.verified_on }, { label: "Rechazos", value: (r) => r.reject_count || 0 },

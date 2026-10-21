@@ -10,12 +10,9 @@
 -- define un administrador en la etapa "Registro".
 -- =====================================================================
 
-alter table public.findings drop constraint if exists findings_status_check;
-alter table public.findings add constraint findings_status_check
-  check (status in (
-    'abierto','en_analisis','en_accion','descripcion','contencion','rca','verificacion','cerrado',  -- flujos previos (compatibilidad)
-    'registro','detalles','solicitud','d1','d2','d3','d4','d5','d6','d7','d8'                         -- flujo 8D/4D
-  ));
+-- (el valor final y completo de esta regla —incluye d4_revision, del 4D— se deja en
+-- 14_4d_review.sql, para no angostarla aquí a medio camino y que no truene al repetir el script
+-- completo desde cero con hallazgos reales ya en esa etapa)
 
 -- Estrategia de resolución, definida en "Detalles del problema"
 alter table public.findings add column if not exists strategy_ps  text check (strategy_ps in ('8D','4D'));

@@ -4,7 +4,8 @@ import { uuid, isoDate, addDays, today, addBusinessDays, shiftBusiness, DAY_MS, 
 export function buildSeed() {
   const T = today();
   const counters = {};
-  const code = (p) => { counters[p] = (counters[p] || 0) + 1; return `${p}-${String(counters[p]).padStart(4, "0")}`; };
+  const YR = T.slice(0, 4);   // los folios operativos llevan el año (ID-AÑO-0001); Clientes y Procesos no
+  const code = (p) => { counters[p] = (counters[p] || 0) + 1; const yr = p === "CLI" || p === "PI" ? "" : `${YR}-`; return `${p}-${yr}${String(counters[p]).padStart(p === "PI" ? 2 : 4, "0")}`; };
   const iso = (d) => new Date(d).toISOString();
   const daysAgoISO = (n, h = 10) => { const d = new Date(); d.setDate(d.getDate() - n); d.setHours(h, 0, 0, 0); return d.toISOString(); };
   const bd = (n) => { let d = T; for (let i = 0; i < n; i++) { d = addDays(d, -1); while ([0, 6].includes(new Date(d + "T12:00:00").getDay())) d = addDays(d, -1); } return d; }; // n días hábiles atrás

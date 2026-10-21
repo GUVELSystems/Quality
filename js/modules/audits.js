@@ -397,13 +397,13 @@ function dimensionHTML(it, readonly, audit, a, f, nok, copts, ptype) {
   const spec = `<div class="dim-spec"><span class="dim-chip">${icon("ruler")} Dimensión</span><b>${esc(specText(it))}</b><span class="dim-range">Rango aceptado: <b>${esc(dimRange(it))}</b></span></div>`;
   const tag = `<span class="q-area">${esc(areaName(it))}</span>`;
   if (readonly) {
-    return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}" data-kind="dimension"><div class="q-text"><span>${esc(it.question)}</span>${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}${tag}</div>${spec}
+    return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}" data-kind="dimension"><div class="q-text"><span>${esc(it.question)}</span>${it.clause ? `<span class="q-clause mono">${esc(it.clause)}</span>` : ""}${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}${tag}</div>${spec}
       <div class="dim-row"><div class="dim-read ${a.result === "nok" ? "bad" : a.result === "ok" ? "good" : ""}">${a.result === "na" ? "N/A" : a.value !== "" && a.value != null ? `${fmtNum(a.value, sp.dec)} ${esc(u)}` : "Sin capturar"}</div><div class="dim-verdict ${a.result === "nok" ? "bad" : "good"}">${verdictHTML(it, ev)}</div></div>
       ${nok && f ? `<div style="margin-top:8px">${classBadge(f)}</div>` : ""}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado · responsable ${esc(db.profileName(f.owner_id))}</span></div>` : ""}
       ${attachmentsSection("audit", audit.id, { ref: it.id, compact: true, canEdit: false })}</div>`;
   }
   return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}" data-kind="dimension">
-    <div class="q-text"><span>${esc(it.question)}</span>${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}${tag}</div>${spec}
+    <div class="q-text"><span>${esc(it.question)}</span>${it.clause ? `<span class="q-clause mono">${esc(it.clause)}</span>` : ""}${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}${tag}</div>${spec}
     <div class="dim-row"><label class="dim-field"><span>Valor medido</span><span class="dim-input-wrap"><input class="input dim-input ${a.result === "nok" ? "bad" : a.result === "ok" ? "good" : ""}" inputmode="decimal" autocomplete="off" placeholder="${fmtNum(sp.nominal, sp.dec)}" data-input="au-dim" data-item="${it.id}" value="${esc(a.value ?? "")}" ${a.result === "na" ? "disabled" : ""}>${u ? `<i>${esc(u)}</i>` : ""}</span></label>
       <div class="dim-verdict ${a.result === "nok" ? "bad" : "good"}" id="dv_${it.id}" aria-live="polite">${verdictHTML(it, ev)}</div>
       <button type="button" class="btn sm ghost" data-action="au-ans" data-item="${it.id}" data-v="na" aria-pressed="${a.result === "na"}">N/A</button></div>
@@ -421,7 +421,7 @@ function questionHTML(it, readonly, audit) {
   const ptype = db.get("audit_plans", audit.plan_id)?.audit_type, copts = classOptions([ptype]);
   if (isDimension(it)) return dimensionHTML(it, readonly, audit, a, f, nok, copts, ptype);
   return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}">
-    <div class="q-text"><span>${esc(it.question)}</span>${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}</div>
+    <div class="q-text"><span>${esc(it.question)}</span>${it.clause ? `<span class="q-clause mono">${esc(it.clause)}</span>` : ""}${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}</div>
     ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RES[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${nok && f ? ` ${classBadge(f)}` : ""}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado · responsable ${esc(db.profileName(f.owner_id))}</span></div>` : ""}</div>`
     : `<div class="seg" role="group">${Object.entries(RES).map(([v, l]) => `<button type="button" data-action="au-ans" data-item="${it.id}" data-v="${v}" aria-pressed="${a.result === v}">${l}</button>`).join("")}</div>
        <div class="q-nok ${nok ? "" : "hidden"}">

@@ -56,9 +56,9 @@ create trigger trg_findings_code before insert on public.findings
 -- ---------------------------------------------------------------------
 -- 5) Etapas ampliadas del hallazgo interno
 -- ---------------------------------------------------------------------
-alter table public.findings drop constraint if exists findings_status_check;
-alter table public.findings add constraint findings_status_check
-  check (status in ('abierto','en_analisis','en_accion','descripcion','contencion','rca','verificacion','cerrado'));
+-- (el valor final y completo de esta regla se deja en 14_4d_review.sql — aquí ya NO se vuelve a
+-- angostar, para que un hallazgo real que ya esté en una etapa del 8D/4D nunca truene al repetir
+-- este script completo desde cero)
 
 alter table public.findings add column if not exists problem_desc     text;    -- Descripción del problema (5W2H)
 alter table public.findings add column if not exists problem_at       timestamptz;

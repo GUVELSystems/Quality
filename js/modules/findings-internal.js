@@ -40,11 +40,19 @@ function originInfo(f) {
 }
 
 /* ------------------------------------- Detalles ------------------------------------ */
+function detailsEvidenceHTML(f) {
+  const list = db.rows("attachments").filter((a) => a.entity === "finding" && a.entity_id === f.id);
+  if (!list.length) return `<span class="muted">Sin evidencia todavía</span>`;
+  return `<div class="if-d-evidence">${list.map((a) => (a.mime_type || "").startsWith("image/")
+    ? `<a class="if-d-ev-item" data-att="${a.id}" target="_blank" rel="noopener" title="${esc(a.file_name)}"><img alt="${esc(a.file_name)}"></a>`
+    : `<a class="if-d-ev-item file" data-att="${a.id}" target="_blank" rel="noopener" download="${esc(a.file_name)}" title="${esc(a.file_name)}">${icon("form")}</a>`).join("")}</div>`;
+}
 function detailsHTML(f) {
   const area = db.get("areas", f.area_id), { audit, standard, item, process } = originInfo(f);
   const row = (k, v) => `<div class="if-d-row"><dt>${esc(k)}</dt><dd>${v}</dd></div>`;
   return `<div class="if-card"><h3>${icon("list")} Detalles</h3>
     ${row("Responsable", userCell(db.get("profiles", f.owner_id)) + (f.status === "abierto" && f.owner_id ? ' <span class="badge" data-tone="warn">Por aceptar</span>' : ""))}
+    ${row("Evidencia", detailsEvidenceHTML(f))}
     ${row("Clasificación", classBadge(f))}
     ${row("Proceso / Área", esc(process?.name || area?.name || f.area || "—"))}
     ${standard ? row("Norma aplicable", esc(standard.name)) : ""}
@@ -626,7 +634,7 @@ on("e8-register", (el) => {
   const f = fnd(el.dataset.id), box = document.getElementById("if-status-box");
   const classId = box.querySelector('[data-key="class_id"]').value, areaId = box.querySelector('[data-key="area_id"]').value, clause = box.querySelector('[data-key="clause"]').value.trim(), ownerId = box.querySelector('[data-key="owner_id"]').value;
   if (!classId || !ownerId) { toast("Elige la clasificación y el responsable.", "danger"); return; }
-  run(async () => { await registerFinding(f, { class_id: classId, area_id: areaId || null, area: db.get("areas", areaId)?.name || null, clause: clause || null, owner_id: ownerId, ...deadlineFields(classId) }); viewStage = null; toast("Hallazgo registrado · define la estrategia", "ok"); });
+  run(async () => { await registerFinding(f, { class_id: classId, area_id: areaId || null, area: db.get("areas", areaId)?.name || null, clause: clause || null, owner_id: ownerId, ...deadlineFields(classId) }); viewStage = null; toast("Hallazgo registrado · define la estrategia", "ok"); notifyFindings([db.get("findings", f.id)], "assigned"); });
 });
 onChange("e8-ps", (el) => { drafts[`${el.dataset.id}:ps`] = el.value; const w = document.getElementById("e8-rca-wrap"); if (w) w.style.display = el.value === "4D" ? "none" : ""; });
 onInput("e8-strategy", (el) => { drafts[`${fnd_id(el)}:${el.dataset.key}`] = el.type === "checkbox" ? el.checked : el.value; });

@@ -17,6 +17,7 @@ export const TABLES = [
 ];
 const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP", processes: "PI" };
 const CODE_DIGITS = { processes: 2 };   // PI-01, no PI-0001 — el resto sigue con 4 dígitos
+const NO_YEAR_CODE = new Set(["clients", "processes"]);   // estos NO llevan año (son de Configuración)
 const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);
 const READONLY = new Set(["id", "created_at", "updated_at", "created_by"]);
 const GENERATED = { risks: ["score"] }; // columnas calculadas por la base de datos
@@ -283,13 +284,14 @@ export async function insert(t, row) {
     if (r.company_id === undefined) r.company_id = state.profile?.company_id ?? null;   // mismo valor por defecto que en Supabase
     if (PREFIX[t] && !r.code) {
       const prefix = t === "findings" && r.module === "internas" ? "IF" : PREFIX[t];   // folio propio para hallazgos internos
-      const counterKey = `${r.company_id || "sin-empresa"}:${prefix}`;                 // cada empresa numera desde su propio 0001
-      // Los datos de ejemplo de GUVEL ya traían su contador con la clave vieja (sin empresa); SOLO para
-      // GUVEL se continúa desde ahí, en vez de reiniciar a 0001 en plena demo con datos ya existentes
+      const yr = NO_YEAR_CODE.has(t) ? "" : new Date(r.created_at).getFullYear();      // ID-AÑO-0001, salvo Clientes/Procesos (Configuración)
+      const counterKey = `${r.company_id || "sin-empresa"}:${prefix}:${yr}`;           // cada empresa numera desde su propio 0001, por año
+      // Los datos de ejemplo de GUVEL ya traían su contador con la clave vieja (sin empresa, sin año); SOLO
+      // para GUVEL del año en curso se continúa desde ahí, en vez de reiniciar a 0001 en plena demo
       // (una empresa nueva sí debe arrancar limpio desde 0001, sin heredar nada)
-      if (r.company_id === "co-guvel" && demo.counters[counterKey] === undefined && demo.counters[prefix] !== undefined) demo.counters[counterKey] = demo.counters[prefix];
+      if (r.company_id === "co-guvel" && yr === new Date().getFullYear() && demo.counters[counterKey] === undefined && demo.counters[prefix] !== undefined) demo.counters[counterKey] = demo.counters[prefix];
       demo.counters[counterKey] = (demo.counters[counterKey] || 0) + 1;
-      r.code = `${prefix}-${String(demo.counters[counterKey]).padStart(CODE_DIGITS[t] || 4, "0")}`;
+      r.code = `${prefix}-${yr ? yr + "-" : ""}${String(demo.counters[counterKey]).padStart(CODE_DIGITS[t] || 4, "0")}`;
     }
     if (HAS_CREATED_BY.has(t)) r.created_by = state.profile.id;
     derive(t, r);

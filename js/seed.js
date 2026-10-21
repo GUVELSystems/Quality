@@ -309,10 +309,30 @@ export function buildSeed() {
   mkNotif({ client_id: cAurora.id, notification_type: "SCAR / Acción correctiva", subject: "SCAR-2291 · Falta de identificación en empaque", part_number: "IA-9012", quantity: 60, severity: "menor", received_at: addDays(T, -20), response_due: addDays(T, -8), status: "respuesta_enviada" });
   mkNotif({ client_id: cMetal.id, notification_type: "Alerta de calidad", subject: "Alerta de calidad por variación de dureza", part_number: "GM-3310", severity: "mayor", received_at: addDays(T, -1), response_due: addDays(T, 4), status: "recibida" });
   mkNotif({ client_id: cNorte.id, notification_type: "Auditoría de cliente", subject: "Auditoría de segunda parte · Resultados", severity: "observacion", received_at: addDays(T, -45), response_due: addDays(T, -30), status: "cerrada", closed_at: daysAgoISO(30) });
-  const linked = mkFinding({ module: "issues", title: "Etiqueta de embarque con número de parte incorrecto", source: "cliente", class_id: klass("N2").id, client_id: cAurora.id, area_id: A("Logística"), owner_id: "u-maria", classification_id: catId("Calidad de producto"), start_date: bd(4), created_at: daysAgoISO(6) });
-  stage(linked, "en_accion"); notifs[2].finding_id = linked.id;
-  const rebaba = mkFinding({ module: "issues", title: "[Queja] Rebaba excesiva en pieza AN-4471", description: "El cliente reporta rebaba fuera de tolerancia.", source: "cliente", class_id: klass("N1").id, client_id: cNorte.id, area_id: A("Producción"), owner_id: "u-maria", start_date: bd(2), created_at: daysAgoISO(3) });
-  stage(rebaba, "en_accion"); rebaba.action_plan = "Selección 100% del inventario en planta y en tránsito; ajustar el herramental de desbarbado."; notifs[0].finding_id = rebaba.id;
+  // Cada notificación tiene su propio Hallazgo (así funciona ahora: la notificación es solo el
+  // detalle, todo el seguimiento 8D/4D pasa en el Hallazgo)
+  const linked = mkFinding({ module: "issues", title: "[SCAR / Acción correctiva] Etiqueta de embarque con número de parte incorrecto", source: "SCAR / Acción correctiva", class_id: klass("N2").id, client_id: cAurora.id, area_id: A("Logística"), owner_id: "u-maria", classification_id: catId("Calidad de producto"), start_date: bd(4), created_at: daysAgoISO(6) });
+  linked.registered_at = daysAgoISO(6); linked.registered_by = "u-carlos"; linked.strategy_at = daysAgoISO(6); linked.strategy_by = "u-carlos";
+  linked.strategy_ps = "8D"; linked.strategy_rca = "5whys"; linked.corrective_mandatory = true; linked.preventive_mandatory = true;
+  linked.accepted_at = daysAgoISO(5); linked.accepted_by = "u-maria"; linked.status = "d6";
+  linked.d_data = { team: [["María López", "Calidad", "Líder del equipo"]], failure_desc: "Un embarque salió con una etiqueta que no correspondía al número de parte real.", problem5w: { what: "Etiqueta con número de parte incorrecto", where: "Andén de embarques", when: "Hace 6 días", who: "Turno de embarques" } };
+  notifs[2].finding_id = linked.id;
+  const rebaba = mkFinding({ module: "issues", title: "[Queja] Rebaba excesiva en pieza AN-4471", description: "El cliente reporta rebaba fuera de tolerancia.", source: "Queja", class_id: klass("N1").id, client_id: cNorte.id, area_id: A("Producción"), owner_id: "u-maria", start_date: bd(2), created_at: daysAgoISO(3) });
+  rebaba.registered_at = daysAgoISO(3); rebaba.registered_by = "u-carlos"; rebaba.strategy_at = daysAgoISO(3); rebaba.strategy_by = "u-carlos";
+  rebaba.strategy_ps = "8D"; rebaba.strategy_rca = "ishikawa"; rebaba.corrective_mandatory = true; rebaba.preventive_mandatory = true;
+  rebaba.accepted_at = daysAgoISO(2); rebaba.accepted_by = "u-maria"; rebaba.status = "d6"; rebaba.action_plan = "Selección 100% del inventario en planta y en tránsito; ajustar el herramental de desbarbado.";
+  rebaba.d_data = { team: [["María López", "Calidad", "Líder del equipo"]], failure_desc: "El cliente reporta rebaba fuera de tolerancia en piezas del embarque semanal.", problem5w: { what: "Rebaba excesiva", where: "Línea de producción", when: "Hace 3 días", who: "Turno de producción" } };
+  notifs[0].finding_id = rebaba.id;
+  // Las 3 notificaciones restantes también llevan su hallazgo, recién registrado (sin clasificar aún)
+  notifs[1].finding_id = mkFinding({ module: "issues", title: "[Devolución] Devolución por dimensión fuera de especificación", source: "Devolución", client_id: cDelta.id, owner_id: "u-carlos", status: "registro", start_date: T, created_at: daysAgoISO(10) }).id;
+  notifs[3].finding_id = mkFinding({ module: "issues", title: "[Alerta de calidad] Alerta de calidad por variación de dureza", source: "Alerta de calidad", client_id: cMetal.id, status: "registro", start_date: T, created_at: daysAgoISO(1) }).id;
+  const auditNotifFinding = mkFinding({ module: "issues", title: "[Auditoría de cliente] Auditoría de segunda parte · Resultados", source: "Auditoría de cliente", class_id: klass("N3").id, client_id: cNorte.id, owner_id: "u-maria", start_date: bd(45), created_at: daysAgoISO(45) });
+  auditNotifFinding.registered_at = daysAgoISO(45); auditNotifFinding.registered_by = "u-carlos"; auditNotifFinding.strategy_at = daysAgoISO(45); auditNotifFinding.strategy_by = "u-carlos";
+  auditNotifFinding.strategy_ps = "4D"; auditNotifFinding.corrective_mandatory = true; auditNotifFinding.preventive_mandatory = false;
+  auditNotifFinding.accepted_at = daysAgoISO(44); auditNotifFinding.accepted_by = "u-maria"; auditNotifFinding.action_plan = "Se atendieron las observaciones de la auditoría de segunda parte.";
+  auditNotifFinding.d_data = { team: [["María López", "Calidad", "Líder del equipo"]], failure_desc: "Observaciones menores detectadas en auditoría de segunda parte.", problem5w: { what: "Observaciones de auditoría", where: "Planta", when: "Hace 45 días" }, closure4d: { preparer_id: "u-maria", prepared_date: daysAgoISO(32).slice(0, 10), reviewed_by_id: "u-carlos", reviewed_date: daysAgoISO(31).slice(0, 10), decision: "aprobado" } };
+  closeAt(auditNotifFinding, new Date(daysAgoISO(31))); auditNotifFinding.verified_at = daysAgoISO(30); auditNotifFinding.verified_by = "u-carlos"; auditNotifFinding.verification_notes = "Se confirmó la implementación de las acciones."; auditNotifFinding.closed_at = daysAgoISO(30); auditNotifFinding.status = "cerrado";
+  notifs[4].finding_id = auditNotifFinding.id;
 
   /* Bandeja del usuario (avisos guardados) */
   const mine1 = findings.find((f) => f.owner_id === "u-carlos" && f.status === "abierto");

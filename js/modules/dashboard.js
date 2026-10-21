@@ -36,7 +36,7 @@ export default {
     const scored = auds.filter((a) => a.status === "completada" && a.score != null);
     const avgScore = scored.length ? Math.round(scored.reduce((s, a) => s + Number(a.score), 0) / scored.length) : null;
 
-    const notifs = db.rows("customer_notifications"), openN = notifs.filter((n) => n.status !== "cerrada"), lateN = openN.filter((n) => n.response_due && n.response_due < t);
+    const notifs = db.rows("customer_notifications"), openN = notifs.filter((n) => db.get("findings", n.finding_id)?.status !== "cerrado"), lateN = openN.filter((n) => n.response_due && n.response_due < t);
     const risks = db.rows("risks").filter((r) => r.status !== "cerrado"), highR = risks.filter((r) => r.score >= 15);
     const opps = db.rows("opportunities"), activeO = opps.filter((o) => !["implementada", "descartada"].includes(o.status));
 

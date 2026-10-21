@@ -8,6 +8,7 @@ import * as db from "../db.js";
 import { esc, uuid, fmtDate, fmtDateTime } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead, navigate, wsId } from "../router.js";
+import { WS_LABEL } from "../scope.js";
 import { on, onChange, onInput, badge, userCell, empty, openForm, confirmDialog, toast, withFocusPreserved } from "../ui.js";
 import { SOURCE, FINDING_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
@@ -15,7 +16,7 @@ import { notifyFindings } from "../notify.js";
 import { catOpts, clientOpts, mapOpts, catName, clientName } from "./shared.js";
 import { fillHTML, readFill, gridOwners } from "../templates.js";
 import {
-  classes, classBadge, classOptions, classOf, levelOptions, levelLabel, areaOptions, resolveOwner, milestones, overdueKind, canAct, canTransfer, canVerify, verifyDaysFor, verifyDays,
+  classes, classBadge, classOptions, classOf, levelOptions, levelLabel, areaOptions, resolveOwner, milestones, overdueKind, canAct, canTransfer, canVerify, verifyDaysFor, verifyDays, scopesForWs,
   STAGES_INTERNAL, STAGE_LABEL_INTERNAL, eventsOf, acceptInternal, transferFinding, saveProblem, advanceProblem, saveContainment, advanceContainment,
   saveRca, advanceRca, savePlan, closeActions, acceptVerification, rejectVerification,
   isEightD, dStages, eightdStages, dLabel, PS_TYPES, RCA_TYPES, canRegister, canSetStrategy, canActD, canVerify8D,
@@ -218,7 +219,7 @@ export function renderInternalFinding(root, id, stage) {
   clearInterval(tick);
   if (!f) { setHead({ title: "Hallazgo no encontrado" }); root.innerHTML = empty("No se encontró el hallazgo", "Puede que haya sido eliminado.", "finding"); return; }
   curId = id; if (stage) viewStage = stage; else if (!viewStage) viewStage = null;
-  setHead({ eyebrow: "Auditorías Internas", title: f.code, subtitle: f.title });
+  setHead({ eyebrow: WS_LABEL[f.module] || WS_LABEL[wsId()], title: f.code, subtitle: f.title });
   root.innerHTML = `<div id="if-root"></div>`;
   paint();
   tick = setInterval(paint, 15000);
@@ -234,7 +235,7 @@ function legacyEditFinding(f) {
       { name: "title", label: "Título del hallazgo", required: true, span2: true },
       { name: "description", label: "Descripción", type: "textarea", span2: true },
       { name: "source", label: "Origen", type: "select", required: true, options: mapOpts(SOURCE) },
-      { name: "class_id", label: "Clasificación", type: "select", required: true, options: classOptions(["Interna"]) },
+      { name: "class_id", label: "Clasificación", type: "select", required: true, options: classOptions(scopesForWs(f.module)) },
       { name: "area_id", label: "Área", type: "select", options: areaOptions() },
       { name: "owner_id", label: "Responsable", type: "select", options: staff().map((p) => [p.id, p.full_name]) },
       { name: "classification_id", label: "Categoría", type: "select", options: catOpts("categoria_hallazgo") },
@@ -413,7 +414,7 @@ function stageRegistro(f) {
   if (!canRegister(f)) return lock("Solo un administrador puede registrar y clasificar este hallazgo.");
   return `<p class="muted" style="margin-bottom:14px">${esc(f.description || "Sin descripción inicial.")}</p>
     <div class="form-grid">
-      <label class="field"><span>Clasificación <i>*</i></span><select class="select" data-input="e8-reg" data-key="class_id">${classOptions(["Interna"]).map(([v, l]) => `<option value="${v}" ${v === f.class_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+      <label class="field"><span>Clasificación <i>*</i></span><select class="select" data-input="e8-reg" data-key="class_id">${classOptions(scopesForWs(f.module)).map(([v, l]) => `<option value="${v}" ${v === f.class_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
       <label class="field"><span>Proceso / Área</span><select class="select" data-input="e8-reg" data-key="area_id"><option value="">— Proceso —</option>${areaOptions().map(([v, l]) => `<option value="${v}" ${v === f.area_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
       <label class="field"><span>Cláusula / punto afectado</span><input class="input" data-input="e8-reg" data-key="clause" value="${esc(f.clause || "")}"></label>
       <label class="field"><span>Responsable <i>*</i></span><select class="select" data-input="e8-reg" data-key="owner_id"><option value="">— Responsable —</option>${staffAll().map((p) => `<option value="${p.id}" ${p.id === f.owner_id ? "selected" : ""}>${esc(p.full_name)}</option>`).join("")}</select></label>

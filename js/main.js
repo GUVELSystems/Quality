@@ -40,7 +40,7 @@ registerWs({ id: "soporte", label: "Soporte", hideTabs: true, tabs: [{ id: "inic
 registerWs({ id: "auditorias", label: WS_LABEL.auditorias, tabs: auditTabs() });
 registerWs({ id: "internas", label: WS_LABEL.internas, tabs: auditTabs() });
 registerWs({ id: "issues", label: WS_LABEL.issues, tabs: [
-  { id: "notificaciones", label: "Notificaciones", icon: "bell", render: notifications.render, count: () => ({ n: db.rows("customer_notifications").filter((n) => n.status !== "cerrada").length }) },
+  { id: "notificaciones", label: "Notificaciones", icon: "bell", render: notifications.render, count: () => ({ n: db.rows("customer_notifications").filter((n) => db.get("findings", n.finding_id)?.status !== "cerrado").length }) },
   { id: "hallazgos", label: "Hallazgos", icon: "finding", render: findings.render, count: openF },
   { id: "acciones", label: "Acciones", icon: "action", render: actions.render, count: lateA },
 ] });

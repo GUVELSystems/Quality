@@ -39,7 +39,7 @@ export function inboxItems() {
     }
   }
   for (const n of db.rows("customer_notifications")) {
-    if (n.owner_id !== me || n.status === "cerrada") continue;
+    if (n.owner_id !== me || db.get("findings", n.finding_id)?.status === "cerrado") continue;
     const late = n.response_due && n.response_due < t;
     mark({ ws: "issues", kind: "client", tone: late ? "danger" : "warn", title: `Responder al cliente · ${n.code}`, detail: `${n.subject}${n.response_due ? " · límite " + fmtDate(n.response_due) : ""}`, href: `issues/notificaciones/${n.id}`, at: n.response_due || t, ref: n.id });
   }

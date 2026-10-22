@@ -292,7 +292,7 @@ export default {
     if (usesEightD() && params?.[0]) { renderInternalFinding(root, params[0], params[1]); return; }
     const issues = isIssues(), noun = "hallazgo";
     setHead({
-      title: "Hallazgos", subtitle: issues ? "Hallazgos de Issues, con su propio flujo 8D/4D: el responsable acepta y lo resuelve; un administrador acepta o rechaza la verificación." : `Hallazgos de ${WS_LABEL[wsId()]}: el responsable acepta y registra la acción; un administrador acepta o rechaza la verificación.`,
+      title: "Hallazgos", subtitle: issues ? "Hallazgos de Findings, con su propio flujo 8D/4D: el responsable acepta y lo resuelve; un administrador acepta o rechaza la verificación." : `Hallazgos de ${WS_LABEL[wsId()]}: el responsable acepta y registra la acción; un administrador acepta o rechaza la verificación.`,
       actions: `<button class="btn" data-action="f-export">${icon("download")} Exportar CSV</button>${db.can.write ? `<button class="btn primary" data-action="f-new">${icon("plus")} Nuevo hallazgo</button>` : ""}`,
     });
     const list = filtered(), pend = findingsOf(wsId()).filter((f) => f.status === "abierto" && f.owner_id === db.state.profile.id).length;

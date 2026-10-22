@@ -53,8 +53,9 @@ function detailsHTML(f) {
   return `<div class="if-card"><h3>${icon("list")} Detalles</h3>
     ${row("Responsable", userCell(db.get("profiles", f.owner_id)) + (f.status === "abierto" && f.owner_id ? ' <span class="badge" data-tone="warn">Por aceptar</span>' : ""))}
     ${row("Evidencia", detailsEvidenceHTML(f))}
+    ${(() => { const n = db.rows("customer_notifications").find((x) => x.finding_id === f.id); return n ? row("Notificación", `<a href="#/issues/notificaciones/${n.id}">${icon("bell")} ${esc(n.code)} · ${esc(n.subject)}</a>`) : ""; })()}
     ${row("Clasificación", classBadge(f))}
-    ${row("Proceso / Área", esc(process?.name || area?.name || f.area || "—"))}
+    ${row("Proceso / Área", f.process_id ? `${esc(db.get("processes", f.process_id)?.code || "")} · ${esc(db.get("processes", f.process_id)?.name || "")}` : esc(process?.name || area?.name || f.area || "—"))}
     ${standard ? row("Norma aplicable", esc(standard.name)) : ""}
     ${item?.clause ? row("Cláusula", `<span class="mono">${esc(item.clause)}</span>`) : ""}
     ${row("Categoría", esc(catName(f.classification_id)))}
@@ -410,8 +411,10 @@ function e8dDetailsHTML(f) {
   return `<div class="if-card"><h3>${icon("list")} Detalles</h3>
     ${f.strategy_ps ? row("Estrategia", `<span class="badge" data-tone="info">${esc(f.strategy_ps)}</span>${f.strategy_ps === "8D" ? ` <span class="badge" data-tone="info">${esc(RCA_TYPES[f.strategy_rca] || "—")}</span>` : ""}`) : ""}
     ${f.status !== "registro" ? row("Responsable", userCell(db.get("profiles", f.owner_id)) + (f.status === "solicitud" ? ' <span class="badge" data-tone="warn">Por aceptar</span>' : "")) : ""}
+    ${row("Evidencia", detailsEvidenceHTML(f))}
+    ${(() => { const n = db.rows("customer_notifications").find((x) => x.finding_id === f.id); return n ? row("Notificación", `<a href="#/issues/notificaciones/${n.id}">${icon("bell")} ${esc(n.code)} · ${esc(n.subject)}</a>`) : ""; })()}
     ${f.class_id ? row("Clasificación", classBadge(f)) : ""}
-    ${row("Proceso / Área", esc(process?.name || area?.name || f.area || "—"))}
+    ${row("Proceso / Área", f.process_id ? `${esc(db.get("processes", f.process_id)?.code || "")} · ${esc(db.get("processes", f.process_id)?.name || "")}` : esc(process?.name || area?.name || f.area || "—"))}
     ${standard ? row("Norma aplicable", esc(standard.name)) : ""}
     ${(f.clause || item?.clause) ? row("Cláusula", `<span class="mono">${esc(f.clause || item?.clause)}</span>`) : ""}
     ${row("Origen", audit ? `<a href="#/${f.module}/audit/${audit.id}">${esc(audit.code)}</a>` : esc(SOURCE[f.source]?.[0] || f.source || "—"))}
@@ -425,10 +428,19 @@ function e8dDetailsHTML(f) {
 /* ------------------------------- Etapas: Registro / Detalles / Solicitud ------------------------------ */
 function stageRegistro(f) {
   if (!canRegister(f)) return lock("Solo un administrador puede registrar y clasificar este hallazgo.");
+  const areaKind = drafts[`${f.id}:areaKind`] ?? (f.process_id ? "process" : "area");
   return `<p class="muted" style="margin-bottom:14px">${esc(f.description || "Sin descripción inicial.")}</p>
     <div class="form-grid">
       <label class="field"><span>Clasificación <i>*</i></span><select class="select" data-input="e8-reg" data-key="class_id">${classOptions(scopesForWs(f.module)).map(([v, l]) => `<option value="${v}" ${v === f.class_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
-      <label class="field"><span>Proceso / Área</span><select class="select" data-input="e8-reg" data-key="area_id"><option value="">— Proceso —</option>${areaOptions().map(([v, l]) => `<option value="${v}" ${v === f.area_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+      <label class="field span-2"><span>Proceso / Área</span>
+        <div class="seg-mini" role="tablist" aria-label="Proceso o Área">
+          <button type="button" class="seg-mini-opt ${areaKind !== "process" ? "active" : ""}" data-action="e8-reg-kind" data-kind="area">Área</button>
+          <button type="button" class="seg-mini-opt ${areaKind === "process" ? "active" : ""}" data-action="e8-reg-kind" data-kind="process">Proceso</button>
+        </div>
+        ${areaKind === "process"
+          ? `<select class="select" data-input="e8-reg" data-key="process_id"><option value="">— Proceso —</option>${db.rows("processes").filter((p) => p.active).sort((a, b) => (a.code || "").localeCompare(b.code || "")).map((p) => `<option value="${p.id}" ${p.id === f.process_id ? "selected" : ""}>${esc(p.code)} · ${esc(p.name)}</option>`).join("")}</select>`
+          : `<select class="select" data-input="e8-reg" data-key="area_id"><option value="">— Área —</option>${areaOptions().map(([v, l]) => `<option value="${v}" ${v === f.area_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`}
+      </label>
       <label class="field"><span>Cláusula / punto afectado</span><input class="input" data-input="e8-reg" data-key="clause" value="${esc(f.clause || "")}"></label>
       <label class="field"><span>Responsable <i>*</i></span><select class="select" data-input="e8-reg" data-key="owner_id"><option value="">— Responsable —</option>${staffAll().map((p) => `<option value="${p.id}" ${p.id === f.owner_id ? "selected" : ""}>${esc(p.full_name)}</option>`).join("")}</select></label>
     </div>
@@ -651,11 +663,13 @@ function e8dRejectForm(f) {
 /* ------------------------------------- Eventos del 8D/4D ------------------------------------ */
 const setPath = (obj, path, val) => { const keys = path.split("."); let o = obj; for (let i = 0; i < keys.length - 1; i++) o = (o[keys[i]] ??= {}); o[keys[keys.length - 1]] = val; };
 onInput("e8-dd", (el) => { drafts[el.dataset.key] = el.value; });
+on("e8-reg-kind", (el) => { drafts[`${fnd(el.closest("[data-id]")?.dataset.id || curId).id}:areaKind`] = el.dataset.kind; paint(); });
 on("e8-register", (el) => {
   const f = fnd(el.dataset.id), box = document.getElementById("if-status-box");
-  const classId = box.querySelector('[data-key="class_id"]').value, areaId = box.querySelector('[data-key="area_id"]').value, clause = box.querySelector('[data-key="clause"]').value.trim(), ownerId = box.querySelector('[data-key="owner_id"]').value;
+  const classId = box.querySelector('[data-key="class_id"]').value, clause = box.querySelector('[data-key="clause"]').value.trim(), ownerId = box.querySelector('[data-key="owner_id"]').value;
+  const areaId = box.querySelector('[data-key="area_id"]')?.value || "", processId = box.querySelector('[data-key="process_id"]')?.value || "";
   if (!classId || !ownerId) { toast("Elige la clasificación y el responsable.", "danger"); return; }
-  run(async () => { await registerFinding(f, { class_id: classId, area_id: areaId || null, area: db.get("areas", areaId)?.name || null, clause: clause || null, owner_id: ownerId, ...deadlineFields(classId) }); viewStage = null; toast("Hallazgo registrado · define la estrategia", "ok"); notifyFindings([db.get("findings", f.id)], "assigned"); });
+  run(async () => { await registerFinding(f, { class_id: classId, area_id: areaId || null, area: db.get("areas", areaId)?.name || null, process_id: processId || null, clause: clause || null, owner_id: ownerId, ...deadlineFields(classId) }); viewStage = null; toast("Hallazgo registrado · define la estrategia", "ok"); notifyFindings([db.get("findings", f.id)], "assigned"); });
 });
 onChange("e8-ps", (el) => { drafts[`${el.dataset.id}:ps`] = el.value; });
 onChange("e8-rca-pick", (el) => { drafts[`${el.dataset.id}:rca`] = el.value; });
@@ -716,11 +730,30 @@ on("e8-act-del", (el) => {
   rows.splice(ri, 1); for (const k of Object.keys(drafts)) if (k.startsWith(`${f.id}:act.${key}.`)) delete drafts[k];
   drafts[`${f.id}:act.${key}`] = rows; paint();
 });
-on("e8-d-save", (el) => run(async () => { const f = fnd(el.dataset.id); await saveD(f, collectDD(f, el.dataset.stage)); clearGridDrafts(f.id); clearActionDrafts(f.id); toast("Borrador guardado", "ok"); }));
+/** 5 Whys: la "Causa raíz" de cada una de las 3 cadenas se vuelve su propia causa raíz (RC-AÑO-0001) en
+ *  automático al guardar — Ishikawa sigue pidiéndolo a mano, con el botón "Agregar causa raíz" */
+const WHY_CHAINS = ["why_occur", "why_detect", "why_prevent"];
+async function syncRootCausesFrom5Whys(f, patch) {
+  if (f.strategy_rca !== "5whys") return;
+  const merged = { ...f.d_data, ...patch };
+  const existing = new Set(rootCausesOf(f).map((rc) => rc.text.trim().toLowerCase()));
+  for (const key of WHY_CHAINS) {
+    const text = (merged[key]?.root_cause || "").trim();
+    if (text && !existing.has(text.toLowerCase())) { await db.insert("root_causes", { finding_id: f.id, text }); existing.add(text.toLowerCase()); }
+  }
+}
+on("e8-d-save", (el) => run(async () => { const f = fnd(el.dataset.id), patch = collectDD(f, el.dataset.stage); await saveD(f, patch); if (el.dataset.stage === "d4") await syncRootCausesFrom5Whys(f, patch); clearGridDrafts(f.id); clearActionDrafts(f.id); toast("Borrador guardado", "ok"); }));
 on("e8-d-advance", (el) => {
   const f = fnd(el.dataset.id), gate = actionGate(f);
   if (gate) { toast(gate, "danger"); return; }
-  run(async () => { await advanceD(f, el.dataset.stage, collectDD(f, el.dataset.stage)); clearGridDrafts(f.id); clearActionDrafts(f.id); viewStage = null; toast("Guardado · siguiente etapa", "ok"); });
+  run(async () => {
+    const patch = collectDD(f, el.dataset.stage);
+    if (el.dataset.stage === "d4") {
+      await syncRootCausesFrom5Whys(f, patch);
+      if (!rootCausesOf(f).length) { toast("Agrega al menos una causa raíz identificada antes de continuar.", "danger"); return; }
+    }
+    await advanceD(f, el.dataset.stage, patch); clearGridDrafts(f.id); clearActionDrafts(f.id); viewStage = null; toast("Guardado · siguiente etapa", "ok");
+  });
 });
 /* --------------------------- Revisión del 4D: notificaciones --------------------------- */
 /** Avisos de la revisión del 4D: bandeja + correo (reutiliza notifyFindings, como el resto de los hallazgos) */

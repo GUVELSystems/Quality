@@ -18,24 +18,24 @@ export const findingClasses = makeCrud({
   defaults: () => ({ active: true, days: 5, scopes: [...SCOPES.filter((s) => s !== "Interna")] }),
   search: (r) => `${r.code} ${r.name || ""} ${scopesOf(r).join(" ")}`,
   sort: (a, b) => scopesOf(a).join().localeCompare(scopesOf(b).join()) || a.days - b.days,
-  filters: [{ key: "scope", label: "Todos los tipos", options: SCOPES.map((s) => [s, s === "Issues" ? "Issues (clientes)" : s]), test: (r, v) => scopesOf(r).includes(v) }],
+  filters: [{ key: "scope", label: "Todos los tipos", options: SCOPES.map((s) => [s, s === "Issues" ? "Findings (clientes)" : s]), test: (r, v) => scopesOf(r).includes(v) }],
   fields: () => [
     { name: "code", label: "Código", required: true, placeholder: "N1, NCM, NCm…", hint: "Es lo que se verá en el hallazgo." },
     { name: "name", label: "Nombre", placeholder: "Clasificación N1 / No conformidad mayor" },
     { name: "days", label: "Días hábiles para cerrar acciones", type: "number", required: true, min: 0, max: 365 },
     { name: "active", label: "Activa", type: "checkbox" },
-    { name: "scopes", label: "Aplica a", type: "multicheck", required: true, span2: true, options: SCOPES.map((s) => [s, s === "Issues" ? "Issues (clientes)" : s]), hint: "Solo se podrá elegir en auditorías de los tipos marcados. Ej.: en Interna usa NCM / NCm en lugar de N1." },
+    { name: "scopes", label: "Aplica a", type: "multicheck", required: true, span2: true, options: SCOPES.map((s) => [s, s === "Issues" ? "Findings (clientes)" : s]), hint: "Solo se podrá elegir en auditorías de los tipos marcados. Ej.: en Interna usa NCM / NCm en lugar de N1." },
   ],
   beforeSave: (v) => { if (!(v.scopes || []).length) throw new Error("Marca al menos un tipo en «Aplica a»."); return { ...v, code: v.code.trim() }; },
   intro: () => `<div class="panel"><div class="panel-head"><h2>Días de verificación por tipo</h2><small>Días hábiles que tiene el administrador para aceptar o rechazar, después de cerrar las acciones</small></div><div class="panel-body">
-      <div class="verify-grid">${VERIFY_TYPES.map((t) => `<label class="field"><span>${t === "Issues" ? "Issues (clientes)" : t}</span><input class="input" type="number" min="1" max="365" data-vtype="${t}" value="${verifyDaysForType(t)}" ${db.can.manage ? "" : "disabled"}></label>`).join("")}
+      <div class="verify-grid">${VERIFY_TYPES.map((t) => `<label class="field"><span>${t === "Issues" ? "Findings (clientes)" : t}</span><input class="input" type="number" min="1" max="365" data-vtype="${t}" value="${verifyDaysForType(t)}" ${db.can.manage ? "" : "disabled"}></label>`).join("")}
         <label class="field"><span>Por defecto <small class="muted">(sin tipo)</small></span><input class="input" type="number" min="1" max="365" data-vtype="default" value="${verifyDays()}" ${db.can.manage ? "" : "disabled"}></label></div>
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:14px">${db.can.manage ? `<button class="btn" data-action="cfg-save-verify">Guardar días de verificación</button>` : ""}
         <span class="muted" style="font-size:13px">Ejemplo: LPA → 5 días · Interna → 10 días. Se aplica a los hallazgos cuyas acciones se cierren a partir de ahora.</span></div></div></div>`,
   columns: [
     { label: "Código", cell: (r) => `<span class="badge" data-tone="${classTone(r)}" style="text-transform:none">${esc(r.code)}</span>` },
     { label: "Nombre", cell: (r) => `<span class="title">${esc(r.name || r.code)}</span>` },
-    { label: "Aplica a", cell: (r) => (scopesOf(r).length === SCOPES.length ? '<span class="muted">Todos los tipos</span>' : scopesOf(r).map((s) => `<span class="badge" data-tone="info" style="margin:2px 10px 2px 0;text-transform:none">${esc(s === "Issues" ? "Issues" : s)}</span>`).join("")) },
+    { label: "Aplica a", cell: (r) => (scopesOf(r).length === SCOPES.length ? '<span class="muted">Todos los tipos</span>' : scopesOf(r).map((s) => `<span class="badge" data-tone="info" style="margin:2px 10px 2px 0;text-transform:none">${esc(s === "Issues" ? "Findings" : s)}</span>`).join("")) },
     { label: "Días hábiles", cls: "num", cell: (r) => `<b class="mono">${r.days}</b> días` },
     { label: "En uso", cls: "num", cell: (r) => `<span class="mono">${db.rows("findings").filter((f) => f.class_id === r.id).length}</span> hallazgos` },
     { label: "Estado", cell: (r) => yesNo(r.active) },

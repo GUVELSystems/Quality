@@ -37,7 +37,7 @@ const fields = () => [
 
 function newNotifForm(defaultType) {
   openForm({
-    eyebrow: "Issues", title: "Nueva notificación", size: "wide", fields: fields(),
+    eyebrow: "Findings", title: "Nueva notificación", size: "wide", fields: fields(),
     values: { notification_type: defaultType || typesOf()[0]?.[0], severity: "mayor", received_at: today(), response_due: addDays(today(), 5), owner_id: db.state.profile.id },
     submitLabel: "Registrar",
     intro: `<div class="note" style="margin-bottom:14px">Al registrarla se genera de una vez su Hallazgo; ahí se elige la estrategia (8D o 4D) y se da seguimiento.</div>`,

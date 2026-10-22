@@ -618,6 +618,9 @@ table.tpl-grid input:focus { outline: 2px solid var(--flow); outline-offset: -2p
 
 /* =========================== Flujo 8D/4D: bloques D ===================== */
 .e8-block { margin-bottom: 18px; }
+.rc-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.rc-list li { padding: 8px 12px; background: var(--surface-2); border: 1px solid var(--line-soft); border-left: 3px solid var(--flow); font-size: 13.5px; }
+.rc-list .mono { font-weight: 700; margin-right: 8px; color: var(--flow-ink); }
 .e8-block h4 { font-size: 13px; font-weight: 700; color: var(--text-2); margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--line-soft); }
 .e8-why-row { display: grid; grid-template-columns: repeat(4, 1fr) 1.3fr; gap: 8px; }
 .e8-why-row input:last-child { font-weight: 700; border-color: var(--flow); }

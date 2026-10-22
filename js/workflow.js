@@ -247,7 +247,12 @@ export async function registerFinding(f, patch) {
 }
 export async function saveStrategy(f, strategy) {
   const r = await db.update("findings", f.id, { ...strategy, status: "solicitud", strategy_at: nowISO(), strategy_by: db.state.profile.id });
-  logEvent(f, "strategy", `${strategy.strategy_ps}${strategy.strategy_ps === "8D" ? " · " + RCA_TYPES[strategy.strategy_rca] : ""}`); return r;
+  logEvent(f, "strategy", strategy.strategy_ps); return r;
+}
+/** El responsable elige el método de causa raíz (5 Whys o Ishikawa) hasta llegar a esa etapa, no antes */
+export async function saveRcaMethod(f, rca) {
+  const r = await db.update("findings", f.id, { strategy_rca: rca });
+  logEvent(f, "rca_method", RCA_TYPES[rca]); return r;
 }
 export async function acceptD(f) {
   const r = await db.update("findings", f.id, { status: "d1", accepted_at: nowISO(), accepted_by: db.state.profile.id });

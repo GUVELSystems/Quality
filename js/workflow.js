@@ -217,14 +217,14 @@ export const isEightD = (f) => !!f?.strategy_ps || NEW_FLOW_STATUSES.has(f?.stat
 /** D6 y D7 se trabajan juntos (lo correctivo y lo preventivo pueden avanzar en paralelo); un 4D
  *  termina en D4 (ya incluye el cierre) y nunca ve D5-D8. */
 export function dStages(f) {
-  return f?.strategy_ps === "4D" ? ["d1", "d2", "d3", "d4", "d4_revision"] : ["d1", "d2", "d3", "d4", "d5", "d6", "d8"];
+  return f?.strategy_ps === "4D" ? ["d1", "d2", "d3", "d4", "d4_revision"] : ["d1", "d2", "d3", "d4", "d5", "d6", "d8", "d8_revision"];
 }
 export function eightdStages(f) {
   return ["registro", "detalles", "solicitud", ...dStages(f), "verificacion", "cerrado"];
 }
 export const D_LABEL = {
   registro: "Registro", detalles: "Detalles del problema", solicitud: "Solicitud de hallazgo",
-  d1: "Equipo", d2: "Descripción del problema", d4_revision: "Revisión",
+  d1: "Equipo", d2: "Descripción del problema", d4_revision: "Revisión", d8_revision: "Revisión",
   verificacion: "Verificación", cerrado: "Cierre",
 };
 /** D3/D4 cambian de título según 8D o 4D. Solo el título corto se muestra en el portal: el PDF
@@ -269,23 +269,25 @@ export async function advanceD(f, stage, patch) {
   const r = await db.update("findings", f.id, data);
   logEvent(f, "d_stage", dLabel(stage, f)); return r;
 }
-/* ------------------------------- Revisión del 4D ------------------------------- */
-export const canReview4D = (f) => db.can.write && f.status === "d4_revision" && (f.reviewer_id === db.state.profile.id || db.can.admin);
-/** Estatus automático que se muestra en el cierre del 4D (ya no se escribe a mano) */
+/* ------------------------- Revisión (D4 del 4D, D8 del 8D) ------------------------- */
+/** Mismo mecanismo para los dos: alguien elegido revisa, aprueba o rechaza, antes de Verificación.
+ *  "stage" es "d4" (4D) o "d8" (8D) — cada uno guarda su propio "<stage>_revision" como estatus. */
+export const canReview = (f) => db.can.write && /_revision$/.test(f.status) && (f.reviewer_id === db.state.profile.id || db.can.admin);
+export const canReview4D = canReview;   // alias por compatibilidad con el nombre anterior
+/** Estatus automático que se muestra en el cierre del 4D/8D (ya no se escribe a mano) */
 export function closure4DStatus(f) {
-  if (f.strategy_ps !== "4D") return "";
   if (f.status === "cerrado") return "Aprobado";
   if (f.status === "verificacion") return "En verificación";
-  if (f.status === "d4_revision") return "En revisión";
+  if (f.status === "d4_revision" || f.status === "d8_revision") return "En revisión";
   if (f.d_data?.closure4d?.decision === "rechazado") return "Rechazado · en corrección";
   return "Borrador";
 }
-export async function sendToReview4D(f, reviewerId, patch) {
+export async function sendToReview(f, stage, reviewerId, patch) {
   const closure4d = { ...(f.d_data?.closure4d || {}), ...(patch?.closure4d || {}), preparer_id: f.owner_id, prepared_date: today() };
-  const r = await db.update("findings", f.id, { status: "d4_revision", reviewer_id: reviewerId, d_data: { ...f.d_data, ...patch, closure4d } });
+  const r = await db.update("findings", f.id, { status: `${stage}_revision`, reviewer_id: reviewerId, d_data: { ...f.d_data, ...patch, closure4d } });
   logEvent(f, "sent_review", db.profileName(reviewerId)); return r;
 }
-export async function approveReview4D(f, notes) {
+export async function approveReview(f, notes) {
   const now = new Date(), verifyDue = shiftBusiness(now, verifyDaysFor(f) * DAY_MS);
   const closure4d = { ...(f.d_data?.closure4d || {}), reviewed_by_id: db.state.profile.id, reviewed_date: today(), review_notes: notes, decision: "aprobado" };
   const r = await db.update("findings", f.id, {
@@ -294,11 +296,15 @@ export async function approveReview4D(f, notes) {
   });
   logEvent(f, "review_approved", notes); return r;
 }
-export async function rejectReview4D(f, notes) {
+export async function rejectReview(f, stage, notes) {
   const closure4d = { ...(f.d_data?.closure4d || {}), reviewed_by_id: db.state.profile.id, reviewed_date: today(), review_notes: notes, decision: "rechazado" };
-  const r = await db.update("findings", f.id, { status: "d4", d_data: { ...f.d_data, closure4d } });
+  const r = await db.update("findings", f.id, { status: stage, d_data: { ...f.d_data, closure4d } });
   logEvent(f, "review_rejected", notes); return r;
 }
+// Alias con el nombre anterior, para el código del 4D que ya los usaba así
+export const sendToReview4D = (f, reviewerId, patch) => sendToReview(f, "d4", reviewerId, patch);
+export const approveReview4D = approveReview;
+export const rejectReview4D = (f, notes) => rejectReview(f, "d4", notes);
 export async function closeVerification8D(f, notes) {
   const r = await db.update("findings", f.id, { verification_notes: notes, verified_at: nowISO(), verified_by: db.state.profile.id, verified_on: today(), status: "cerrado" });
   logEvent(f, "verified", notes); return r;

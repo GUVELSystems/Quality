@@ -21,7 +21,7 @@ import {
   saveRca, advanceRca, savePlan, closeActions, acceptVerification, rejectVerification,
   isEightD, dStages, eightdStages, dLabel, PS_TYPES, RCA_TYPES, canRegister, canSetStrategy, canActD, canVerify8D,
   registerFinding, saveStrategy, saveRcaMethod, acceptD, saveD, advanceD, closeVerification8D, rejectVerification8D, deadlineFields,
-  canReview4D, closure4DStatus, sendToReview4D, approveReview4D, rejectReview4D,
+  canReview4D, closure4DStatus, sendToReview4D, approveReview4D, rejectReview4D, sendToReview, approveReview, rejectReview,
 } from "../workflow.js";
 import { exportFinding8D4D } from "../pdf8d.js";
 
@@ -549,11 +549,18 @@ function stageD6(f, editable) {
     ${yn("fmea", "¿Es necesario actualizar el FMEA?")}${yn("cp", "¿Es necesario actualizar el Plan de Control?")}${yn("rollacross", "¿Es necesario un Roll-Across?")}`;
 }
 function stageD8(f, editable) {
-  const c = f.d_data?.closure8d || {};
-  const w = (k, l, type = "text") => `<label class="field"><span>${esc(l)}</span><input class="input" type="${type}" data-input="e8-dd" data-key="${f.id}:dd.closure8d.${k}" value="${esc(drafts[`${f.id}:dd.closure8d.${k}`] ?? c[k] ?? "")}"></label>`;
+  const c = f.d_data?.closure4d || {};
+  const reviewerKey = `${f.id}:dd.closure4d.__reviewer`, reviewerVal = drafts[reviewerKey] ?? f.reviewer_id ?? "";
+  const reviewerField = editable
+    ? `<label class="field"><span>Revisado por</span><select class="select" data-input="e8-dd" data-key="${reviewerKey}"><option value="">— Elegir revisor —</option>${staffAll().filter((p) => p.id !== f.owner_id).map((p) => `<option value="${p.id}" ${p.id === reviewerVal ? "selected" : ""}>${esc(p.full_name)}</option>`).join("")}</select></label>`
+    : `<div class="field"><span>Revisado por</span><div class="done-text">${esc(db.profileName(f.reviewer_id) || "—")}</div></div>`;
   return `<p class="muted" style="margin-bottom:14px">El equipo es reconocido por su esfuerzo y colaboración resolviendo el problema.</p>
-    <div class="form-grid">${w("prepared_by", "Preparado por")}${w("reviewed_by", "Revisado por")}${w("approved_by", "Aprobado por")}${w("closing_date", "Fecha de cierre", "date")}
-    <label class="field"><span>Estatus del reporte</span><select class="select" data-input="e8-dd" data-key="${f.id}:dd.closure8d.status"><option ${c.status !== "Closed" ? "selected" : ""}>Open</option><option ${c.status === "Closed" ? "selected" : ""}>Closed</option></select></label></div>`;
+    <div class="e8-block"><h4>Cierre del 8D</h4><div class="form-grid">
+      <div class="field"><span>Preparado por</span><div class="done-text">${esc(db.profileName(c.preparer_id || f.owner_id))}</div></div>
+      <div class="field"><span>Fecha</span><div class="done-text">${c.prepared_date ? fmtDate(c.prepared_date) : "Se fija al enviar a revisar"}</div></div>
+      ${reviewerField}
+      <div class="field"><span>Estatus</span><div class="done-text">${esc(closure4DStatus(f) || "—")}</div></div>
+    </div></div>`;
 }
 const D_BODY = { d1: stageD1, d2: stageD2, d3: stageD3, d4: stageD4, d5: stageD5, d6: stageD6, d8: stageD8 };
 
@@ -564,9 +571,9 @@ function stageDGeneric(f, stage) {
   const body = D_BODY[stage](f, editable);
   if (idx < cur) return body;                     // ya hecho: vista de solo lectura
   if (!act) return `${body}${lock(`Solo <b>${ownerName}</b> (o un administrador) puede continuar.`)}`;
-  if (stage === "d4" && f.strategy_ps === "4D") {   // el 4D no "avanza": se envía a revisar a alguien elegido
-    return `${body}<div class="stage-actions"><button class="btn" data-action="e8-d-save" data-id="${f.id}" data-stage="d4">Guardar borrador</button>
-      <button class="btn primary" data-action="e8-send-review" data-id="${f.id}">${icon("check2")} Enviar a revisar</button></div>`;
+  if ((stage === "d4" && f.strategy_ps === "4D") || stage === "d8") {   // el 4D en D4, y el 8D en D8: no "avanzan", se envían a revisar a alguien elegido
+    return `<div class="stage-actions" style="margin-bottom:14px">${pdfBtn(f)}</div>${body}<div class="stage-actions"><button class="btn" data-action="e8-d-save" data-id="${f.id}" data-stage="${stage}">Guardar borrador</button>
+      <button class="btn primary" data-action="e8-send-review" data-id="${f.id}" data-stage="${stage}">${icon("check2")} Guardar y enviar a revisar</button></div>`;
   }
   if (stage === "d4" && f.strategy_ps !== "4D" && !f.strategy_rca) return body;   // falta elegir 5 Whys/Ishikawa: sus propios botones ya están en el body
   const isLast = stages[idx + 1] === "verificacion";
@@ -595,17 +602,18 @@ function stageCerrado8D(f) {
     <div class="stage-actions" style="margin-top:14px">${pdfBtn(f)}</div>`;
 }
 
-function stageD4Revision(f) {
-  const stages = eightdStages(f), idx = stages.indexOf("d4_revision"), cur = stages.indexOf(f.status), c = f.d_data?.closure4d || {};
-  if (idx > cur) return lock("Disponible cuando se envíe el 4D a revisar.");
-  const recap = `<div class="form-grid">
+function stageRevision(f, revStage) {
+  const stages = eightdStages(f), idx = stages.indexOf(revStage), cur = stages.indexOf(f.status), c = f.d_data?.closure4d || {};
+  const sourceStage = revStage === "d8_revision" ? "D8" : "D4";
+  if (idx > cur) return lock(`Disponible cuando se envíe el ${sourceStage} a revisar.`);
+  const recap = `<div class="stage-actions" style="margin-bottom:14px">${pdfBtn(f)}</div><div class="form-grid">
     <div class="field"><span>Preparado por</span><div class="done-text">${esc(db.profileName(c.preparer_id))}</div></div>
     <div class="field"><span>Fecha de envío</span><div class="done-text">${fmtDate(c.prepared_date)}</div></div>
     <div class="field"><span>Revisor</span><div class="done-text">${esc(db.profileName(f.reviewer_id))}</div></div></div>`;
   if (idx < cur) return `${recap}<p class="q-label" style="margin-top:14px">Resultado de la revisión</p><div class="done-text">${esc(c.review_notes || "—")}</div><div class="muted" style="margin-top:6px;font-size:13px">${fmtDate(c.reviewed_date)}</div>`;
   if (!canReview4D(f)) return `${recap}${lock(`Esperando la revisión de <b>${esc(db.profileName(f.reviewer_id))}</b>.`)}`;
   const notes = drafts[`${f.id}:dd.closure4d.review_notes`] ?? c.review_notes ?? "";
-  return `${recap}<p class="q-label" style="margin-top:14px">¿Las acciones inmediatas resuelven el hallazgo?</p>
+  return `${recap}<p class="q-label" style="margin-top:14px">¿Las acciones resuelven el hallazgo?</p>
     <textarea class="textarea" rows="4" data-input="e8-dd" data-key="${f.id}:dd.closure4d.review_notes" placeholder="Comentarios de la revisión…">${esc(notes)}</textarea>
     <div class="stage-actions"><button class="btn primary" data-action="e8-review-approve" data-id="${f.id}">${icon("check2")} Revisado y aprobado</button><button class="btn danger" data-action="e8-review-reject" data-id="${f.id}">${icon("close")} Revisado y rechazado</button></div>`;
 }
@@ -613,7 +621,7 @@ function e8dStepBody(f, st) {
   if (st === "registro") return stageRegistro(f);
   if (st === "detalles") return stageDetalles(f);
   if (st === "solicitud") return stageSolicitud(f);
-  if (st === "d4_revision") return stageD4Revision(f);
+  if (st === "d4_revision" || st === "d8_revision") return stageRevision(f, st);
   if (st === "verificacion") return stageVerificacion8D(f);
   if (st === "cerrado") return stageCerrado8D(f);
   return stageDGeneric(f, st);
@@ -760,15 +768,15 @@ on("e8-d-advance", (el) => {
 const notifyReviewer = (f) => notifyFindings([f], "review_requested");
 const notifyPreparer = (f, approved) => notifyFindings([f], approved ? "review_approved" : "review_rejected");
 on("e8-send-review", (el) => {
-  const f = fnd(el.dataset.id);
+  const f = fnd(el.dataset.id), stage = el.dataset.stage || "d4";
   const reviewerId = document.querySelector(`[data-key="${f.id}:dd.closure4d.__reviewer"]`)?.value;
-  if (!reviewerId) { toast("Elige quién revisará el 4D.", "danger"); return; }
+  if (!reviewerId) { toast("Elige quién revisará esto.", "danger"); return; }
   const gate = actionGate(f);
   if (gate) { toast(gate, "danger"); return; }
   run(async () => {
-    const patch = collectDD(f, "d4");
+    const patch = collectDD(f, stage);
     if (patch.closure4d) delete patch.closure4d.__reviewer;
-    const r = await sendToReview4D(f, reviewerId, patch);
+    const r = await sendToReview(f, stage, reviewerId, patch);
     clearGridDrafts(f.id); clearActionDrafts(f.id); viewStage = null;
     await notifyReviewer(r);
     toast(`Enviado a revisar · se avisó a ${db.profileName(reviewerId)}`, "ok");
@@ -777,12 +785,17 @@ on("e8-send-review", (el) => {
 on("e8-review-approve", (el) => {
   const notes = (document.querySelector(`[data-key="${el.dataset.id}:dd.closure4d.review_notes"]`)?.value || "").trim();
   if (notes.length < 5) { toast("Describe el resultado de la revisión.", "danger"); return; }
-  run(async () => { const f = fnd(el.dataset.id), r = await approveReview4D(f, notes); viewStage = null; await notifyPreparer(r, true); toast("Revisión aprobada · pasa a Verificación", "ok"); });
+  run(async () => {
+    const f = fnd(el.dataset.id), r = await approveReview(f, notes); viewStage = null;
+    await notifyPreparer(r, true);
+    await notifyFindings([r], "verify");   // al aprobar la revisión se avisa a TODOS los administradores que toca verificar
+    toast("Revisión aprobada · pasa a Verificación", "ok");
+  });
 });
 on("e8-review-reject", (el) => {
   const notes = (document.querySelector(`[data-key="${el.dataset.id}:dd.closure4d.review_notes"]`)?.value || "").trim();
   if (notes.length < 5) { toast("Describe el motivo del rechazo.", "danger"); return; }
-  run(async () => { const f = fnd(el.dataset.id), r = await rejectReview4D(f, notes); viewStage = null; await notifyPreparer(r, false); toast("Revisión rechazada · vuelve a D4", "ok"); });
+  run(async () => { const f = fnd(el.dataset.id), stage = f.strategy_ps === "4D" ? "d4" : "d8", r = await rejectReview(f, stage, notes); viewStage = null; await notifyPreparer(r, false); toast(`Revisión rechazada · vuelve a ${stage.toUpperCase()}`, "ok"); });
 });
 on("e8-verify-accept", (el) => {
   const notes = (document.querySelector(`[data-key="${el.dataset.id}:verification_notes"]`)?.value || "").trim();

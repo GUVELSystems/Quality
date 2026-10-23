@@ -293,7 +293,7 @@ function renderPlanes(root, params) {
   setHead({
     title: internal ? tr("internalAuditPlans") : `${tr("plansOf")} ${type}`,
     subtitle: internal ? tr("planInternalSubtitle") : `${tr("plansOf")} ${type}: ${tr("planInternalSubtitle").toLowerCase()}`,
-    actions: db.can.write ? `<button class="btn primary" data-action="au-plan-new">${icon("plus")} ${tr("createAuditPlan")}${internal ? "" : " " + type}</button>` : "",
+    actions: db.can.manage ? `<button class="btn primary" data-action="au-plan-new">${icon("plus")} ${tr("createAuditPlan")}${internal ? "" : " " + type}</button>` : "",
   });
   const plans = plansOf(ws).filter((p) => p.audit_type === type).sort((a, b) => b.start_date.localeCompare(a.start_date)), all = auditsOf(ws);
   const body = plans.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>${tr("plan")}</th><th>${tr("frequency")}</th><th>${tr("period")}</th><th style="min-width:170px">${tr("progress")}</th><th>${tr("sentCol")}</th><th></th></tr></thead><tbody>
@@ -334,7 +334,7 @@ function calendarView(root, planId) {
   setHead({
     eyebrow: `${plan.code} · ${plan.audit_type} · ${plan.frequency === "Custom" ? "Personalizado" : plan.frequency}`, title: planName(plan),
     subtitle: `${rangeText(plan.start_date, plan.end_date)} · ${days.length} días (${hab} hábiles, ${days.length - hab} inhábiles)`,
-    actions: `<a class="btn" href="${H("planes/" + plan.audit_type)}">${icon("chevL")} Planes · ${esc(plan.audit_type)}</a>${db.can.write ? `<button class="btn" data-action="au-plan-edit" data-id="${plan.id}">${icon("edit")} Editar</button><button class="btn" data-action="au-bulk" data-id="${plan.id}">${icon("wand")} Asignación rápida</button>` : ""}<button class="btn" data-action="au-export" data-id="${plan.id}">${icon("download")} Exportar PDF</button>${db.can.write ? `<button class="btn primary" data-action="au-send" data-id="${plan.id}">${icon("send")} ${sent ? "Reenviar" : "Terminar y Enviar"}</button>` : ""}`,
+    actions: `<a class="btn" href="${H("planes/" + plan.audit_type)}">${icon("chevL")} Planes · ${esc(plan.audit_type)}</a>${db.can.manage ? `<button class="btn" data-action="au-plan-edit" data-id="${plan.id}">${icon("edit")} Editar</button><button class="btn" data-action="au-bulk" data-id="${plan.id}">${icon("wand")} Asignación rápida</button>` : ""}<button class="btn" data-action="au-export" data-id="${plan.id}">${icon("download")} Exportar PDF</button>${db.can.manage ? `<button class="btn primary" data-action="au-send" data-id="${plan.id}">${icon("send")} ${sent ? "Reenviar" : "Terminar y Enviar"}</button>` : ""}`,
   });
   const t = today(), weeks = [];
   for (let m = mondayOf(plan.start_date); m <= plan.end_date; m = addDays(m, 7)) weeks.push(eachDay(m, addDays(m, 6)));
@@ -344,7 +344,7 @@ function calendarView(root, planId) {
     if (!inR) return `<div class="day out"><div class="day-top"><span class="day-num" style="color:var(--text-3)">${dd.getDate()}</span></div></div>`;
     return `<div class="day ${off ? "weekend" : ""} ${d === t ? "today" : ""}"><div class="day-top"><span class="day-num">${dd.getDate()}${showMon ? ` <span class="day-mon">${fmtDate(d).split(" ")[1]}</span>` : ""}</span>${off ? '<span class="day-off">Inhábil</span>' : ""}</div>
       ${list.map((a) => { const un = !a.assigned_to, proc = a.process_id ? db.get("processes", a.process_id) : null; return `<button class="slot ${un ? "unassigned" : ""}" data-action="au-slot" data-id="${a.id}" data-status="${auditStatus(a)}"><b><span>${esc(a.code)}${a.level ? " · N" + a.level : ""}</span>${a.notified_at && a.notified_to === a.assigned_to ? icon("mail") : ""}</b><small>${un ? "Sin asignar" : esc(firstName(a.assigned_to))}${proc ? " · " + esc(proc.code) : ""}</small></button>`; }).join("")}
-      ${db.can.write ? `<button class="add-day" data-action="au-add" data-date="${d}">＋ ${off ? "Habilitar y asignar" : "Asignar"}</button>` : ""}</div>`;
+      ${db.can.manage ? `<button class="add-day" data-action="au-add" data-date="${d}">＋ ${off ? "Habilitar y asignar" : "Asignar"}</button>` : ""}</div>`;
   };
   root.innerHTML = `<div class="stack">
     <div class="kpi-strip">
@@ -452,7 +452,7 @@ function auditView(root, id) {
   const st = auditStatus(audit), locked = ["completada", "cancelada"].includes(audit.status) || !db.can.write;
   setHead({
     eyebrow: `${plan?.code || "Auditoría"} · ${plan?.audit_type || ""}`, title: audit.code, subtitle: form ? `${form.code} · ${form.name}` : "Sin formato asignado",
-    actions: `<a class="btn" href="${H(plan ? "plan/" + plan.id : "lista")}">${icon("chevL")} ${plan ? "Calendario" : "Auditorías"}</a>${db.can.write ? `<button class="btn" data-action="au-edit" data-id="${audit.id}">${icon("edit")} Programación</button>` : ""}${audit.status === "completada" && db.can.manage ? `<button class="btn" data-action="au-reopen" data-id="${audit.id}">Reabrir</button>` : ""}`,
+    actions: `<a class="btn" href="${H(plan ? "plan/" + plan.id : "lista")}">${icon("chevL")} ${plan ? "Calendario" : "Auditorías"}</a>${db.can.manage ? `<button class="btn" data-action="au-edit" data-id="${audit.id}">${icon("edit")} Programación</button>` : ""}${audit.status === "completada" && db.can.manage ? `<button class="btn" data-action="au-reopen" data-id="${audit.id}">Reabrir</button>` : ""}`,
   });
   const product = isProductForm(items);
   const sections = product ? SECTION_ORDER.map((k) => KINDS[k]).filter((n) => items.some((i) => sectionName(i, true) === n)) : [...new Set(items.map(areaName))];
@@ -494,7 +494,7 @@ on("au-plan-new", planWizard);
 on("au-plan-open", (el) => navigate(`${wsId()}/plan/${el.dataset.id}`));
 on("au-open", (el) => navigate(`${wsId()}/audit/${el.dataset.id}`));
 on("au-add", (el) => scheduleForm(null, curPlan(), el.dataset.date));
-on("au-slot", (el) => { const a = db.get("audits", el.dataset.id); db.can.write ? scheduleForm(a, curPlan()) : navigate(`${wsId()}/audit/${a.id}`); });
+on("au-slot", (el) => { const a = db.get("audits", el.dataset.id); db.can.manage ? scheduleForm(a, curPlan()) : navigate(`${wsId()}/audit/${a.id}`); });
 on("au-edit", (el) => { const a = db.get("audits", el.dataset.id); scheduleForm(a, db.get("audit_plans", a.plan_id)); });
 on("au-plan-edit", (el) => editPlan(db.get("audit_plans", el.dataset.id)));
 on("au-bulk", (el) => bulkAssign(db.get("audit_plans", el.dataset.id)));

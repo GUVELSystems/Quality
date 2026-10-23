@@ -36,7 +36,7 @@ const MAPS = {
   ROLES: { admin: ["Administrador", "Administrator"], manager: ["Manager", "Manager"], auditor: ["Auditor", "Auditor"], viewer: ["Consulta", "Viewer"] },
   CATALOG_KINDS: { categoria_hallazgo: ["Categoría de hallazgo", "Finding category"], causa_raiz: ["Causa raíz", "Root cause"], tipo_riesgo: ["Tipo de riesgo", "Risk type"], origen_issues: ["Origen de Issues", "Issue origin"] },
 };
-const WS_LABEL_EN = { dashboard: "Dashboard", auditorias: "Audits", internas: "Internal Audits", issues: "Findings", riesgos: "Risks", oportunidades: "Opportunities", config: "Settings" };
+const WS_LABEL_EN = { dashboard: "Dashboard", auditorias: "Audits", internas: "Internal Audits", issues: "Findings", riesgos: "Risks", oportunidades: "Opportunities", config: "Settings", calidad: "Quality Control" };
 const WS_LABEL_ES = { ...WS_LABEL };
 
 function applyMaps(lang) {

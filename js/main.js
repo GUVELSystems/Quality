@@ -18,10 +18,11 @@ import forms from "./modules/forms.js";
 import { classesAndLevels, areasAndProcesses, standards, capaFiles } from "./modules/config.js";
 import portales, { isSuperAdmin } from "./modules/superadmin.js";
 import soporte from "./modules/support.js";
+import inspections from "./modules/inspections.js";
 import historial from "./modules/historial.js";
 import { updateBell, showReminder, closeInbox, inboxCounts } from "./inbox.js";
 import "./modules/attachments.js";
-import { findingsOf, lateActionsOf, WS_LABEL, WS_ICON, auditWs, findingWs } from "./scope.js";
+import { findingsOf, lateActionsOf, WS_LABEL, WS_ICON, auditWs, findingWs, MENU_SECTIONS } from "./scope.js";
 
 /* ------------------- Módulos (portales dentro del portal) ------------------- */
 const openF = (ws) => ({ n: findingsOf(ws).filter((f) => f.status !== "cerrado").length });
@@ -37,6 +38,10 @@ const auditTabs = () => [
 ];
 registerWs({ id: "dashboard", label: "Dashboard", hideTabs: true, tabs: [{ id: "inicio", render: dashboard.render }] });
 registerWs({ id: "soporte", label: "Soporte", hideTabs: true, tabs: [{ id: "inicio", render: soporte.render }] });
+registerWs({ id: "calidad", label: WS_LABEL.calidad, tabs: [
+  { id: "dashboard", label: "Dashboard", icon: "dashboard", render: inspections.renderDashboard },
+  { id: "inspecciones", label: "Inspecciones", icon: "inspection", render: inspections.renderInspecciones, count: () => ({ n: db.rows("inspection_requests").filter((r) => r.status === "pendiente").length }) },
+] });
 registerWs({ id: "auditorias", label: WS_LABEL.auditorias, tabs: auditTabs() });
 registerWs({ id: "internas", label: WS_LABEL.internas, tabs: auditTabs() });
 registerWs({ id: "issues", label: WS_LABEL.issues, tabs: [
@@ -59,7 +64,7 @@ registerWs({ id: "config", label: WS_LABEL.config, tabs: [
 ] });
 
 const app = document.getElementById("app");
-const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades", "soporte"];
+const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades", "soporte", "calidad"];
 /** Quien no pertenece a ninguna empresa (personal puro de plataforma) no tiene nada que ver en estos módulos */
 const visibleMenu = () => { if (db.state.profile?.company_id) return MENU_COMPANY; return db.can.support ? ["soporte"] : db.can.superAdmin ? [] : MENU_COMPANY; };
 const CONFIG_MENU_BASE = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas y Procesos", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"], ["historial", "Historial", "clock"]];
@@ -225,8 +230,12 @@ function renderNav() {
   if (!w || !document.getElementById("wsBtn")) return;
   document.getElementById("wsBtn").innerHTML = `${esc(w.label)} ${icon("more")}`;
   const tile = (href, label, ico, active) => `<a href="${href}" class="ws-tile ${active ? "active" : ""}" role="menuitem" aria-label="${esc(label)}" title="${esc(label)}">${icon(ico)}<span class="ws-tip">${esc(label)}</span></a>`;
-  document.getElementById("wsMenu").innerHTML = `<div class="ws-grid">${visibleMenu().map((id) => tile(`#/${id}`, getWs(id).label, MENU_ICON[id], id === c.ws)).join("")}</div>`
-    + (db.can.auditorOnly ? "" : `<div class="menu-sep">Configuración</div><div class="ws-grid">${configMenu().map(([id, l, ico]) => tile(`#/config/${id}`, l, ico, c.ws === "config" && c.tab === id)).join("")}</div>`);
+  const visible = visibleMenu();
+  document.getElementById("wsMenu").innerHTML = MENU_SECTIONS.map(([sectionLabel, ids]) => {
+    const inSection = ids.filter((id) => visible.includes(id));
+    return inSection.length ? `<div class="menu-sep">${esc(sectionLabel)}</div><div class="ws-grid">${inSection.map((id) => tile(`#/${id}`, getWs(id).label, MENU_ICON[id], id === c.ws)).join("")}</div>` : "";
+  }).join("")
+    + (db.can.auditorOnly ? "" : `<div class="menu-sep">Configurations</div><div class="ws-grid">${configMenu().map(([id, l, ico]) => tile(`#/config/${id}`, l, ico, c.ws === "config" && c.tab === id)).join("")}</div>`);
   document.getElementById("wsMenu").classList.add("hidden");
   document.getElementById("navTabs").innerHTML = w.hideTabs ? "" : w.tabs.filter((t) => !t.hidden && (t.id !== "portales" || isSuperAdmin())).map((t) => {
     const k = t.count?.(w.id), active = t.id === c.tab || t.activeAs === c.tab;

@@ -14,8 +14,9 @@ export const TABLES = [
   "lpa_levels", "finding_classes", "areas", "processes", "root_causes", "area_level_owners", "app_settings", "notifications", "finding_events",
   "standards", "capa_templates", "rca_templates", "finding_documents",
   "companies", "support_grants", "support_access_log", "activity_log", "support_tickets",
+  "inspection_formats", "inspection_format_items", "inspection_requests", "inspection_records",
 ];
-const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP", processes: "PI", root_causes: "RC" };
+const PREFIX = { clients: "CLI", audit_plans: "PLAN", audits: "AUD", findings: "HAL", actions: "ACC", customer_notifications: "NCL", risks: "RSK", opportunities: "OPP", processes: "PI", root_causes: "RC", inspection_formats: "DIR", inspection_requests: "SOL", inspection_records: "REG" };
 const CODE_DIGITS = { processes: 2 };   // PI-01, no PI-0001 — el resto sigue con 4 dígitos
 const NO_YEAR_CODE = new Set(["clients", "processes"]);   // estos NO llevan año (son de Configuración)
 const HAS_CREATED_BY = new Set(["audit_plans", "audits", "findings", "actions", "customer_notifications", "risks", "opportunities", "attachments"]);

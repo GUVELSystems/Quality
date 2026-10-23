@@ -185,13 +185,15 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
       para(null, "Why was it not detected?"); chain("why_detect", "");
       para(null, "Why was it not prevented?"); chain("why_prevent", "");
     }
-    // D5-D8 (solo 8D)
+    // D5-D8 (solo 8D) — todo vive ahora en el Plan (d.corrective_plan), con su tipo y si "Fue definida"
+    const plan = d.corrective_plan || [], implMap = d.action_impl || {};
+    const implemented = (type) => plan.filter((r) => r.type === type && implMap[r.id]?.implemented === "si");
     dBar("D5", "Planned Permanent Corrective Action(s)");
-    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "corrective_plan", d.corrective_plan));
+    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "plan", plan));
     dBar("D6", "Implemented Permanent Corrective Action(s)");
-    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "corrective_done", d.corrective_done));
+    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "plan", implemented("correctiva")));
     dBar("D7", "Preventive Action(s)");
-    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "preventive", d.preventive));
+    table(["No.", "Action", "Responsible", "Due Date", "Completion Date"], actionRows(f.id, "plan", implemented("preventiva")));
     const add = d.additional || {};
     table(["Additional Action", "Required", "Responsible", "Due Date", "Completion Date"], [
       ["Update FMEA?", yn(g(add, "fmea.flag")), g(add, "fmea.responsible"), fmtDate(g(add, "fmea.due")), fmtDate(g(add, "fmea.completion"))],

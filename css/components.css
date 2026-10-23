@@ -660,3 +660,6 @@ table.tpl-grid input:focus { outline: 2px solid var(--flow); outline-offset: -2p
 .att.compact { display: flex; align-items: center; gap: 6px; }
 .att.compact .att-grid { display: flex; gap: 6px; }
 .att.compact .att-thumb { width: 34px; height: 34px; }
+.if-d-notif-link { display: inline-flex; align-items: center; gap: 6px; }
+.if-d-notif-icon { display: inline-flex; width: 14px; height: 14px; flex: none; }
+.if-d-notif-icon svg { width: 14px; height: 14px; }

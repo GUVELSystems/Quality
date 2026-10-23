@@ -411,8 +411,7 @@ function e8dDetailsHTML(f) {
   return `<div class="if-card"><h3>${icon("list")} Detalles</h3>
     ${f.strategy_ps ? row("Estrategia", `<span class="badge" data-tone="info">${esc(f.strategy_ps)}</span>${f.strategy_ps === "8D" ? ` <span class="badge" data-tone="info">${esc(RCA_TYPES[f.strategy_rca] || "—")}</span>` : ""}`) : ""}
     ${f.status !== "registro" ? row("Responsable", userCell(db.get("profiles", f.owner_id)) + (f.status === "solicitud" ? ' <span class="badge" data-tone="warn">Por aceptar</span>' : "")) : ""}
-    ${row("Evidencia", detailsEvidenceHTML(f))}
-    ${(() => { const n = db.rows("customer_notifications").find((x) => x.finding_id === f.id); return n ? row("Notificación", `<a href="#/issues/notificaciones/${n.id}">${icon("bell")} ${esc(n.code)} · ${esc(n.subject)}</a>`) : ""; })()}
+    ${(() => { const n = db.rows("customer_notifications").find((x) => x.finding_id === f.id); return n ? row("Notificación", `<a href="#/issues/notificaciones/${n.id}" class="if-d-notif-link"><span class="if-d-notif-icon">${icon("bell")}</span> ${esc(n.code)} · ${esc(n.subject)}</a>`) : ""; })()}
     ${f.class_id ? row("Clasificación", classBadge(f)) : ""}
     ${row("Proceso / Área", f.process_id ? `${esc(db.get("processes", f.process_id)?.code || "")} · ${esc(db.get("processes", f.process_id)?.name || "")}` : esc(process?.name || area?.name || f.area || "—"))}
     ${standard ? row("Norma aplicable", esc(standard.name)) : ""}
@@ -528,10 +527,10 @@ function stageD4(f, editable) {
 /** Cada causa raíz que se anota aquí queda con su propio folio (RC-AÑO-0001), para que las acciones
  *  correctivas y preventivas se vinculen a una en específico — nunca a las de otro hallazgo */
 function rootCausesBlock(f, editable) {
-  const list = rootCausesOf(f);
+  const list = rootCausesOf(f), manual = f.strategy_rca !== "5whys";   // en 5 Whys se agregan solas al llenar "Causa raíz" en cada cadena
   return `<div class="e8-block"><h4>Causas raíz identificadas</h4>
-    ${list.length ? `<ul class="rc-list">${list.map((rc) => `<li><span class="mono">${esc(rc.code)}</span> ${esc(rc.text)}</li>`).join("")}</ul>` : '<p class="muted">Sin causas raíz registradas todavía.</p>'}
-    ${editable ? `<div class="toolbar" style="margin-top:10px"><input class="input grow" id="rc-new-${f.id}" placeholder="Describe una causa raíz identificada…"><button type="button" class="btn sm primary" data-action="rc-add" data-id="${f.id}">${icon("plus")} Agregar causa raíz</button></div>` : ""}
+    ${list.length ? `<ul class="rc-list">${list.map((rc) => `<li><span class="mono">${esc(rc.code)}</span> ${esc(rc.text)}</li>`).join("")}</ul>` : `<p class="muted">${manual ? "Sin causas raíz registradas todavía." : "Aparecerán aquí en automático al llenar la Causa raíz de cada «Por qué»."}</p>`}
+    ${editable && manual ? `<div class="toolbar" style="margin-top:10px"><input class="input grow" id="rc-new-${f.id}" placeholder="Describe una causa raíz identificada…"><button type="button" class="btn sm primary" data-action="rc-add" data-id="${f.id}">${icon("plus")} Agregar causa raíz</button></div>` : ""}
   </div>`;
 }
 /* ---------------------- Plan de acciones correctivas (solo el plan, sin evidencia) ---------------------- */

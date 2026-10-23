@@ -534,19 +534,88 @@ function rootCausesBlock(f, editable) {
     ${editable ? `<div class="toolbar" style="margin-top:10px"><input class="input grow" id="rc-new-${f.id}" placeholder="Describe una causa raíz identificada…"><button type="button" class="btn sm primary" data-action="rc-add" data-id="${f.id}">${icon("plus")} Agregar causa raíz</button></div>` : ""}
   </div>`;
 }
-function stageD5(f, editable) { return actionGrid("Plan de acciones correctivas permanentes", "corrective_plan", f, editable, { maxDue: f.due_date }); }
+/* ---------------------- Plan de acciones correctivas (solo el plan, sin evidencia) ---------------------- */
+const ACTION_TYPE_OPTS = [["correctiva", "Correctiva"], ["preventiva", "Preventiva"]];
+function rcChecklist(f, i, r) {
+  const dk = `${f.id}:act.corrective_plan.${i}.root_cause_ids`, v = drafts[dk] ?? r.root_cause_ids ?? [];
+  const rcs = rootCausesOf(f);
+  if (!rcs.length) return `<label class="field span-2"><span>Causa(s) raíz <i>*</i></span><p class="muted" style="margin:4px 0 0">Registra al menos una causa raíz en la etapa anterior.</p></label>`;
+  return `<label class="field span-2"><span>Causa(s) raíz <i>*</i></span><div class="rc-check-list" data-rc-group="${dk}">${rcs.map((rc) => `<label class="rc-check"><input type="checkbox" data-change="e8-rc-check" data-group="${dk}" value="${rc.id}" ${v.includes(rc.id) ? "checked" : ""}> ${esc(rc.code)} · ${esc(rc.text)}</label>`).join("")}</div></label>`;
+}
+function planGrid(f, editable) {
+  const key = "corrective_plan", rows = actionRows(f, key);
+  const cards = rows.map((r, i) => {
+    const typeDk = `${f.id}:act.${key}.${i}.type`, typeVal = drafts[typeDk] ?? r.type ?? "correctiva";
+    return `<div class="act-card">
+      <div class="act-fields">
+        <label class="field span-2"><span>Acción <i>*</i></span>${actionField(f, key, i, "action", r, "text", editable ? "" : "disabled")}</label>
+        <label class="field"><span>Responsable</span>${actionField(f, key, i, "responsible", r, "text", editable ? "" : "disabled")}</label>
+        <label class="field"><span>Fecha límite</span>${actionField(f, key, i, "due", r, "date", `${f.due_date ? `max="${f.due_date}"` : ""} ${editable ? "" : "disabled"}`)}</label>
+        <label class="field"><span>Tipo <i>*</i></span><select class="select" data-input="e8-dd" data-key="${typeDk}" ${editable ? "" : "disabled"}>${ACTION_TYPE_OPTS.map(([v, l]) => `<option value="${v}" ${v === typeVal ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        ${rcChecklist(f, i, r)}
+      </div>
+      ${editable ? `<button type="button" class="btn sm ghost" data-action="e8-act-del" data-key="${key}" data-ri="${i}">${icon("close")} Quitar</button>` : ""}
+    </div>`;
+  }).join("") || '<p class="muted" style="margin-bottom:10px">Sin acciones todavía.</p>';
+  return `<div class="e8-block" data-act-section="${key}"><h4>Plan de acciones correctivas permanentes</h4>
+    <p class="muted" style="margin-bottom:10px">Solo el plan: qué se va a hacer, quién y para cuándo. La evidencia se sube más adelante, al implementarlas.</p>
+    ${cards}${editable ? `<button type="button" class="btn sm" data-action="e8-act-add" data-key="${key}">${icon("plus")} Agregar acción</button>` : ""}</div>`;
+}
+function readPlanRows(f) {
+  return actionRows(f, "corrective_plan").map((r, i) => ({
+    id: r.id, action: (drafts[`${f.id}:act.corrective_plan.${i}.action`] ?? r.action ?? "").trim(),
+    responsible: (drafts[`${f.id}:act.corrective_plan.${i}.responsible`] ?? r.responsible ?? "").trim(),
+    due: drafts[`${f.id}:act.corrective_plan.${i}.due`] ?? r.due ?? "",
+    type: drafts[`${f.id}:act.corrective_plan.${i}.type`] ?? r.type ?? "correctiva",
+    root_cause_ids: drafts[`${f.id}:act.corrective_plan.${i}.root_cause_ids`] ?? r.root_cause_ids ?? [],
+    implemented: r.implemented ?? null,
+  })).filter((r) => r.action || r.responsible || r.due);
+}
+function stageD5(f, editable) { return planGrid(f, editable); }
 /** D6 y D7 se trabajan juntos: no tiene por qué terminarse lo correctivo para empezar lo preventivo */
+/** Una fila de "implementación": hereda del Plan (acción/responsable/fecha/causas raíz, todo de
+ *  solo lectura) y solo pregunta si se definió — si Sí, evidencia compacta; si No, se cancela. */
+function implRow(f, planRow, editable) {
+  const implKey = `${f.id}:dd.action_impl.${planRow.id}.implemented`;
+  const curVal = drafts[implKey] ?? f.d_data?.action_impl?.[planRow.id]?.implemented ?? "";
+  const ref = `plan:${planRow.id}`, closedAt = evidenceDateFor(f, ref);
+  const rcNames = (planRow.root_cause_ids || []).map((id) => rootCausesOf(f).find((rc) => rc.id === id)?.code).filter(Boolean).join(", ");
+  return `<div class="impl-row">
+    <div class="impl-head"><b>${esc(planRow.action)}</b><span class="impl-meta">${esc(planRow.responsible || "—")} · ${planRow.due ? fmtDate(planRow.due) : "sin fecha"} · <span class="mono">${esc(rcNames || "—")}</span></span></div>
+    <div class="impl-controls">
+      <label class="field sm"><span>¿Fue definida?</span><select class="select" data-change="e8-impl-pick" data-key="${implKey}" ${editable ? "" : "disabled"}>
+        <option value="">— Elegir —</option><option value="si" ${curVal === "si" ? "selected" : ""}>Sí</option><option value="no" ${curVal === "no" ? "selected" : ""}>No, se cancela</option>
+      </select></label>
+      ${curVal === "si" ? `<span class="impl-evidence">${attachmentsSection("finding", f.id, { ref, compact: true, canEdit: editable })}<span class="impl-status ${closedAt ? "done" : "pending"}">${closedAt ? `${icon("check2")} Cerrada` : "Pendiente de evidencia"}</span></span>` : ""}
+      ${curVal === "no" ? `<span class="muted impl-cancelled">Cancelada — no aparecerá en el PDF de correctivas/preventivas (sí en el plan).</span>` : ""}
+    </div>
+  </div>`;
+}
+function implGroup(title, rows, f, editable) {
+  if (!rows.length) return `<div class="e8-block"><h4>${esc(title)}</h4><p class="muted">Sin acciones de este tipo en el plan.</p></div>`;
+  return `<div class="e8-block" data-impl-group="1"><h4>${esc(title)}</h4>${rows.map((r) => implRow(f, r, editable)).join("")}</div>`;
+}
 function stageD6(f, editable) {
+  const plan = readPlanRows(f);
   const a = f.d_data?.additional || {};
-  const yn = (k, l) => { const v = a[k] || {}; const dk = (field) => `${f.id}:dd.additional.${k}.${field}`;
+  const yn = (k, l, needsEvidence) => { const v = a[k] || {}; const dk = (field) => `${f.id}:dd.additional.${k}.${field}`;
+    const flagVal = drafts[dk("flag")] ?? v.flag ?? "no";
     return `<div class="e8-block"><h4>${esc(l)}</h4><div class="form-grid">
-    <label class="field"><span>¿Necesario?</span><select class="select" data-input="e8-dd" data-key="${dk("flag")}">${["No", "Sí"].map((o, i) => `<option value="${i}" ${String(drafts[dk("flag")] ?? v.flag ?? 0) === String(i) ? "selected" : ""}>${o}</option>`).join("")}</select></label>
+    <label class="field"><span>¿Necesario?</span><select class="select" data-change="e8-yn-pick" data-key="${dk("flag")}">${[["no", "No"], ["si", "Sí"]].map(([v2, o]) => `<option value="${v2}" ${flagVal === v2 ? "selected" : ""}>${o}</option>`).join("")}</select></label>
     <label class="field"><span>Responsable</span><input class="input" data-input="e8-dd" data-key="${dk("responsible")}" value="${esc(drafts[dk("responsible")] ?? v.responsible ?? "")}"></label>
-    <label class="field"><span>Fecha límite</span><input class="input" type="date" data-input="e8-dd" data-key="${dk("due")}" ${f.due_date ? `max="${f.due_date}"` : ""} value="${esc(drafts[dk("due")] ?? v.due ?? "")}"></label></div></div>`; };
-  return `${actionGrid("Acciones correctivas implementadas", "corrective_done", f, editable, { maxDue: f.due_date, withRootCause: true })}
-    ${f.preventive_mandatory ? "" : '<p class="muted" style="margin:14px 0 10px">Las acciones preventivas no son obligatorias para esta estrategia, pero puedes registrarlas.</p>'}
-    ${actionGrid("Acciones preventivas", "preventive", f, editable, { maxDue: f.due_date, withRootCause: true })}
-    ${yn("fmea", "¿Es necesario actualizar el FMEA?")}${yn("cp", "¿Es necesario actualizar el Plan de Control?")}${yn("rollacross", "¿Es necesario un Roll-Across?")}`;
+    <label class="field"><span>Fecha límite</span><input class="input" type="date" data-input="e8-dd" data-key="${dk("due")}" ${f.due_date ? `max="${f.due_date}"` : ""} value="${esc(drafts[dk("due")] ?? v.due ?? "")}"></label></div>
+    ${flagVal === "si" && needsEvidence === "evidence" ? `<div style="margin-top:10px">${attachmentsSection("finding", f.id, { ref: `additional:${k}`, compact: true, canEdit: editable })}</div>` : ""}
+    ${flagVal === "si" && needsEvidence === "rollacross" ? rollAcrossPicker(f, editable) : ""}
+    </div>`; };
+  return `${implGroup("Correctivas implementadas", plan.filter((r) => r.type === "correctiva"), f, editable)}
+    ${implGroup("Preventivas", plan.filter((r) => r.type === "preventiva"), f, editable)}
+    ${yn("fmea", "¿Es necesario actualizar el FMEA?", "evidence")}${yn("cp", "¿Es necesario actualizar el Plan de Control?", "evidence")}${yn("rollacross", "¿Es necesario un Roll-Across?", "rollacross")}`;
+}
+function rollAcrossPicker(f, editable) {
+  const dk = `${f.id}:dd.additional.rollacross.targets`, v = drafts[dk] ?? f.d_data?.additional?.rollacross?.targets ?? [];
+  const options = [...db.rows("areas").map((a2) => ({ id: `area:${a2.id}`, label: a2.name })), ...db.rows("processes").filter((p) => p.active).map((p) => ({ id: `process:${p.id}`, label: `${p.code} · ${p.name}` }))];
+  return `<label class="field span-2" style="margin-top:10px"><span>Procesos/Áreas que comparten esta condición <i>*</i></span>
+    <div class="rc-check-list">${options.map((o) => `<label class="rc-check"><input type="checkbox" data-change="e8-rc-check" data-group="${dk}" value="${o.id}" ${v.includes(o.id) ? "checked" : ""}> ${esc(o.label)}</label>`).join("")}</div></label>`;
 }
 function stageD8(f, editable) {
   const c = f.d_data?.closure4d || {};
@@ -696,7 +765,7 @@ on("e8-strategy-save", (el) => {
 });
 on("e8-accept", (el) => run(async () => { await acceptD(fnd(el.dataset.id)); viewStage = null; toast("Hallazgo aceptado · D1 Equipo", "ok"); }));
 on("e8-transfer", (el) => e8dTransferForm(fnd(el.dataset.id)));
-const ACTION_KEYS = ["containment", "corrective_plan", "corrective_done", "preventive", "immediate"];
+const ACTION_KEYS = ["containment", "immediate"];   // "corrective_plan" ya no pide evidencia (solo es el plan); "corrective_done"/"preventive" ahora se validan aparte (ver gateD6)
 const RC_REQUIRED_KEYS = new Set(["corrective_done", "preventive"]);   // las que sí piden causa raíz vinculada
 function clearActionDrafts(findingId) { for (const k of Object.keys(drafts)) if (k.startsWith(`${findingId}:act.`)) delete drafts[k]; }
 function collectDD(f, stage) {
@@ -709,13 +778,39 @@ function collectDD(f, stage) {
     if (m) { patch.ishikawa ??= { ...(f.d_data?.ishikawa || {}) }; patch.ishikawa[`causes${m[1]}`] = readGrid(f, key); }
     else patch[key] = readGrid(f, key);
   });
-  // Acciones con evidencia (contención, planes correctivos/preventivos, inmediatas)
-  document.querySelectorAll(`#if-status-box [data-act-section]`).forEach((sec) => { patch[sec.dataset.actSection] = readActionRows(f, sec.dataset.actSection); });
+  // Acciones con evidencia (contención, inmediatas) y el plan (su propio formato, sin evidencia)
+  document.querySelectorAll(`#if-status-box [data-act-section]`).forEach((sec) => {
+    const k = sec.dataset.actSection;
+    patch[k] = k === "corrective_plan" ? readPlanRows(f) : readActionRows(f, k);
+  });
+  // Checklists de casillas (causas raíz del plan, procesos/áreas del Roll-Across): viven solo en drafts
+  const rollKey = `${f.id}:dd.additional.rollacross.targets`;
+  if (document.querySelector(`[data-group="${CSS.escape(rollKey)}"]`)) { patch.additional ??= { ...(f.d_data?.additional || {}) }; patch.additional.rollacross = { ...(patch.additional.rollacross || f.d_data?.additional?.rollacross), targets: drafts[rollKey] ?? f.d_data?.additional?.rollacross?.targets ?? [] }; }
   return patch;
 }
 /** ¿Puede enviarse esta etapa? Toda acción declarada en pantalla necesita su evidencia. */
 const ACTION_LABEL = { containment: "una acción de contención", corrective_plan: "una acción correctiva", corrective_done: "una acción correctiva implementada", preventive: "una acción preventiva", immediate: "una acción inmediata" };
+/** D6: toda acción del plan (correctiva o preventiva) necesita decir si se definió; si sí, su evidencia.
+ *  Y si FMEA/Plan de Control/Roll-Across se marcaron "Sí", piden lo suyo antes de continuar. */
+function gateD6(f) {
+  if (!document.querySelector("#if-status-box [data-impl-group]")) return null;
+  for (const r of readPlanRows(f)) {
+    const implKey = `${f.id}:dd.action_impl.${r.id}.implemented`, val = drafts[implKey] ?? f.d_data?.action_impl?.[r.id]?.implemented ?? "";
+    if (!val) return `Indica si «${r.action}» fue definida (Sí/No) antes de continuar.`;
+    if (val === "si" && !evidenceDateFor(f, `plan:${r.id}`)) return `Adjunta la evidencia de «${r.action}» para poder cerrarla y continuar.`;
+  }
+  const a = f.d_data?.additional || {};
+  for (const [k, label] of [["fmea", "el FMEA"], ["cp", "el Plan de Control"]]) {
+    const flag = drafts[`${f.id}:dd.additional.${k}.flag`] ?? a[k]?.flag ?? "no";
+    if (flag === "si" && !evidenceDateFor(f, `additional:${k}`)) return `Adjunta la evidencia de ${label} actualizado para poder continuar.`;
+  }
+  const rollFlag = drafts[`${f.id}:dd.additional.rollacross.flag`] ?? a.rollacross?.flag ?? "no";
+  if (rollFlag === "si" && !(drafts[`${f.id}:dd.additional.rollacross.targets`] ?? a.rollacross?.targets ?? []).length) return "Elige al menos un proceso/área para el Roll-Across antes de continuar.";
+  return null;
+}
 function actionGate(f) {
+  const d6 = gateD6(f);
+  if (d6) return d6;
   for (const key of ACTION_KEYS) {
     if (!document.querySelector(`#if-status-box [data-act-section="${key}"]`)) continue;
     const required = key !== "preventive" || f.preventive_mandatory;
@@ -728,6 +823,12 @@ function actionGate(f) {
   return null;
 }
 on("e8-act-add", (el) => { const f = fnd(curId), key = el.dataset.key; drafts[`${f.id}:act.${key}`] = [...actionRows(f, key), { id: uuid(), action: "", responsible: "", due: "" }]; paint(); });
+onChange("e8-impl-pick", (el) => { drafts[el.dataset.key] = el.value; paint(); });
+onChange("e8-yn-pick", (el) => { drafts[el.dataset.key] = el.value; paint(); });
+onChange("e8-rc-check", (el) => {
+  const group = el.dataset.group, checked = [...document.querySelectorAll(`[data-group="${CSS.escape(group)}"]:checked`)].map((c) => c.value);
+  drafts[group] = checked;
+});
 on("rc-add", (el) => {
   const f = fnd(el.dataset.id), input = document.getElementById(`rc-new-${f.id}`), text = (input?.value || "").trim();
   if (!text) { toast("Describe la causa raíz antes de agregarla.", "danger"); return; }
@@ -759,6 +860,14 @@ on("e8-d-advance", (el) => {
     if (el.dataset.stage === "d4") {
       await syncRootCausesFrom5Whys(f, patch);
       if (!rootCausesOf(f).length) { toast("Agrega al menos una causa raíz identificada antes de continuar.", "danger"); return; }
+    }
+    if (el.dataset.stage === "d5") {
+      const planRows = (patch.corrective_plan || []).filter((r) => r.action);
+      const noRc = planRows.find((r) => !r.root_cause_ids?.length);
+      if (noRc) { toast(`Elige al menos una causa raíz para «${noRc.action}».`, "danger"); return; }
+      const covered = new Set(planRows.flatMap((r) => r.root_cause_ids || []));
+      const missing = rootCausesOf(f).find((rc) => !covered.has(rc.id));
+      if (missing) { toast(`Falta al menos una acción para la causa raíz ${missing.code}.`, "danger"); return; }
     }
     await advanceD(f, el.dataset.stage, patch); clearGridDrafts(f.id); clearActionDrafts(f.id); viewStage = null; toast("Guardado · siguiente etapa", "ok");
   });

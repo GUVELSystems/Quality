@@ -642,3 +642,21 @@ table.tpl-grid input:focus { outline: 2px solid var(--flow); outline-offset: -2p
 .seg-mini-opt { padding: 5px 14px; font-size: 12.5px; font-weight: 600; background: var(--surface-2); color: var(--text-2); border: 0; cursor: pointer; }
 .seg-mini-opt.active { background: var(--flow-soft); color: var(--flow-ink); }
 .seg-mini-opt:not(.active):hover { background: var(--surface-3); }
+.rc-check-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.rc-check { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 400; cursor: pointer; }
+.rc-check input { margin: 0; }
+.impl-row { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.impl-row:last-child { border-bottom: 0; }
+.impl-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.impl-head b { font-size: 14px; }
+.impl-meta { font-size: 12.5px; color: var(--text-3); }
+.impl-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.impl-controls .field.sm { min-width: 160px; margin: 0; }
+.impl-evidence { display: flex; align-items: center; gap: 8px; }
+.impl-status { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.impl-status.done { color: var(--ok-ink); }
+.impl-status.pending { color: var(--text-3); }
+.impl-cancelled { font-size: 12.5px; }
+.att.compact { display: flex; align-items: center; gap: 6px; }
+.att.compact .att-grid { display: flex; gap: 6px; }
+.att.compact .att-thumb { width: 34px; height: 34px; }

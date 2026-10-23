@@ -4,7 +4,7 @@ import { icon } from "../icons.js";
 import { setHead, rerender, wsId } from "../router.js";
 import { findingsOf, WS_LABEL } from "../scope.js";
 import { on, onChange, onInput, empty, pill } from "../ui.js";
-import { classBadge, classOf, milestones } from "../workflow.js";
+import { classBadge, classOf, milestones, eightdStages, dLabel } from "../workflow.js";
 import { openFinding } from "./findings.js";
 
 /* Seguimiento de las acciones: una fila por hallazgo que ya llegó a la etapa "En acción" */
@@ -16,10 +16,14 @@ const F = new Proxy({}, {
 });
 
 const STATE = {
-  running: ["En curso", "info"], overdue: ["Vencida", "danger"], ontime: ["Cerradas a tiempo", "ok"], late: ["Cerradas tarde", "danger"],
+  running: ["En curso", "info"], overdue: ["Vencida", "danger"], ontime: ["Cerradas a tiempo", "ok"], late: ["Cerradas tarde", "danger"], pending: ["Sin iniciar", "neutral"],
 };
-const rowsOf = () => findingsOf(wsId()).filter((f) => ["en_accion", "verificacion", "cerrado"].includes(f.status) || f.action_plan).map((f) => ({ f, m: milestones(f).m1 }));
-const evCount = (f) => db.rows("attachments").filter((a) => a.entity === "finding" && a.entity_id === f.id && a.ref === "accion").length;
+/** Un hallazgo 8D/4D ya está "en acción" desde que se acepta (D1/Equipo en adelante) — antes de eso
+ *  (Registro/Detalles/Solicitud) todavía no hay nada que dar seguimiento aquí */
+const D_ACTIVE = new Set(["d1", "d2", "d3", "d4", "d4_revision", "d5", "d6", "d8", "d8_revision"]);
+const rowsOf = () => findingsOf(wsId()).filter((f) => ["en_accion", "verificacion", "cerrado"].includes(f.status) || f.action_plan || D_ACTIVE.has(f.status)).map((f) => ({ f, m: milestones(f).m1 }));
+const actionSummary = (f) => f.action_plan ? (f.action_plan.length > 110 ? f.action_plan.slice(0, 110) + "…" : f.action_plan) : (D_ACTIVE.has(f.status) ? `En ${dLabel(f.status, f)}` : null);
+const evCount = (f) => db.rows("attachments").filter((a) => a.entity === "finding" && a.entity_id === f.id && (a.ref === "accion" || D_ACTIVE.has(f.status) || ["verificacion", "cerrado"].includes(f.status))).length;
 const filtered = () => {
   const q = F.q.toLowerCase();
   return rowsOf().filter(({ f, m }) => (!F.state || m.state === F.state) && (!F.mine || f.owner_id === db.state.profile.id) && (!q || `${f.code} ${f.title} ${f.action_plan || ""}`.toLowerCase().includes(q)))
@@ -47,7 +51,7 @@ export default {
         <select class="select" data-change="ac-filter" data-key="mine"><option value="">Todos los responsables</option><option value="1" ${F.mine ? "selected" : ""}>Solo mías</option></select>
         <span class="count">${list.length} acción(es)</span></div>
       ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Hallazgo</th><th>Acción</th><th>Responsable</th><th>Clasificación</th><th>Límite</th><th>Estado</th><th class="num">Evidencias</th></tr></thead><tbody>
-      ${list.map(({ f, m }) => `<tr data-action="ac-open" data-id="${f.id}"><td><span class="code">${esc(f.code)}</span><span class="sub">${esc(f.title)}</span></td><td>${f.action_plan ? esc(f.action_plan.length > 110 ? f.action_plan.slice(0, 110) + "…" : f.action_plan) : '<span class="muted">Aún sin registrar</span>'}</td>
+      ${list.map(({ f, m }) => `<tr data-action="ac-open" data-id="${f.id}"><td><span class="code">${esc(f.code)}</span><span class="sub">${esc(f.title)}</span></td><td>${actionSummary(f) ? esc(actionSummary(f)) : '<span class="muted">Aún sin registrar</span>'}</td>
         <td>${esc(db.profileName(f.owner_id))}</td><td>${classBadge(f)}</td><td>${fmtDate(f.due_date)}</td><td>${pill(STATE[m.state][0], STATE[m.state][1])}${m.end ? `<span class="sub">${fmtDate(m.end)}</span>` : ""}</td><td class="num mono">${evCount(f)}</td></tr>`).join("")}
       </tbody></table></div>` : empty("Sin acciones", "Las acciones aparecen cuando un hallazgo llega a la etapa «En acción».", "action")}</div></div>`;
   },

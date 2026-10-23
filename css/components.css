@@ -607,8 +607,12 @@ table.tpl-grid input:focus { outline: 2px solid var(--flow); outline-offset: -2p
 .if-d-row dt { color: var(--text-3); font-weight: 600; } .if-d-row dd { color: var(--ink); }
 .if-closed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
 .if-closed-grid dt { font-size: 12px; color: var(--text-3); font-weight: 600; } .if-closed-grid dd { font-size: 14px; margin-top: 2px; }
-.att-grid.compact { grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 6px; }
-.att-grid.compact .att-item { aspect-ratio: 1; }
+.att-grid.compact { gap: 6px; }
+.att-grid.compact .att-item:not(.file) { aspect-ratio: 1; width: 54px; }
+.att-grid.compact .att-thumb { width: 54px; height: 54px; }
+.att-grid.compact .att-item.file > a { min-width: 0; max-width: 220px; padding: 6px 26px 6px 10px; gap: 6px; }
+.att-grid.compact .att-item.file svg { width: 16px; height: 16px; }
+.att-grid.compact .att-item.file b { font-size: 12px; }
 
 /* =========================== CAPA Files: logo =========================== */
 .logo-card { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }

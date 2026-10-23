@@ -640,7 +640,9 @@ function stageDGeneric(f, stage) {
   if (idx < cur) return body;                     // ya hecho: vista de solo lectura
   if (!act) return `${body}${lock(`Solo <b>${ownerName}</b> (o un administrador) puede continuar.`)}`;
   if ((stage === "d4" && f.strategy_ps === "4D") || stage === "d8") {   // el 4D en D4, y el 8D en D8: no "avanzan", se envían a revisar a alguien elegido
-    return `<div class="stage-actions" style="margin-bottom:14px">${pdfBtn(f)}</div>${body}<div class="stage-actions"><button class="btn" data-action="e8-d-save" data-id="${f.id}" data-stage="${stage}">Guardar borrador</button>
+    // El PDF solo se puede descargar aquí en el 8D (D8 ya trae todo el 8D completo); en el 4D, en
+    // Acciones Inmediatas y Cierre, todavía no hay nada que mostrar — se habilita hasta enviar a revisar
+    return `${stage === "d8" ? `<div class="stage-actions" style="margin-bottom:14px">${pdfBtn(f)}</div>` : ""}${body}<div class="stage-actions"><button class="btn" data-action="e8-d-save" data-id="${f.id}" data-stage="${stage}">Guardar borrador</button>
       <button class="btn primary" data-action="e8-send-review" data-id="${f.id}" data-stage="${stage}">${icon("check2")} Guardar y enviar a revisar</button></div>`;
   }
   if (stage === "d4" && f.strategy_ps !== "4D" && !f.strategy_rca) return body;   // falta elegir 5 Whys/Ishikawa: sus propios botones ya están en el body

@@ -3,28 +3,6 @@
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
 body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; position: relative; }
-/* Glassy: fondo ambiental con manchas de color suaves, fijo detrás de todo el contenido */
-body::before {
-  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-  background:
-    radial-gradient(640px 480px at 8% -6%, rgba(12,192,223,.16), transparent 60%),
-    radial-gradient(560px 440px at 100% 8%, rgba(15,27,45,.14), transparent 55%),
-    radial-gradient(680px 520px at 24% 112%, rgba(12,192,223,.10), transparent 60%);
-}
-:root[data-theme="dark"] body::before {
-  background:
-    radial-gradient(640px 480px at 8% -6%, rgba(12,192,223,.12), transparent 60%),
-    radial-gradient(560px 440px at 100% 8%, rgba(94,216,238,.08), transparent 55%),
-    radial-gradient(680px 520px at 24% 112%, rgba(12,192,223,.07), transparent 60%);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) body::before {
-    background:
-      radial-gradient(640px 480px at 8% -6%, rgba(12,192,223,.12), transparent 60%),
-      radial-gradient(560px 440px at 100% 8%, rgba(94,216,238,.08), transparent 55%),
-      radial-gradient(680px 520px at 24% 112%, rgba(12,192,223,.07), transparent 60%);
-  }
-}
 h1, h2, h3, h4, p { margin: 0; line-height: 1.2; }
 h1 { font-weight: 700; font-size: 30px; letter-spacing: -.005em; }
 h2 { font-weight: 700; font-size: 19px; }

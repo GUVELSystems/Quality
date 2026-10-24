@@ -110,8 +110,8 @@ function renderFormatoDetail(root, id) {
         <div class="field"><span>Estado</span><div class="done-text">${f.active ? "Activo" : "Inactivo"}</div></div>
       </div>
       <div class="form-grid" style="margin-top:14px">
-        <div class="field span-2"><span>Dibujo baloneado (PDF)</span>${attachmentsSection("inspection_format", f.id, { ref: "drawing", title: "", canEdit: editable, compact: true })}</div>
-        <div class="field span-2"><span>Vista isométrica (imagen)</span>${attachmentsSection("inspection_format", f.id, { ref: "iso", title: "", canEdit: editable, compact: true })}</div>
+        <div class="field span-2"><span>Dibujo baloneado (PDF)</span>${attachmentsSection("inspection_format", f.id, { ref: "drawing", title: "", canEdit: editable, compact: true, uploadLabel: "Adjuntar dibujo", showCamera: false })}</div>
+        <div class="field span-2"><span>Vista isométrica (imagen)</span>${attachmentsSection("inspection_format", f.id, { ref: "iso", title: "", canEdit: editable, compact: true, uploadLabel: "Adjuntar imagen" })}</div>
       </div>
     </div>
     <div class="panel" style="padding:16px">
@@ -178,25 +178,70 @@ function renderRegistros(root) {
   </div>`;
 }
 
+/** Mediciones por pieza: measurements[item_id] es un arreglo, uno por cada pieza solicitada */
+function pieceCount(r) { return Math.max(1, Number(r.quantity) || 1); }
+function measAt(r, itemId, piece) { return r.measurements?.[itemId]?.[piece] || {}; }
+function resultsSummary(r, items) {
+  let ok = 0, nok = 0;
+  for (const it of items) for (let p = 0; p < pieceCount(r); p++) { const m = measAt(r, it.id, p); if (m.value == null) continue; m.result === "cumple" ? ok++ : nok++; }
+  return { ok, nok, total: ok + nok, pct: ok + nok ? Math.round((ok / (ok + nok)) * 1000) / 10 : null };
+}
+function donutSVG(ok, nok) {
+  const total = ok + nok || 1, okFrac = ok / total, circ = 2 * Math.PI * 42;
+  return `<svg viewBox="0 0 110 110" width="110" height="110">
+    <circle cx="55" cy="55" r="42" fill="none" stroke="var(--stop)" stroke-width="14"/>
+    <circle cx="55" cy="55" r="42" fill="none" stroke="var(--flow)" stroke-width="14" stroke-dasharray="${circ * okFrac} ${circ}" transform="rotate(-90 55 55)"/>
+    <text x="55" y="51" text-anchor="middle" font-size="18" font-weight="700" fill="var(--ink)">${ok + nok ? Math.round(okFrac * 100) : 0}%</text>
+    <text x="55" y="66" text-anchor="middle" font-size="10" fill="var(--text-2)">OK</text>
+  </svg>`;
+}
+function filePreview(entity, id, ref, emptyLabel) {
+  const list = db.rows("attachments").filter((a) => a.entity === entity && a.entity_id === id && (a.ref || null) === ref);
+  if (!list.length) return `<p class="muted" style="margin:0">${esc(emptyLabel)}</p>`;
+  const a = list[list.length - 1];
+  return (a.mime_type || "").startsWith("image/")
+    ? `<a data-att="${a.id}" target="_blank" rel="noopener"><img src="" alt="${esc(a.file_name)}" style="max-width:100%;max-height:160px;display:block;margin:0 auto"></a>`
+    : `<a class="btn sm" data-att="${a.id}" target="_blank" rel="noopener" download="${esc(a.file_name)}">${icon("form")} ${esc(a.file_name)}</a>`;
+}
 function renderRegistroDetail(root, id) {
   const r = db.get("inspection_records", id);
   if (!r) { root.innerHTML = empty("No encontrado", "", "list"); return; }
-  const fmt = db.get("inspection_formats", r.format_id), items = itemsOf(r.format_id);
+  const fmt = db.get("inspection_formats", r.format_id), items = itemsOf(r.format_id), req = r.request_id ? db.get("inspection_requests", r.request_id) : null;
+  const pieces = pieceCount(r), sent = r.status === "enviado", sum = resultsSummary(r, items);
   setHead({ eyebrow: `Registros · ${esc(r.code)}`, title: r.part_number, subtitle: r.part_name,
-    actions: `<a class="btn" href="#/calidad/inspecciones/registros">${icon("chevL")} Registros</a>` });
-  root.innerHTML = `<div class="stack">
-    <div class="panel" style="padding:16px"><div class="form-grid">
-      <div class="field"><span>Formato</span><div class="done-text">${fmt ? esc(fmt.code) : "—"}</div></div>
-      <div class="field"><span>Lote</span><div class="done-text">${esc(r.lot_number || "—")}</div></div>
-      <div class="field"><span>Cantidad</span><div class="done-text">${r.quantity ?? "—"}</div></div>
-      <div class="field"><span>Inspector</span><div class="done-text">${userCell(db.get("profiles", r.inspector_id))}</div></div>
-    </div></div>
-    <div class="panel" style="padding:16px"><h3 style="margin-bottom:10px">Mediciones</h3>
-      <div class="table-wrap"><table class="table"><thead><tr><th>No.</th><th>Descripción</th><th>LSL</th><th>Nominal</th><th>USL</th><th>Medición</th><th>Resultado</th></tr></thead><tbody>
-      ${items.map((it) => { const m = r.measurements?.[it.id] || {}; const lim = computeLimits(it.tolerance_type, it.nominal, it.tol_plus, it.tol_minus, it.usl, it.lsl);
-        return `<tr><td>${esc(it.balloon_no)}</td><td>${esc(it.description)}</td><td class="mono">${lim.lsl ?? "—"}</td><td class="mono">${it.nominal ?? "—"}</td><td class="mono">${lim.usl ?? "—"}</td><td><input class="input sm" type="number" step="any" data-input="insr" data-key="meas:${it.id}" value="${esc(m.value ?? "")}" style="width:90px"></td><td>${m.value != null ? `<span class="badge" data-tone="${m.result === "cumple" ? "ok" : "danger"}">${m.result === "cumple" ? "Cumple" : "No cumple"}</span>` : "—"}</td></tr>`; }).join("")}
+    actions: `<a class="btn" href="#/calidad/inspecciones/registros">${icon("chevL")} Registros</a>${sent ? `<span class="badge" data-tone="ok">Enviado ${fmtDateTime(r.sent_at)}</span>` : ""}` });
+  root.innerHTML = `<div class="insp-rec-grid">
+    <div class="panel insp-rec-main" style="padding:16px">
+      <h3 style="margin-bottom:10px">Detalles de la solicitud</h3>
+      <div class="form-grid">
+        <div class="field"><span>Solicitante</span><div class="done-text">${esc(req?.requester_name || "—")}<br><small class="muted">${esc(req?.requester_email || "")}</small></div></div>
+        <div class="field"><span>Turno</span><div class="done-text">${esc(req?.shift || "—")}</div></div>
+        <div class="field"><span>Lote</span><div class="done-text">${esc(r.lot_number || "—")}</div></div>
+        <div class="field"><span>Orden de compra</span><div class="done-text">${esc(req?.purchase_order || "—")}</div></div>
+        <div class="field"><span>No. de operación</span><div class="done-text">${esc(req?.operation_no || "—")}</div></div>
+        <div class="field"><span>Servicio de inspección</span><div class="done-text">${esc(req?.service_type || "—")}</div></div>
+        <div class="field span-2"><span>Comentarios / Indicaciones</span><div class="done-text">${esc(req?.comments || "—")}</div></div>
+      </div>
+    </div>
+    <div class="panel insp-rec-side" style="padding:16px"><h4>Número de parte</h4><p class="mono" style="font-size:16px;margin:4px 0 0">${esc(r.part_number)}</p><p class="muted" style="margin:2px 0 0">${esc(r.part_name)}</p></div>
+    <div class="panel insp-rec-side" style="padding:16px"><h4>Imagen vista isométrica</h4>${filePreview("inspection_format", r.format_id, "iso", "Sin imagen en el formato.")}</div>
+
+    <div class="panel insp-rec-meas" style="padding:16px">
+      <h3 style="margin-bottom:10px">Mediciones${pieces > 1 ? ` <small class="muted">(${pieces} piezas solicitadas)</small>` : ""}</h3>
+      <div class="table-wrap"><table class="table"><thead><tr><th>No.</th><th>Descripción</th><th>LSL</th><th>Nominal</th><th>USL</th>${Array.from({ length: pieces }, (_, p) => `<th>Pieza ${p + 1}</th>`).join("")}</tr></thead><tbody>
+      ${items.map((it) => { const lim = computeLimits(it.tolerance_type, it.nominal, it.tol_plus, it.tol_minus, it.usl, it.lsl);
+        return `<tr><td>${esc(it.balloon_no)}</td><td>${esc(it.description)}</td><td class="mono">${lim.lsl ?? "—"}</td><td class="mono">${it.nominal ?? "—"}</td><td class="mono">${lim.usl ?? "—"}</td>
+          ${Array.from({ length: pieces }, (_, p) => { const m = measAt(r, it.id, p); return `<td><input class="input sm" type="number" step="any" data-input="insr" data-key="meas:${it.id}:${p}" value="${esc(m.value ?? "")}" ${sent ? "disabled" : ""} style="width:80px">${m.value != null ? `<div class="mt4"><span class="badge" data-tone="${m.result === "cumple" ? "ok" : "danger"}">${m.result === "cumple" ? "OK" : "NOK"}</span></div>` : ""}</td>`; }).join("")}
+        </tr>`; }).join("")}
       </tbody></table></div>
-      <div class="toolbar" style="margin-top:10px"><button type="button" class="btn primary" data-action="insp-rec-save" data-id="${r.id}">${icon("check2")} Guardar mediciones</button></div>
+      ${!sent ? `<div class="toolbar" style="margin-top:10px">
+        <button type="button" class="btn" data-action="insp-rec-save" data-id="${r.id}">${icon("check2")} Guardar mediciones</button>
+        <button type="button" class="btn primary" data-action="insp-rec-confirm" data-id="${r.id}">${icon("send")} Confirmar y enviar</button>
+      </div>` : ""}
+    </div>
+    <div class="panel insp-rec-side" style="padding:16px"><h4>Dibujo baloneado</h4>${filePreview("inspection_format", r.format_id, "drawing", "Sin dibujo en el formato.")}</div>
+    <div class="panel insp-rec-side insp-rec-results" style="padding:16px"><h4>Resultados</h4>
+      ${sum.total ? `<div class="insp-donut">${donutSVG(sum.ok, sum.nok)}<div class="insp-donut-legend"><div><span class="dot" data-tone="info"></span>OK <b>${sum.ok}</b></div><div><span class="dot" data-tone="danger"></span>NOK <b>${sum.nok}</b></div></div></div>` : '<p class="muted" style="margin:0">Captura mediciones para ver el resultado.</p>'}
     </div>
   </div>`;
 }
@@ -238,7 +283,12 @@ on("insp-fmt-edit", (el) => editFormatMeta(db.get("inspection_formats", el.datas
 db.state.drafts ??= {};
 onInput("insf", (el) => { db.state.drafts[el.dataset.key] = el.value; });
 onChange("insf-tol", (el) => { db.state.drafts[el.dataset.key] = el.value; rerender(); });
-on("insf-item-add", (el) => { db.state.drafts[`__newitem:${el.dataset.id}:${uuid()}`] = true; const tmpId = uuid(); db.insert("inspection_format_items", { format_id: el.dataset.id, position: itemsOf(el.dataset.id).length + 1, balloon_no: String(itemsOf(el.dataset.id).length + 1), description: "", tolerance_type: "bilateral" }).then(() => rerender()); });
+on("insf-item-add", async (el) => {
+  try {
+    await db.insert("inspection_format_items", { format_id: el.dataset.id, position: itemsOf(el.dataset.id).length + 1, balloon_no: String(itemsOf(el.dataset.id).length + 1), description: "", tolerance_type: "bilateral" });
+    await rerender();
+  } catch (e) { toast(e.message || "No se pudo agregar la característica.", "danger"); }
+});
 on("insf-item-del", async (el) => {
   if (!(await confirmDialog({ title: "Quitar característica", message: "¿Quitar esta característica del formato?", confirmLabel: "Quitar", danger: true }))) return;
   await db.remove("inspection_format_items", el.dataset.id); toast("Característica quitada", "ok"); await rerender();
@@ -270,16 +320,40 @@ on("insp-req-attend", async (el) => {
 });
 on("insp-rec-open", (el) => navigate(`calidad/inspecciones/registro/${el.dataset.id}`));
 onInput("insr", (el) => { db.state.drafts[el.dataset.key] = el.value; });
-on("insp-rec-save", async (el) => {
-  const r = db.get("inspection_records", el.dataset.id), items = itemsOf(r.format_id);
-  const measurements = { ...r.measurements }; let allOk = true, any = false;
+/** Junta lo capturado en pantalla (meas:item:pieza) en measurements[item][pieza] = {value, result} */
+function collectMeasurements(r) {
+  const items = itemsOf(r.format_id), measurements = JSON.parse(JSON.stringify(r.measurements || {}));
+  let allOk = true, any = false;
   for (const it of items) {
-    const raw = db.state.drafts[`meas:${it.id}`]; if (raw === undefined || raw === "") continue;
-    any = true; const v = Number(raw), lim = computeLimits(it.tolerance_type, it.nominal, it.tol_plus, it.tol_minus, it.usl, it.lsl);
-    const ok = (lim.lsl == null || v >= lim.lsl) && (lim.usl == null || v <= lim.usl);
-    if (!ok) allOk = false;
-    measurements[it.id] = { value: v, result: ok ? "cumple" : "no_cumple" };
+    for (let p = 0; p < pieceCount(r); p++) {
+      const raw = db.state.drafts[`meas:${it.id}:${p}`]; if (raw === undefined) continue;
+      measurements[it.id] ??= [];
+      if (raw === "") { measurements[it.id][p] = undefined; continue; }
+      any = true; const v = Number(raw), lim = computeLimits(it.tolerance_type, it.nominal, it.tol_plus, it.tol_minus, it.usl, it.lsl);
+      const ok = (lim.lsl == null || v >= lim.lsl) && (lim.usl == null || v <= lim.usl);
+      if (!ok) allOk = false;
+      measurements[it.id][p] = { value: v, result: ok ? "cumple" : "no_cumple" };
+    }
   }
+  return { measurements, allOk, any };
+}
+on("insp-rec-save", async (el) => {
+  const r = db.get("inspection_records", el.dataset.id), { measurements, allOk, any } = collectMeasurements(r);
   await db.update("inspection_records", r.id, { measurements, overall_result: any ? (allOk ? "cumple" : "no_cumple") : r.overall_result });
   toast("Mediciones guardadas", "ok"); await rerender();
+});
+on("insp-rec-confirm", (el) => {
+  const r = db.get("inspection_records", el.dataset.id);
+  openForm({
+    eyebrow: r.code, title: "Añadir destinatario", submitLabel: "Confirmar y enviar", size: "wide",
+    fields: [{ name: "cc", label: "Destinatarios adicionales (separados por coma)", span2: true, placeholder: "calidad@empresa.com, supervisor@empresa.com" }],
+    intro: `<div class="note" style="margin-bottom:14px">Se enviará un solo correo con el resultado a <b>${esc(db.get("inspection_requests", r.request_id)?.requester_email || "el solicitante")}</b>, junto con los destinatarios que agregues aquí.</div>`,
+    onSubmit: async (v) => {
+      const cc = (v.cc || "").split(",").map((s) => s.trim()).filter(Boolean);
+      const { measurements, allOk, any } = collectMeasurements(r);
+      await db.update("inspection_records", r.id, { measurements, overall_result: any ? (allOk ? "cumple" : "no_cumple") : r.overall_result, status: "enviado", sent_at: new Date().toISOString(), sent_by: db.state.profile.id, cc_emails: cc });
+      try { await db.sendInspectionResult(r.id, cc); } catch (e) { toast("El registro se cerró, pero el correo no se pudo enviar: " + e.message, "danger"); await rerender(); return; }
+      toast("Registro confirmado y enviado", "ok"); await rerender();
+    },
+  });
 });

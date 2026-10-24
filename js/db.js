@@ -176,6 +176,11 @@ export async function notifyPlan(planId, { pdfBase64 = null, all = false } = {})
 }
 
 
+export async function sendInspectionResult(recordId, ccEmails = []) {
+  if (state.demo) return { demo: true };   // en modo demo no hay correo real que enviar
+  return invokeFn("notify-inspection", { record_id: recordId, cc_emails: ccEmails, site_url: siteUrl() });
+}
+
 export async function signIn(email, password) {
   if (state.demo) { localStorage.setItem(LS_SESSION, "1"); return; }
   const { data, error } = await sb.auth.signInWithPassword({ email, password });

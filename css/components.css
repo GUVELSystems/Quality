@@ -667,3 +667,14 @@ table.tpl-grid input:focus { outline: 2px solid var(--flow); outline-offset: -2p
 .if-d-notif-link { display: inline-flex; align-items: center; gap: 6px; }
 .if-d-notif-icon { display: inline-flex; width: 14px; height: 14px; flex: none; }
 .if-d-notif-icon svg { width: 14px; height: 14px; }
+.insp-rec-grid { display: grid; grid-template-columns: 1fr 220px 220px; gap: 14px; align-items: start; }
+.insp-rec-main { grid-column: 1; }
+.insp-rec-meas { grid-column: 1; }
+.insp-rec-side h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; }
+.insp-donut { display: flex; align-items: center; gap: 14px; }
+.insp-donut-legend { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.insp-donut-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.insp-donut-legend .dot[data-tone="info"] { background: var(--flow); }
+.insp-donut-legend .dot[data-tone="danger"] { background: var(--stop); }
+.mt4 { margin-top: 4px; }
+@media (max-width: 1100px) { .insp-rec-grid { grid-template-columns: 1fr; } .insp-rec-main, .insp-rec-meas { grid-column: 1; } }

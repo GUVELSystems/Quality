@@ -667,14 +667,22 @@ table.tpl-grid input:focus { outline: 2px solid var(--flow); outline-offset: -2p
 .if-d-notif-link { display: inline-flex; align-items: center; gap: 6px; }
 .if-d-notif-icon { display: inline-flex; width: 14px; height: 14px; flex: none; }
 .if-d-notif-icon svg { width: 14px; height: 14px; }
-.insp-rec-grid { display: grid; grid-template-columns: 1fr 220px 220px; gap: 14px; align-items: start; }
-.insp-rec-main { grid-column: 1; }
-.insp-rec-meas { grid-column: 1; }
-.insp-rec-side h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; }
+.insp-rec-grid { display: grid; grid-template-columns: 1fr 230px 230px; gap: 14px; align-items: start; }
+.insp-rec-col-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.insp-rec-col-side { display: flex; flex-direction: column; gap: 14px; }
+.insp-h3 { margin: 0 0 10px; font-size: 14.5px; }
+.insp-h4 { margin: 0 0 8px; font-size: 12px; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; }
+.insp-dl { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 18px; }
+.insp-dl-item { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.insp-dl-item dt { color: var(--text-2); flex: none; }
+.insp-dl-item dd { margin: 0; text-align: right; font-weight: 500; }
 .insp-donut { display: flex; align-items: center; gap: 14px; }
 .insp-donut-legend { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .insp-donut-legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
 .insp-donut-legend .dot[data-tone="info"] { background: var(--flow); }
 .insp-donut-legend .dot[data-tone="danger"] { background: var(--stop); }
-.mt4 { margin-top: 4px; }
-@media (max-width: 1100px) { .insp-rec-grid { grid-template-columns: 1fr; } .insp-rec-main, .insp-rec-meas { grid-column: 1; } }
+.insp-pdf-viewer { width: 100%; height: 220px; border: 1px solid var(--line); background: var(--surface-2); }
+.insp-pdf-viewer iframe { width: 100%; height: 100%; border: 0; }
+td.insp-cell-ok { background: var(--ok-soft); }
+td.insp-cell-bad { background: var(--stop-soft); }
+@media (max-width: 1100px) { .insp-rec-grid { grid-template-columns: 1fr; } .insp-dl { grid-template-columns: 1fr; } }

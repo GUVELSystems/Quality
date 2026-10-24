@@ -10,19 +10,23 @@ import { esc, uuid, today, fmtDate, fmtDateTime } from "../utils.js";
 import { icon } from "../icons.js";
 import { setHead, navigate, rerender } from "../router.js";
 import { on, onChange, onInput, badge, userCell, empty, openForm, confirmDialog, toast } from "../ui.js";
-import { attachmentsSection } from "./attachments.js";
+import { attachmentsSection, hooks } from "./attachments.js";
+import { exportInspectionResult } from "../pdf-inspection.js";
 import { userOpts } from "./shared.js";
 
+hooks.inspection_format = () => rerender();   // al adjuntar el dibujo/imagen del formato, refresca la pantalla
+hooks.inspection_record = () => rerender();
 const TOL_TYPES = { bilateral: "Bilateral", limits: "Límites (USL/LSL directos)", unilateral_pos: "Unilateral positivo", unilateral_neg: "Unilateral negativo" };
 const SERVICE_TYPES = ["Primera pieza", "Dimensional completo", "Recurrente", "Layout", "Otro"];
 
 /** De la tolerancia capturada, calcula USL/LSL — "limits" los toma directos, el resto los deriva */
 const round = (n) => Math.round(n * 1e6) / 1e6;   // evita residuos de punto flotante (25.4 - 0.05 = 25.35, no 25.349999999999998)
 export function computeLimits(type, nominal, tolPlus, tolMinus, uslRaw, lslRaw) {
-  const n = Number(nominal) || 0, tp = Number(tolPlus) || 0, tm = Number(tolMinus) || 0;
+  const n = Number(nominal) || 0, tp = Number(tolPlus) || 0;
+  const tm = tolMinus === "" || tolMinus == null ? tp : Number(tolMinus);   // bilateral: un solo campo "±" alimenta ambos lados
   if (type === "limits") return { usl: uslRaw === "" || uslRaw == null ? null : Number(uslRaw), lsl: lslRaw === "" || lslRaw == null ? null : Number(lslRaw) };
-  if (type === "unilateral_pos") return { usl: round(n + tp), lsl: n };
-  if (type === "unilateral_neg") return { usl: n, lsl: round(n - tm) };
+  if (type === "unilateral_pos") return { usl: round(n + tp), lsl: null };
+  if (type === "unilateral_neg") return { usl: null, lsl: round(n - tm) };
   return { usl: round(n + tp), lsl: round(n - tm) };   // bilateral
 }
 
@@ -72,25 +76,39 @@ function renderFormatosList(root) {
   </div>`;
 }
 
+const ITEM_TYPES = { variable: "Variable", atributo: "Atributo" };
 function itemRow(f, it, i, editable) {
   const dk = (k) => `insf:${it.id}:${k}`;
+  const itemType = db.state.drafts?.[dk("item_type")] ?? it.item_type ?? "variable";
   const type = db.state.drafts?.[dk("tolerance_type")] ?? it.tolerance_type ?? "bilateral";
   const get = (k, d = "") => db.state.drafts?.[dk(k)] ?? it[k] ?? d;
+  const dis = editable ? "" : "disabled";
+  const typeSel = `<select class="select sm" data-change="insf-pick" data-key="${dk("item_type")}" data-item="${it.id}" ${dis}>${Object.entries(ITEM_TYPES).map(([k, l]) => `<option value="${k}" ${k === itemType ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+  const head = `<td><input class="input sm" data-input="insf" data-key="${dk("balloon_no")}" value="${esc(get("balloon_no"))}" ${dis} style="width:55px"></td>
+    <td><input class="input sm" data-input="insf" data-key="${dk("description")}" value="${esc(get("description"))}" ${dis} style="min-width:150px"></td>
+    <td><input class="input sm" data-input="insf" data-key="${dk("specification")}" value="${esc(get("specification"))}" ${dis} style="min-width:100px"></td>
+    <td>${typeSel}</td>`;
+  const del = editable ? `<td><button type="button" class="btn sm ghost icon danger" data-action="insf-item-del" data-id="${it.id}">${icon("close")}</button></td>` : "";
+
+  if (itemType === "atributo") {
+    return `<tr data-item="${it.id}">${head}<td colspan="7" class="muted" style="font-size:12.5px">Se evalúa OK / NOK al capturar la medición — sin tolerancia numérica.</td>${del}</tr>`;
+  }
   const lim = computeLimits(type, get("nominal"), get("tol_plus"), get("tol_minus"), get("usl"), get("lsl"));
-  return `<tr data-item="${it.id}">
-    <td><input class="input sm" data-input="insf" data-key="${dk("balloon_no")}" value="${esc(get("balloon_no"))}" ${editable ? "" : "disabled"} style="width:60px"></td>
-    <td><input class="input sm" data-input="insf" data-key="${dk("description")}" value="${esc(get("description"))}" ${editable ? "" : "disabled"} style="min-width:160px"></td>
-    <td><input class="input sm" data-input="insf" data-key="${dk("specification")}" value="${esc(get("specification"))}" ${editable ? "" : "disabled"} style="min-width:110px"></td>
-    <td><select class="select sm" data-change="insf-tol" data-key="${dk("tolerance_type")}" data-item="${it.id}" ${editable ? "" : "disabled"}>${Object.entries(TOL_TYPES).map(([k, l]) => `<option value="${k}" ${k === type ? "selected" : ""}>${l}</option>`).join("")}</select></td>
-    ${type === "limits"
-      ? `<td colspan="3"><input class="input sm" type="number" step="any" placeholder="Nominal (opcional)" data-input="insf" data-key="${dk("nominal")}" value="${esc(get("nominal"))}" ${editable ? "" : "disabled"} style="width:90px"></td>`
-      : `<td><input class="input sm" type="number" step="any" data-input="insf" data-key="${dk("nominal")}" value="${esc(get("nominal"))}" ${editable ? "" : "disabled"} style="width:80px"></td>
-         <td>${type !== "unilateral_neg" ? `<input class="input sm" type="number" step="any" placeholder="Tol. +" data-input="insf" data-key="${dk("tol_plus")}" value="${esc(get("tol_plus"))}" ${editable ? "" : "disabled"} style="width:70px">` : '<span class="muted">—</span>'}</td>
-         <td>${type !== "unilateral_pos" ? `<input class="input sm" type="number" step="any" placeholder="Tol. −" data-input="insf" data-key="${dk("tol_minus")}" value="${esc(get("tol_minus"))}" ${editable ? "" : "disabled"} style="width:70px">` : '<span class="muted">—</span>'}</td>`}
-    <td>${type === "limits" ? `<input class="input sm" type="number" step="any" placeholder="USL" data-input="insf" data-key="${dk("usl")}" value="${esc(get("usl"))}" ${editable ? "" : "disabled"} style="width:75px">` : `<b class="mono">${lim.usl ?? "—"}</b>`}</td>
-    <td>${type === "limits" ? `<input class="input sm" type="number" step="any" placeholder="LSL" data-input="insf" data-key="${dk("lsl")}" value="${esc(get("lsl"))}" ${editable ? "" : "disabled"} style="width:75px">` : `<b class="mono">${lim.lsl ?? "—"}</b>`}</td>
-    <td><input class="input sm" data-input="insf" data-key="${dk("unit")}" value="${esc(get("unit"))}" ${editable ? "" : "disabled"} style="width:55px" placeholder="mm"></td>
-    ${editable ? `<td><button type="button" class="btn sm ghost icon danger" data-action="insf-item-del" data-id="${it.id}">${icon("close")}</button></td>` : ""}
+  const tolSel = `<select class="select sm" data-change="insf-pick" data-key="${dk("tolerance_type")}" data-item="${it.id}" ${dis}>${Object.entries(TOL_TYPES).map(([k, l]) => `<option value="${k}" ${k === type ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+  const num = (k, placeholder, w = 72) => `<input class="input sm" type="number" step="any" placeholder="${esc(placeholder)}" data-input="insf" data-key="${dk(k)}" value="${esc(get(k))}" ${dis} style="width:${w}px">`;
+  let tolCell;
+  if (type === "limits") tolCell = `<td colspan="2">${num("usl", "USL")} ${num("lsl", "LSL")}</td>`;
+  else if (type === "unilateral_pos") tolCell = `<td colspan="2">${num("tol_plus", "Tol. +")}</td>`;
+  else if (type === "unilateral_neg") tolCell = `<td colspan="2">${num("tol_minus", "Tol. −")}</td>`;
+  else tolCell = `<td colspan="2">${num("tol_plus", "Tolerancia ±")}</td>`;   // bilateral: un solo campo ± (se aplica a ambos lados)
+  return `<tr data-item="${it.id}">${head}
+    <td>${tolSel}</td>
+    <td>${type === "limits" ? "—" : num("nominal", "Nominal", 70)}</td>
+    ${tolCell}
+    <td><b class="mono">${lim.usl ?? "—"}</b></td>
+    <td><b class="mono">${lim.lsl ?? "—"}</b></td>
+    <td><input class="input sm" data-input="insf" data-key="${dk("unit")}" value="${esc(get("unit"))}" ${dis} style="width:50px" placeholder="mm"></td>
+    ${del}
   </tr>`;
 }
 
@@ -117,7 +135,7 @@ function renderFormatoDetail(root, id) {
     <div class="panel" style="padding:16px">
       <h3 style="margin-bottom:10px">Características (balloons)</h3>
       <div class="table-wrap"><table class="table insf-grid"><thead><tr>
-        <th>No.</th><th>Descripción</th><th>Especificación</th><th>Tolerancia</th><th>Nominal</th><th>Tol. +</th><th>Tol. −</th><th>USL</th><th>LSL</th><th>Unidad</th>${editable ? "<th></th>" : ""}
+        <th>No.</th><th>Descripción</th><th>Especificación</th><th>Tipo</th><th>Tolerancia</th><th>Nominal</th><th colspan="2">Valor</th><th>USL</th><th>LSL</th><th>Unidad</th>${editable ? "<th></th>" : ""}
       </tr></thead><tbody>${items.map((it, i) => itemRow(f, it, i, editable)).join("") || `<tr><td colspan="11" class="muted" style="padding:14px">Sin características todavía.</td></tr>`}</tbody></table></div>
       ${editable ? `<div class="toolbar" style="margin-top:10px">
         <button type="button" class="btn sm" data-action="insf-item-add" data-id="${f.id}">${icon("plus")} Agregar característica</button>
@@ -197,11 +215,11 @@ function donutSVG(ok, nok) {
 }
 function filePreview(entity, id, ref, emptyLabel) {
   const list = db.rows("attachments").filter((a) => a.entity === entity && a.entity_id === id && (a.ref || null) === ref);
-  if (!list.length) return `<p class="muted" style="margin:0">${esc(emptyLabel)}</p>`;
+  if (!list.length) return `<p class="muted" style="margin:0;font-size:13px">${esc(emptyLabel)}</p>`;
   const a = list[list.length - 1];
-  return (a.mime_type || "").startsWith("image/")
-    ? `<a data-att="${a.id}" target="_blank" rel="noopener"><img src="" alt="${esc(a.file_name)}" style="max-width:100%;max-height:160px;display:block;margin:0 auto"></a>`
-    : `<a class="btn sm" data-att="${a.id}" target="_blank" rel="noopener" download="${esc(a.file_name)}">${icon("form")} ${esc(a.file_name)}</a>`;
+  if ((a.mime_type || "").startsWith("image/")) return `<a data-att="${a.id}" target="_blank" rel="noopener"><img src="" alt="${esc(a.file_name)}" style="max-width:100%;max-height:200px;display:block;margin:0 auto"></a>`;
+  if (a.mime_type === "application/pdf") return `<div class="insp-pdf-viewer"><iframe data-att="${a.id}" title="${esc(a.file_name)}"></iframe></div><a class="btn sm" data-att="${a.id}" target="_blank" rel="noopener" style="margin-top:8px">${icon("form")} Abrir en otra pestaña</a>`;
+  return `<a class="btn sm" data-att="${a.id}" target="_blank" rel="noopener" download="${esc(a.file_name)}">${icon("form")} ${esc(a.file_name)}</a>`;
 }
 function renderRegistroDetail(root, id) {
   const r = db.get("inspection_records", id);
@@ -209,39 +227,55 @@ function renderRegistroDetail(root, id) {
   const fmt = db.get("inspection_formats", r.format_id), items = itemsOf(r.format_id), req = r.request_id ? db.get("inspection_requests", r.request_id) : null;
   const pieces = pieceCount(r), sent = r.status === "enviado", sum = resultsSummary(r, items);
   setHead({ eyebrow: `Registros · ${esc(r.code)}`, title: r.part_number, subtitle: r.part_name,
-    actions: `<a class="btn" href="#/calidad/inspecciones/registros">${icon("chevL")} Registros</a>${sent ? `<span class="badge" data-tone="ok">Enviado ${fmtDateTime(r.sent_at)}</span>` : ""}` });
+    actions: `<a class="btn" href="#/calidad/inspecciones/registros">${icon("chevL")} Salir</a>${sent ? `<span class="badge" data-tone="ok">Enviado ${fmtDateTime(r.sent_at)}</span>` : ""}` });
+  const dl = (k, v) => `<div class="insp-dl-item"><dt>${esc(k)}</dt><dd>${v}</dd></div>`;
   root.innerHTML = `<div class="insp-rec-grid">
-    <div class="panel insp-rec-main" style="padding:16px">
-      <h3 style="margin-bottom:10px">Detalles de la solicitud</h3>
-      <div class="form-grid">
-        <div class="field"><span>Solicitante</span><div class="done-text">${esc(req?.requester_name || "—")}<br><small class="muted">${esc(req?.requester_email || "")}</small></div></div>
-        <div class="field"><span>Turno</span><div class="done-text">${esc(req?.shift || "—")}</div></div>
-        <div class="field"><span>Lote</span><div class="done-text">${esc(r.lot_number || "—")}</div></div>
-        <div class="field"><span>Orden de compra</span><div class="done-text">${esc(req?.purchase_order || "—")}</div></div>
-        <div class="field"><span>No. de operación</span><div class="done-text">${esc(req?.operation_no || "—")}</div></div>
-        <div class="field"><span>Servicio de inspección</span><div class="done-text">${esc(req?.service_type || "—")}</div></div>
-        <div class="field span-2"><span>Comentarios / Indicaciones</span><div class="done-text">${esc(req?.comments || "—")}</div></div>
+    <div class="insp-rec-col-main">
+      <div class="panel" style="padding:14px 16px">
+        <h3 class="insp-h3">Detalles de la solicitud</h3>
+        <dl class="insp-dl">
+          ${dl("Solicitante", `${esc(req?.requester_name || "—")} <span class="muted">${esc(req?.requester_email || "")}</span>`)}
+          ${dl("Turno", esc(req?.shift || "—"))}
+          ${dl("Lote", esc(r.lot_number || "—"))}
+          ${dl("Orden de compra", esc(req?.purchase_order || "—"))}
+          ${dl("No. de operación", esc(req?.operation_no || "—"))}
+          ${dl("Servicio de inspección", esc(req?.service_type || "—"))}
+          ${req?.comments ? dl("Comentarios", esc(req.comments)) : ""}
+        </dl>
+      </div>
+      <div class="panel insp-rec-meas" style="padding:14px 16px">
+        <h3 class="insp-h3">Mediciones${pieces > 1 ? ` <small class="muted">(${pieces} piezas solicitadas)</small>` : ""}</h3>
+        <div class="table-wrap"><table class="table"><thead><tr><th>No.</th><th>Descripción</th><th>LSL</th><th>Nominal</th><th>USL</th>${Array.from({ length: pieces }, (_, p) => `<th>Pieza ${p + 1}</th>`).join("")}</tr></thead><tbody>
+        ${items.map((it) => {
+          const isAttr = it.item_type === "atributo";
+          const lim = isAttr ? {} : computeLimits(it.tolerance_type, it.nominal, it.tol_plus, it.tol_minus, it.usl, it.lsl);
+          return `<tr><td>${esc(it.balloon_no)}</td><td>${esc(it.description)}</td><td class="mono">${isAttr ? "—" : lim.lsl ?? "—"}</td><td class="mono">${isAttr ? "—" : it.nominal ?? "—"}</td><td class="mono">${isAttr ? "—" : lim.usl ?? "—"}</td>
+            ${Array.from({ length: pieces }, (_, p) => {
+              const m = measAt(r, it.id, p);
+              if (isAttr) {
+                const tone = m.value == null ? "" : m.value === "ok" ? "insp-cell-ok" : "insp-cell-bad";
+                return `<td class="${tone}"><select class="select sm" data-change="insr-attr" data-key="meas:${it.id}:${p}" ${sent ? "disabled" : ""} style="width:76px"><option value="">—</option><option value="ok" ${m.value === "ok" ? "selected" : ""}>OK</option><option value="nok" ${m.value === "nok" ? "selected" : ""}>NOK</option></select></td>`;
+              }
+              const tone = m.value == null ? "" : m.result === "cumple" ? "insp-cell-ok" : "insp-cell-bad";
+              return `<td class="${tone}"><input class="input sm" type="number" step="any" data-input="insr" data-key="meas:${it.id}:${p}" value="${esc(m.value ?? "")}" ${sent ? "disabled" : ""} style="width:76px"></td>`;
+            }).join("")}
+          </tr>`; }).join("")}
+        </tbody></table></div>
+        ${!sent ? `<div class="toolbar" style="margin-top:12px">
+          <button type="button" class="btn" data-action="insp-rec-save" data-id="${r.id}">${icon("check2")} Guardar mediciones</button>
+          <button type="button" class="btn primary" data-action="insp-rec-confirm" data-id="${r.id}">${icon("send")} Confirmar y enviar</button>
+        </div>` : ""}
       </div>
     </div>
-    <div class="panel insp-rec-side" style="padding:16px"><h4>Número de parte</h4><p class="mono" style="font-size:16px;margin:4px 0 0">${esc(r.part_number)}</p><p class="muted" style="margin:2px 0 0">${esc(r.part_name)}</p></div>
-    <div class="panel insp-rec-side" style="padding:16px"><h4>Imagen vista isométrica</h4>${filePreview("inspection_format", r.format_id, "iso", "Sin imagen en el formato.")}</div>
-
-    <div class="panel insp-rec-meas" style="padding:16px">
-      <h3 style="margin-bottom:10px">Mediciones${pieces > 1 ? ` <small class="muted">(${pieces} piezas solicitadas)</small>` : ""}</h3>
-      <div class="table-wrap"><table class="table"><thead><tr><th>No.</th><th>Descripción</th><th>LSL</th><th>Nominal</th><th>USL</th>${Array.from({ length: pieces }, (_, p) => `<th>Pieza ${p + 1}</th>`).join("")}</tr></thead><tbody>
-      ${items.map((it) => { const lim = computeLimits(it.tolerance_type, it.nominal, it.tol_plus, it.tol_minus, it.usl, it.lsl);
-        return `<tr><td>${esc(it.balloon_no)}</td><td>${esc(it.description)}</td><td class="mono">${lim.lsl ?? "—"}</td><td class="mono">${it.nominal ?? "—"}</td><td class="mono">${lim.usl ?? "—"}</td>
-          ${Array.from({ length: pieces }, (_, p) => { const m = measAt(r, it.id, p); return `<td><input class="input sm" type="number" step="any" data-input="insr" data-key="meas:${it.id}:${p}" value="${esc(m.value ?? "")}" ${sent ? "disabled" : ""} style="width:80px">${m.value != null ? `<div class="mt4"><span class="badge" data-tone="${m.result === "cumple" ? "ok" : "danger"}">${m.result === "cumple" ? "OK" : "NOK"}</span></div>` : ""}</td>`; }).join("")}
-        </tr>`; }).join("")}
-      </tbody></table></div>
-      ${!sent ? `<div class="toolbar" style="margin-top:10px">
-        <button type="button" class="btn" data-action="insp-rec-save" data-id="${r.id}">${icon("check2")} Guardar mediciones</button>
-        <button type="button" class="btn primary" data-action="insp-rec-confirm" data-id="${r.id}">${icon("send")} Confirmar y enviar</button>
-      </div>` : ""}
+    <div class="insp-rec-col-side">
+      <div class="panel" style="padding:14px 16px"><h4 class="insp-h4">Número de parte</h4><p class="mono" style="font-size:16px;margin:4px 0 0;font-weight:700">${esc(r.part_number)}</p><p class="muted" style="margin:2px 0 0;font-size:13px">${esc(r.part_name)}</p></div>
+      <div class="panel" style="padding:14px 16px"><h4 class="insp-h4">Imagen vista isométrica</h4>${filePreview("inspection_format", r.format_id, "iso", "Sin imagen en el formato.")}</div>
     </div>
-    <div class="panel insp-rec-side" style="padding:16px"><h4>Dibujo baloneado</h4>${filePreview("inspection_format", r.format_id, "drawing", "Sin dibujo en el formato.")}</div>
-    <div class="panel insp-rec-side insp-rec-results" style="padding:16px"><h4>Resultados</h4>
-      ${sum.total ? `<div class="insp-donut">${donutSVG(sum.ok, sum.nok)}<div class="insp-donut-legend"><div><span class="dot" data-tone="info"></span>OK <b>${sum.ok}</b></div><div><span class="dot" data-tone="danger"></span>NOK <b>${sum.nok}</b></div></div></div>` : '<p class="muted" style="margin:0">Captura mediciones para ver el resultado.</p>'}
+    <div class="insp-rec-col-side">
+      <div class="panel" style="padding:14px 16px"><h4 class="insp-h4">Dibujo baloneado</h4>${filePreview("inspection_format", r.format_id, "drawing", "Sin dibujo en el formato.")}</div>
+      <div class="panel" style="padding:14px 16px"><h4 class="insp-h4">Resultados</h4>
+        ${sum.total ? `<div class="insp-donut">${donutSVG(sum.ok, sum.nok)}<div class="insp-donut-legend"><div><span class="dot" data-tone="info"></span>OK <b>${sum.ok}</b></div><div><span class="dot" data-tone="danger"></span>NOK <b>${sum.nok}</b></div></div></div><button type="button" class="btn sm" style="margin-top:10px;width:100%" data-action="insp-rec-pdf" data-id="${r.id}">${icon("download")} Descargar PDF</button>` : '<p class="muted" style="margin:0;font-size:13px">Captura mediciones para ver el resultado.</p>'}
+      </div>
     </div>
   </div>`;
 }
@@ -260,11 +294,15 @@ export default {
   },
   renderInspecciones(root, params) {
     const sub = params?.[0] || "solicitudes";
-    setHead({ title: "Inspecciones", subtitle: "Solicitudes, registros y formatos de inspección dimensional.",
-      actions: "" });
-    root.innerHTML = `<div class="type-tabs" role="tablist">
-      ${[["solicitudes", "Solicitudes"], ["registros", "Registros"], ["formatos", "Formatos"]].map(([id, l]) => `<a href="#/calidad/inspecciones/${id}" class="type-tab ${sub === id ? "active" : ""}">${esc(l)}</a>`).join("")}
-    </div><div id="insp-sub" style="margin-top:14px"></div>`;
+    const isDetail = (sub === "formato" || sub === "registro") && params[1];
+    if (!isDetail) {
+      setHead({ title: "Inspecciones", subtitle: "Solicitudes, registros y formatos de inspección dimensional.", actions: "" });
+      root.innerHTML = `<div class="type-tabs" role="tablist">
+        ${[["solicitudes", "Solicitudes"], ["registros", "Registros"], ["formatos", "Formatos"]].map(([id, l]) => `<a href="#/calidad/inspecciones/${id}" class="type-tab ${sub === id ? "active" : ""}">${esc(l)}</a>`).join("")}
+      </div><div id="insp-sub" style="margin-top:14px"></div>`;
+    } else {
+      root.innerHTML = `<div id="insp-sub"></div>`;   // en el detalle no hay pestañas: solo el "Salir" que pone el propio detalle
+    }
     const sec = document.getElementById("insp-sub");
     if (sub === "solicitudes") renderSolicitudes(sec);
     else if (sub === "registros") renderRegistros(sec);
@@ -282,7 +320,7 @@ on("insp-fmt-edit", (el) => editFormatMeta(db.get("inspection_formats", el.datas
 
 db.state.drafts ??= {};
 onInput("insf", (el) => { db.state.drafts[el.dataset.key] = el.value; });
-onChange("insf-tol", (el) => { db.state.drafts[el.dataset.key] = el.value; rerender(); });
+onChange("insf-pick", (el) => { db.state.drafts[el.dataset.key] = el.value; rerender(); });
 on("insf-item-add", async (el) => {
   try {
     await db.insert("inspection_format_items", { format_id: el.dataset.id, position: itemsOf(el.dataset.id).length + 1, balloon_no: String(itemsOf(el.dataset.id).length + 1), description: "", tolerance_type: "bilateral" });
@@ -297,13 +335,18 @@ on("insf-save", async (el) => {
   const items = itemsOf(el.dataset.id);
   for (const it of items) {
     const dk = (k) => db.state.drafts[`insf:${it.id}:${k}`];
-    const type = dk("tolerance_type") ?? it.tolerance_type;
-    const patch = {
-      balloon_no: dk("balloon_no") ?? it.balloon_no, description: dk("description") ?? it.description, specification: dk("specification") ?? it.specification,
-      tolerance_type: type, nominal: dk("nominal") ?? it.nominal, tol_plus: dk("tol_plus") ?? it.tol_plus, tol_minus: dk("tol_minus") ?? it.tol_minus,
-    };
-    const lim = computeLimits(type, patch.nominal, patch.tol_plus, patch.tol_minus, dk("usl") ?? it.usl, dk("lsl") ?? it.lsl);
-    patch.usl = lim.usl; patch.lsl = lim.lsl; patch.unit = dk("unit") ?? it.unit;
+    const itemType = dk("item_type") ?? it.item_type ?? "variable";
+    const patch = { balloon_no: dk("balloon_no") ?? it.balloon_no, description: dk("description") ?? it.description, specification: dk("specification") ?? it.specification, item_type: itemType };
+    if (itemType === "atributo") {
+      patch.tolerance_type = null; patch.nominal = null; patch.tol_plus = null; patch.tol_minus = null; patch.usl = null; patch.lsl = null; patch.unit = null;
+    } else {
+      const type = dk("tolerance_type") ?? it.tolerance_type ?? "bilateral";
+      patch.tolerance_type = type; patch.nominal = dk("nominal") ?? it.nominal;
+      patch.tol_plus = dk("tol_plus") ?? it.tol_plus;
+      patch.tol_minus = type === "bilateral" ? patch.tol_plus : (dk("tol_minus") ?? it.tol_minus);   // bilateral: el mismo valor "±" para ambos lados
+      const lim = computeLimits(type, patch.nominal, patch.tol_plus, patch.tol_minus, dk("usl") ?? it.usl, dk("lsl") ?? it.lsl);
+      patch.usl = lim.usl; patch.lsl = lim.lsl; patch.unit = dk("unit") ?? it.unit;
+    }
     await db.update("inspection_format_items", it.id, patch);
   }
   for (const k of Object.keys(db.state.drafts)) if (k.startsWith("insf:")) delete db.state.drafts[k];
@@ -320,16 +363,24 @@ on("insp-req-attend", async (el) => {
 });
 on("insp-rec-open", (el) => navigate(`calidad/inspecciones/registro/${el.dataset.id}`));
 onInput("insr", (el) => { db.state.drafts[el.dataset.key] = el.value; });
+onChange("insr-attr", (el) => { db.state.drafts[el.dataset.key] = el.value; rerender(); });
 /** Junta lo capturado en pantalla (meas:item:pieza) en measurements[item][pieza] = {value, result} */
 function collectMeasurements(r) {
   const items = itemsOf(r.format_id), measurements = JSON.parse(JSON.stringify(r.measurements || {}));
   let allOk = true, any = false;
   for (const it of items) {
+    const isAttr = it.item_type === "atributo";
     for (let p = 0; p < pieceCount(r); p++) {
       const raw = db.state.drafts[`meas:${it.id}:${p}`]; if (raw === undefined) continue;
       measurements[it.id] ??= [];
       if (raw === "") { measurements[it.id][p] = undefined; continue; }
-      any = true; const v = Number(raw), lim = computeLimits(it.tolerance_type, it.nominal, it.tol_plus, it.tol_minus, it.usl, it.lsl);
+      any = true;
+      if (isAttr) {
+        const ok = raw === "ok"; if (!ok) allOk = false;
+        measurements[it.id][p] = { value: raw, result: ok ? "cumple" : "no_cumple" };
+        continue;
+      }
+      const v = Number(raw), lim = computeLimits(it.tolerance_type, it.nominal, it.tol_plus, it.tol_minus, it.usl, it.lsl);
       const ok = (lim.lsl == null || v >= lim.lsl) && (lim.usl == null || v <= lim.usl);
       if (!ok) allOk = false;
       measurements[it.id][p] = { value: v, result: ok ? "cumple" : "no_cumple" };
@@ -341,6 +392,11 @@ on("insp-rec-save", async (el) => {
   const r = db.get("inspection_records", el.dataset.id), { measurements, allOk, any } = collectMeasurements(r);
   await db.update("inspection_records", r.id, { measurements, overall_result: any ? (allOk ? "cumple" : "no_cumple") : r.overall_result });
   toast("Mediciones guardadas", "ok"); await rerender();
+});
+on("insp-rec-pdf", async (el) => {
+  const r = db.get("inspection_records", el.dataset.id), fmt = db.get("inspection_formats", r.format_id), req = r.request_id ? db.get("inspection_requests", r.request_id) : null;
+  try { await exportInspectionResult(r, { formatCode: fmt?.code, request: req, items: itemsOf(r.format_id), pieces: pieceCount(r), measAt, computeLimits }); }
+  catch (e) { toast(e.message || "No se pudo generar el PDF.", "danger"); }
 });
 on("insp-rec-confirm", (el) => {
   const r = db.get("inspection_records", el.dataset.id);

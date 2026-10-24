@@ -47,9 +47,9 @@ async function hydrate() {
     if (!att) continue;
     try {
       const url = await db.attachmentUrl(att);
-      el.href = url;
-      const img = el.querySelector("img");
-      if (img) img.src = url;
+      if (el.tagName === "IFRAME") el.src = url; else el.href = url;
+      const img = el.querySelector("img"); if (img) img.src = url;
+      const frame = el.querySelector("iframe"); if (frame) frame.src = url;
     } catch { el.classList.add("att-broken"); }
   }
 }

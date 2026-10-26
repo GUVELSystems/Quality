@@ -281,17 +281,120 @@ function renderRegistroDetail(root, id) {
 }
 
 /* ============================ Workspace export ============================ */
+/* ===================== Control de calidad: Dashboard de Quality Control ===================== */
+const DF = { tab: "inspecciones", from: addDays(today(), -21), to: today(), op: "", result: "", trendChar: "" };
+function addDays(d, n) { const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().slice(0, 10); }
+
+/** Cada fila es UNA medición ya capturada (una característica, de una pieza, de un registro) */
+function allMeasurementRows() {
+  const rows = [];
+  for (const rec of db.rows("inspection_records")) {
+    const items = itemsOf(rec.format_id), req = rec.request_id ? db.get("inspection_requests", rec.request_id) : null;
+    for (const it of items) {
+      for (let p = 0; p < pieceCount(rec); p++) {
+        const m = measAt(rec, it.id, p);
+        if (m.value == null) continue;
+        rows.push({ rec, req, it, piece: p, m });
+      }
+    }
+  }
+  return rows.sort((a, b) => (b.rec.sent_at || b.rec.created_at || "").localeCompare(a.rec.sent_at || a.rec.created_at || ""));
+}
+function filteredRows() {
+  return allMeasurementRows().filter((x) => {
+    const d = (x.rec.sent_at || x.rec.created_at || "").slice(0, 10);
+    if (DF.from && d < DF.from) return false;
+    if (DF.to && d > DF.to) return false;
+    if (DF.op && (x.req?.operation_no || "") !== DF.op) return false;
+    if (DF.result && x.m.result !== DF.result) return false;
+    return true;
+  });
+}
+const allOperations = () => [...new Set(db.rows("inspection_requests").map((r) => r.operation_no).filter(Boolean))];
+const allCharacteristics = () => [...new Set(db.rows("inspection_format_items").map((i) => i.description).filter(Boolean))];
+
+function trendSVG(points, lsl, nominal, usl) {
+  const W = 560, H = 190, padL = 42, padR = 14, padT = 14, padB = 24;
+  const vals = points.map((p) => p.value).concat([lsl, usl].filter((v) => v != null));
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1;
+  const y = (v) => padT + (H - padT - padB) * (1 - (v - lo + span * 0.1) / (span * 1.2));
+  const x = (i) => padL + (points.length > 1 ? (i * (W - padL - padR)) / (points.length - 1) : 0);
+  const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
+  const band = usl != null && lsl != null ? `<rect x="${padL}" y="${y(usl).toFixed(1)}" width="${W - padL - padR}" height="${(y(lsl) - y(usl)).toFixed(1)}" fill="var(--flow-soft)"/>` : "";
+  const refLine = (v, label, dash) => v == null ? "" : `<line x1="${padL}" x2="${W - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--text-3)" stroke-dasharray="${dash}" stroke-width="1"/><text x="${W - padR}" y="${(y(v) - 3).toFixed(1)}" font-size="9" fill="var(--text-2)" text-anchor="end">${esc(label)} ${v}</text>`;
+  const dots = points.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3.5" fill="${p.ok ? "var(--flow)" : "var(--stop)"}"/>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">${band}${refLine(usl, "USL", "3,2")}${refLine(nominal, "NOM", "1,2")}${refLine(lsl, "LSL", "3,2")}
+    <path d="${line}" fill="none" stroke="var(--flow)" stroke-width="1.5"/>${dots}</svg>`;
+}
+
+function renderCalidadDashboard(root) {
+  setHead({ title: "Control de calidad", subtitle: "Registro y seguimiento de inspecciones en proceso, con trazabilidad completa.",
+    actions: `<button class="btn primary" data-action="insp-req-new">${icon("plus")} Nueva inspección</button>` });
+  const rows = filteredRows();
+  const pend = pendingRequests(), nokRows = allMeasurementRows().filter((x) => x.m.result === "no_cumple");
+
+  root.innerHTML = `<div class="type-tabs" role="tablist">
+    ${[["inspecciones", "Inspecciones"], ["liberar", "Por liberar"], ["rechazadas", "Rechazadas"], ["tendencias", "Tendencias"]].map(([id, l]) => `<button type="button" class="type-tab ${DF.tab === id ? "active" : ""}" data-action="calidad-tab" data-tab="${id}">${esc(l)}${id === "liberar" && pend.length ? ` <span class="badge" data-tone="warn">${pend.length}</span>` : ""}${id === "rechazadas" && nokRows.length ? ` <span class="badge" data-tone="danger">${nokRows.length}</span>` : ""}</button>`).join("")}
+  </div><div id="cal-sub" style="margin-top:14px"></div>`;
+  const sec = document.getElementById("cal-sub");
+
+  if (DF.tab === "liberar") { renderSolicitudes(sec); return; }
+
+  if (DF.tab === "rechazadas") {
+    sec.innerHTML = `<div class="panel"><div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Fecha</th><th>Pieza</th><th>Característica</th><th>Medición</th><th>Resultado</th><th>Responsable</th></tr></thead><tbody>
+      ${nokRows.length ? nokRows.map((x) => `<tr data-action="insp-rec-open" data-id="${x.rec.id}"><td class="code">${esc(x.rec.code)}</td><td>${fmtDate((x.rec.sent_at || x.rec.created_at || "").slice(0, 10))}</td><td class="mono">${esc(x.rec.part_number)}</td><td>${esc(x.it.description)}</td><td class="mono">${x.m.value}</td><td><span class="badge" data-tone="danger">NOK</span></td><td>${userCell(db.get("profiles", x.rec.inspector_id))}</td></tr>`).join("") : `<tr><td colspan="7">${empty("Sin rechazos", "Ninguna medición fuera de especificación todavía.", "inspection")}</td></tr>`}
+      </tbody></table></div></div>`;
+    return;
+  }
+
+  if (DF.tab === "tendencias") {
+    const chars = allCharacteristics();
+    if (!DF.trendChar && chars.length) DF.trendChar = chars[0];
+    const charRows = allMeasurementRows().filter((x) => x.it.description === DF.trendChar && x.rec.sent_at).reverse().slice(-30);
+    const ok = charRows.filter((x) => x.m.result === "cumple").length, nok = charRows.length - ok;
+    const it0 = charRows[0]?.it;
+    const points = charRows.map((x) => ({ value: x.m.value, ok: x.m.result === "cumple" }));
+    const lim = it0 ? computeLimits(it0.tolerance_type, it0.nominal, it0.tol_plus, it0.tol_minus, it0.usl, it0.lsl) : {};
+    sec.innerHTML = `<div class="insp-trend-grid">
+      <div class="panel" style="padding:14px 16px">
+        <div class="toolbar" style="margin-bottom:8px"><h3 class="insp-h3" style="margin:0">Tendencia de resultados</h3>
+          <select class="select sm" data-change="calidad-trendchar" style="margin-left:auto">${chars.map((c) => `<option value="${esc(c)}" ${c === DF.trendChar ? "selected" : ""}>Característica: ${esc(c)}</option>`).join("") || "<option>Sin características capturadas</option>"}</select>
+        </div>
+        ${points.length ? trendSVG(points, lim.lsl, it0.nominal, lim.usl) : '<p class="muted">Sin mediciones para esta característica todavía.</p>'}
+      </div>
+      <div class="panel" style="padding:14px 16px"><h4 class="insp-h4">Resultados</h4>
+        ${points.length ? `<div class="insp-donut">${donutSVG(ok, nok)}<div class="insp-donut-legend"><div><span class="dot" data-tone="info"></span>OK <b>${ok}</b></div><div><span class="dot" data-tone="danger"></span>NOK <b>${nok}</b></div></div></div><p class="muted" style="margin-top:10px;font-size:12.5px">Total inspecciones <b>${points.length}</b></p>` : '<p class="muted" style="margin:0;font-size:13px">Sin datos todavía.</p>'}
+      </div>
+    </div>`;
+    return;
+  }
+
+  // Inspecciones (por defecto)
+  sec.innerHTML = `<div class="panel">
+    <div class="toolbar">
+      <input type="date" class="input" data-change="calidad-from" value="${DF.from}" style="width:150px">
+      <span class="muted">—</span>
+      <input type="date" class="input" data-change="calidad-to" value="${DF.to}" style="width:150px">
+      <select class="select" data-change="calidad-op"><option value="">Todas las operaciones</option>${allOperations().map((o) => `<option value="${esc(o)}" ${DF.op === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>
+      <select class="select" data-change="calidad-result"><option value="">Todos los resultados</option><option value="cumple" ${DF.result === "cumple" ? "selected" : ""}>OK</option><option value="no_cumple" ${DF.result === "no_cumple" ? "selected" : ""}>NOK</option></select>
+      <span class="count">${rows.length} medición(es)</span>
+    </div>
+    ${rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Fecha</th><th>Pieza / Orden</th><th>Operación</th><th>Característica</th><th>Resultado</th><th>Responsable</th><th>Hora</th></tr></thead><tbody>
+      ${rows.slice(0, 200).map((x) => { const dt = x.rec.sent_at || x.rec.created_at;
+        return `<tr data-action="insp-rec-open" data-id="${x.rec.id}"><td class="code">${esc(x.rec.code)}</td><td>${fmtDate((dt || "").slice(0, 10))}</td><td class="mono">${esc(x.rec.part_number)}<span class="sub">${esc(x.req?.purchase_order || x.rec.lot_number || "")}</span></td><td>${esc(x.req?.operation_no || "—")}</td><td>${esc(x.it.description)}</td><td><span class="badge" data-tone="${x.m.result === "cumple" ? "ok" : "danger"}">${x.m.result === "cumple" ? "OK" : "NOK"}</span></td><td>${userCell(db.get("profiles", x.rec.inspector_id))}</td><td class="mono">${dt ? new Date(dt).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }) : "—"}</td></tr>`; }).join("")}
+      </tbody></table></div>` : empty("Sin inspecciones en este rango", "Ajusta los filtros o crea una nueva inspección.", "inspection")}
+  </div>`;
+}
+on("calidad-tab", (el) => { DF.tab = el.dataset.tab; renderCalidadDashboard(document.getElementById("view") || document.body); });
+onChange("calidad-from", (el) => { DF.from = el.value; renderCalidadDashboard(document.getElementById("view")); });
+onChange("calidad-to", (el) => { DF.to = el.value; renderCalidadDashboard(document.getElementById("view")); });
+onChange("calidad-op", (el) => { DF.op = el.value; renderCalidadDashboard(document.getElementById("view")); });
+onChange("calidad-result", (el) => { DF.result = el.value; renderCalidadDashboard(document.getElementById("view")); });
+onChange("calidad-trendchar", (el) => { DF.trendChar = el.value; renderCalidadDashboard(document.getElementById("view")); });
+
 export default {
   id: "inspecciones",
-  renderDashboard(root) {
-    const pend = pendingRequests().length, formats = formatRows().filter((f) => f.active).length, recs = db.rows("inspection_records").length;
-    setHead({ title: "Quality Control", subtitle: "Inspecciones dimensionales: solicitudes, registros y formatos." });
-    root.innerHTML = `<div class="kpi-strip">
-      <a class="kpi" href="#/inspecciones/solicitudes" data-tone="${pend ? "warn" : "ok"}"><label>Solicitudes pendientes</label><strong>${pend}</strong><small>Por atender</small></a>
-      <a class="kpi" href="#/inspecciones/registros" data-tone="info"><label>Registros</label><strong>${recs}</strong><small>Inspecciones realizadas</small></a>
-      <a class="kpi" href="#/inspecciones/formatos" data-tone="info"><label>Formatos activos</label><strong>${formats}</strong><small>Números de parte con plantilla</small></a>
-    </div>`;
-  },
+  renderDashboard(root) { renderCalidadDashboard(root); },
   renderInspecciones(root, params) {
     const sub = params?.[0] || "solicitudes";
     const isDetail = (sub === "formato" || sub === "registro") && params[1];

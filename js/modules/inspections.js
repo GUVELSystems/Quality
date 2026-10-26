@@ -25,8 +25,8 @@ export function computeLimits(type, nominal, tolPlus, tolMinus, uslRaw, lslRaw) 
   const n = Number(nominal) || 0, tp = Number(tolPlus) || 0;
   const tm = tolMinus === "" || tolMinus == null ? tp : Number(tolMinus);   // bilateral: un solo campo "±" alimenta ambos lados
   if (type === "limits") return { usl: uslRaw === "" || uslRaw == null ? null : Number(uslRaw), lsl: lslRaw === "" || lslRaw == null ? null : Number(lslRaw) };
-  if (type === "unilateral_pos") return { usl: round(n + tp), lsl: null };
-  if (type === "unilateral_neg") return { usl: null, lsl: round(n - tm) };
+  if (type === "unilateral_pos") return { usl: round(n + tp), lsl: n };    // el nominal se vuelve el LSL
+  if (type === "unilateral_neg") return { usl: n, lsl: round(n - tm) };   // el nominal se vuelve el USL
   return { usl: round(n + tp), lsl: round(n - tm) };   // bilateral
 }
 
@@ -86,27 +86,24 @@ function itemRow(f, it, i, editable) {
   const typeSel = `<select class="select sm" data-change="insf-pick" data-key="${dk("item_type")}" data-item="${it.id}" ${dis}>${Object.entries(ITEM_TYPES).map(([k, l]) => `<option value="${k}" ${k === itemType ? "selected" : ""}>${l}</option>`).join("")}</select>`;
   const head = `<td><input class="input sm" data-input="insf" data-key="${dk("balloon_no")}" value="${esc(get("balloon_no"))}" ${dis} style="width:55px"></td>
     <td><input class="input sm" data-input="insf" data-key="${dk("description")}" value="${esc(get("description"))}" ${dis} style="min-width:150px"></td>
-    <td><input class="input sm" data-input="insf" data-key="${dk("specification")}" value="${esc(get("specification"))}" ${dis} style="min-width:100px"></td>
     <td>${typeSel}</td>`;
   const del = editable ? `<td><button type="button" class="btn sm ghost icon danger" data-action="insf-item-del" data-id="${it.id}">${icon("close")}</button></td>` : "";
 
   if (itemType === "atributo") {
-    return `<tr data-item="${it.id}">${head}<td colspan="7" class="muted" style="font-size:12.5px">Se evalúa OK / NOK al capturar la medición — sin tolerancia numérica.</td>${del}</tr>`;
+    return `<tr data-item="${it.id}">${head}<td colspan="6" class="muted" style="font-size:12.5px">Se evalúa OK / NOK al capturar la medición — sin tolerancia numérica.</td>${del}</tr>`;
   }
   const lim = computeLimits(type, get("nominal"), get("tol_plus"), get("tol_minus"), get("usl"), get("lsl"));
   const tolSel = `<select class="select sm" data-change="insf-pick" data-key="${dk("tolerance_type")}" data-item="${it.id}" ${dis}>${Object.entries(TOL_TYPES).map(([k, l]) => `<option value="${k}" ${k === type ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-  const num = (k, placeholder, w = 72) => `<input class="input sm" type="number" step="any" placeholder="${esc(placeholder)}" data-input="insf" data-key="${dk(k)}" value="${esc(get(k))}" ${dis} style="width:${w}px">`;
-  let tolCell;
-  if (type === "limits") tolCell = `<td colspan="2">${num("usl", "USL")} ${num("lsl", "LSL")}</td>`;
-  else if (type === "unilateral_pos") tolCell = `<td colspan="2">${num("tol_plus", "Tol. +")}</td>`;
-  else if (type === "unilateral_neg") tolCell = `<td colspan="2">${num("tol_minus", "Tol. −")}</td>`;
-  else tolCell = `<td colspan="2">${num("tol_plus", "Tolerancia ±")}</td>`;   // bilateral: un solo campo ± (se aplica a ambos lados)
+  const num = (k, placeholder, w = 72) => `<input class="input sm" type="number" step="any" placeholder="${esc(placeholder)}" data-input="insf-live" data-item="${it.id}" data-key="${dk(k)}" value="${esc(get(k))}" ${dis} style="width:${w}px">`;
+  const valorCell = type === "limits" ? "—" : type === "unilateral_pos" ? num("tol_plus", "Tol. +", 70) : type === "unilateral_neg" ? num("tol_minus", "Tol. −", 70) : num("tol_plus", "±", 60);
+  const uslCell = type === "limits" ? num("usl", "USL", 72) : `<b class="mono" data-usl="${it.id}">${lim.usl ?? "—"}</b>`;
+  const lslCell = type === "limits" ? num("lsl", "LSL", 72) : `<b class="mono" data-lsl="${it.id}">${lim.lsl ?? "—"}</b>`;
   return `<tr data-item="${it.id}">${head}
     <td>${tolSel}</td>
     <td>${type === "limits" ? "—" : num("nominal", "Nominal", 70)}</td>
-    ${tolCell}
-    <td><b class="mono">${lim.usl ?? "—"}</b></td>
-    <td><b class="mono">${lim.lsl ?? "—"}</b></td>
+    <td>${valorCell}</td>
+    <td>${uslCell}</td>
+    <td>${lslCell}</td>
     <td><input class="input sm" data-input="insf" data-key="${dk("unit")}" value="${esc(get("unit"))}" ${dis} style="width:50px" placeholder="mm"></td>
     ${del}
   </tr>`;
@@ -135,7 +132,7 @@ function renderFormatoDetail(root, id) {
     <div class="panel" style="padding:16px">
       <h3 style="margin-bottom:10px">Características (balloons)</h3>
       <div class="table-wrap"><table class="table insf-grid"><thead><tr>
-        <th>No.</th><th>Descripción</th><th>Especificación</th><th>Tipo</th><th>Tolerancia</th><th>Nominal</th><th colspan="2">Valor</th><th>USL</th><th>LSL</th><th>Unidad</th>${editable ? "<th></th>" : ""}
+        <th>No.</th><th>Descripción</th><th>Tipo</th><th>Tolerancia</th><th>Nominal</th><th>Valor</th><th>USL</th><th>LSL</th><th>Unidad</th>${editable ? "<th></th>" : ""}
       </tr></thead><tbody>${items.map((it, i) => itemRow(f, it, i, editable)).join("") || `<tr><td colspan="11" class="muted" style="padding:14px">Sin características todavía.</td></tr>`}</tbody></table></div>
       ${editable ? `<div class="toolbar" style="margin-top:10px">
         <button type="button" class="btn sm" data-action="insf-item-add" data-id="${f.id}">${icon("plus")} Agregar característica</button>
@@ -423,6 +420,18 @@ on("insp-fmt-edit", (el) => editFormatMeta(db.get("inspection_formats", el.datas
 
 db.state.drafts ??= {};
 onInput("insf", (el) => { db.state.drafts[el.dataset.key] = el.value; });
+/** Nominal / tolerancia: al escribir, el USL y LSL de esa misma fila se recalculan de una vez — sin
+ *  tener que guardar y sin perder el foco del campo (no se vuelve a dibujar toda la pantalla) */
+onInput("insf-live", (el) => {
+  db.state.drafts[el.dataset.key] = el.value;
+  const itemId = el.dataset.item, it = db.get("inspection_format_items", itemId); if (!it) return;
+  const dk = (k) => db.state.drafts[`insf:${itemId}:${k}`] ?? it[k] ?? "";
+  const type = dk("tolerance_type");
+  const lim = computeLimits(type, dk("nominal"), dk("tol_plus"), dk("tol_minus"), dk("usl"), dk("lsl"));
+  const uslEl = document.querySelector(`[data-usl="${itemId}"]`), lslEl = document.querySelector(`[data-lsl="${itemId}"]`);
+  if (uslEl) uslEl.textContent = lim.usl ?? "—";
+  if (lslEl) lslEl.textContent = lim.lsl ?? "—";
+});
 onChange("insf-pick", (el) => { db.state.drafts[el.dataset.key] = el.value; rerender(); });
 on("insf-item-add", async (el) => {
   try {
@@ -439,7 +448,7 @@ on("insf-save", async (el) => {
   for (const it of items) {
     const dk = (k) => db.state.drafts[`insf:${it.id}:${k}`];
     const itemType = dk("item_type") ?? it.item_type ?? "variable";
-    const patch = { balloon_no: dk("balloon_no") ?? it.balloon_no, description: dk("description") ?? it.description, specification: dk("specification") ?? it.specification, item_type: itemType };
+    const patch = { balloon_no: dk("balloon_no") ?? it.balloon_no, description: dk("description") ?? it.description, item_type: itemType };
     if (itemType === "atributo") {
       patch.tolerance_type = null; patch.nominal = null; patch.tol_plus = null; patch.tol_minus = null; patch.usl = null; patch.lsl = null; patch.unit = null;
     } else {

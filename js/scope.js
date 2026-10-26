@@ -10,13 +10,13 @@ import { overdueKind } from "./workflow.js";
 
 export const WS_LABEL = {
   dashboard: "Dashboard", auditorias: "Auditorías", internas: "Auditorías Internas", issues: "Findings",
-  riesgos: "Riesgos", oportunidades: "Oportunidades", config: "Configuración", calidad: "Quality Control",
+  riesgos: "Riesgos", oportunidades: "Oportunidades", config: "Configuración", calidad: "Dashboard", inspecciones: "Inspecciones",
 };
-export const WS_ICON = { dashboard: "dashboard", auditorias: "audit", internas: "internal", issues: "finding", riesgos: "risk", oportunidades: "opportunity", config: "tag", soporte: "lock", calidad: "inspection" };
+export const WS_ICON = { dashboard: "dashboard", auditorias: "audit", internas: "internal", issues: "finding", riesgos: "risk", oportunidades: "opportunity", config: "tag", soporte: "lock", calidad: "dashboard", inspecciones: "inspection" };
 /** Las tres secciones del menú principal */
 export const MENU_SECTIONS = [
   ["Quality Assurance", ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades", "soporte"]],
-  ["Quality Control", ["calidad"]],
+  ["Quality Control", ["calidad", "inspecciones"]],
 ];
 export const AUDIT_TYPES_BY_WS = { auditorias: ["LPA", "Producto", "Proceso", "Sistema"], internas: ["Interna"] };
 export const isAuditWs = (ws) => ws in AUDIT_TYPES_BY_WS;

@@ -46,7 +46,7 @@ function newFormatForm() {
     onSubmit: async (v) => {
       const r = await db.insert("inspection_formats", { ...v, active: true });
       toast(`Formato ${r.code} creado · agrega las características`, "ok");
-      navigate(`calidad/inspecciones/formato/${r.id}`);
+      navigate(`inspecciones/formato/${r.id}`);
     },
   });
 }
@@ -62,7 +62,7 @@ function editFormatMeta(f) {
     ],
     values: { ...f, active: String(f.active) },
     onSubmit: async (v) => { await db.update("inspection_formats", f.id, { ...v, active: v.active === "true" }); toast("Formato actualizado", "ok"); await rerender(); },
-    onDelete: db.can.manage ? async () => { await db.remove("inspection_formats", f.id); navigate("calidad/inspecciones/formatos"); } : null,
+    onDelete: db.can.manage ? async () => { await db.remove("inspection_formats", f.id); navigate("inspecciones/formatos"); } : null,
   });
 }
 
@@ -118,7 +118,7 @@ function renderFormatoDetail(root, id) {
   const editable = db.can.manage;
   const items = itemsOf(f.id);
   setHead({ eyebrow: `Formatos · ${esc(f.code)}`, title: f.part_number, subtitle: f.part_name,
-    actions: `<a class="btn" href="#/calidad/inspecciones/formatos">${icon("chevL")} Formatos</a>${editable ? `<button class="btn" data-action="insp-fmt-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}` });
+    actions: `<a class="btn" href="#/inspecciones/formatos">${icon("chevL")} Formatos</a>${editable ? `<button class="btn" data-action="insp-fmt-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}` });
   root.innerHTML = `<div class="stack">
     <div class="panel" style="padding:16px">
       <div class="form-grid">
@@ -227,7 +227,7 @@ function renderRegistroDetail(root, id) {
   const fmt = db.get("inspection_formats", r.format_id), items = itemsOf(r.format_id), req = r.request_id ? db.get("inspection_requests", r.request_id) : null;
   const pieces = pieceCount(r), sent = r.status === "enviado", sum = resultsSummary(r, items);
   setHead({ eyebrow: `Registros · ${esc(r.code)}`, title: r.part_number, subtitle: r.part_name,
-    actions: `<a class="btn" href="#/calidad/inspecciones/registros">${icon("chevL")} Salir</a>${sent ? `<span class="badge" data-tone="ok">Enviado ${fmtDateTime(r.sent_at)}</span>` : ""}` });
+    actions: `<a class="btn" href="#/inspecciones/registros">${icon("chevL")} Salir</a>${sent ? `<span class="badge" data-tone="ok">Enviado ${fmtDateTime(r.sent_at)}</span>` : ""}` });
   const dl = (k, v) => `<div class="insp-dl-item"><dt>${esc(k)}</dt><dd>${v}</dd></div>`;
   root.innerHTML = `<div class="insp-rec-grid">
     <div class="insp-rec-col-main">
@@ -268,11 +268,11 @@ function renderRegistroDetail(root, id) {
       </div>
     </div>
     <div class="insp-rec-col-side">
-      <div class="panel" style="padding:14px 16px"><h4 class="insp-h4">Número de parte</h4><p class="mono" style="font-size:16px;margin:4px 0 0;font-weight:700">${esc(r.part_number)}</p><p class="muted" style="margin:2px 0 0;font-size:13px">${esc(r.part_name)}</p></div>
-      <div class="panel" style="padding:14px 16px"><h4 class="insp-h4">Imagen vista isométrica</h4>${filePreview("inspection_format", r.format_id, "iso", "Sin imagen en el formato.")}</div>
-    </div>
-    <div class="insp-rec-col-side">
-      <div class="panel" style="padding:14px 16px"><h4 class="insp-h4">Dibujo baloneado</h4>${filePreview("inspection_format", r.format_id, "drawing", "Sin dibujo en el formato.")}</div>
+      <div class="panel insp-rec-top2">
+        <div><h4 class="insp-h4">Número de parte</h4><p class="mono" style="font-size:16px;margin:4px 0 0;font-weight:700">${esc(r.part_number)}</p><p class="muted" style="margin:2px 0 0;font-size:13px">${esc(r.part_name)}</p></div>
+        <div><h4 class="insp-h4">Imagen vista isométrica</h4>${filePreview("inspection_format", r.format_id, "iso", "Sin imagen.")}</div>
+      </div>
+      <div class="panel insp-rec-drawing" style="padding:14px 16px"><h4 class="insp-h4">Dibujo baloneado</h4>${filePreview("inspection_format", r.format_id, "drawing", "Sin dibujo en el formato.")}</div>
       <div class="panel" style="padding:14px 16px"><h4 class="insp-h4">Resultados</h4>
         ${sum.total ? `<div class="insp-donut">${donutSVG(sum.ok, sum.nok)}<div class="insp-donut-legend"><div><span class="dot" data-tone="info"></span>OK <b>${sum.ok}</b></div><div><span class="dot" data-tone="danger"></span>NOK <b>${sum.nok}</b></div></div></div><button type="button" class="btn sm" style="margin-top:10px;width:100%" data-action="insp-rec-pdf" data-id="${r.id}">${icon("download")} Descargar PDF</button>` : '<p class="muted" style="margin:0;font-size:13px">Captura mediciones para ver el resultado.</p>'}
       </div>
@@ -287,9 +287,9 @@ export default {
     const pend = pendingRequests().length, formats = formatRows().filter((f) => f.active).length, recs = db.rows("inspection_records").length;
     setHead({ title: "Quality Control", subtitle: "Inspecciones dimensionales: solicitudes, registros y formatos." });
     root.innerHTML = `<div class="kpi-strip">
-      <a class="kpi" href="#/calidad/inspecciones/solicitudes" data-tone="${pend ? "warn" : "ok"}"><label>Solicitudes pendientes</label><strong>${pend}</strong><small>Por atender</small></a>
-      <a class="kpi" href="#/calidad/inspecciones/registros" data-tone="info"><label>Registros</label><strong>${recs}</strong><small>Inspecciones realizadas</small></a>
-      <a class="kpi" href="#/calidad/inspecciones/formatos" data-tone="info"><label>Formatos activos</label><strong>${formats}</strong><small>Números de parte con plantilla</small></a>
+      <a class="kpi" href="#/inspecciones/solicitudes" data-tone="${pend ? "warn" : "ok"}"><label>Solicitudes pendientes</label><strong>${pend}</strong><small>Por atender</small></a>
+      <a class="kpi" href="#/inspecciones/registros" data-tone="info"><label>Registros</label><strong>${recs}</strong><small>Inspecciones realizadas</small></a>
+      <a class="kpi" href="#/inspecciones/formatos" data-tone="info"><label>Formatos activos</label><strong>${formats}</strong><small>Números de parte con plantilla</small></a>
     </div>`;
   },
   renderInspecciones(root, params) {
@@ -298,7 +298,7 @@ export default {
     if (!isDetail) {
       setHead({ title: "Inspecciones", subtitle: "Solicitudes, registros y formatos de inspección dimensional.", actions: "" });
       root.innerHTML = `<div class="type-tabs" role="tablist">
-        ${[["solicitudes", "Solicitudes"], ["registros", "Registros"], ["formatos", "Formatos"]].map(([id, l]) => `<a href="#/calidad/inspecciones/${id}" class="type-tab ${sub === id ? "active" : ""}">${esc(l)}</a>`).join("")}
+        ${[["solicitudes", "Solicitudes"], ["registros", "Registros"], ["formatos", "Formatos"]].map(([id, l]) => `<a href="#/inspecciones/${id}" class="type-tab ${sub === id ? "active" : ""}">${esc(l)}</a>`).join("")}
       </div><div id="insp-sub" style="margin-top:14px"></div>`;
     } else {
       root.innerHTML = `<div id="insp-sub"></div>`;   // en el detalle no hay pestañas: solo el "Salir" que pone el propio detalle
@@ -315,7 +315,7 @@ export default {
 
 /* ------------------------------- Acciones -------------------------------- */
 on("insp-fmt-new", () => newFormatForm());
-on("insp-fmt-open", (el) => navigate(`calidad/inspecciones/formato/${el.dataset.id}`));
+on("insp-fmt-open", (el) => navigate(`inspecciones/formato/${el.dataset.id}`));
 on("insp-fmt-edit", (el) => editFormatMeta(db.get("inspection_formats", el.dataset.id)));
 
 db.state.drafts ??= {};
@@ -359,10 +359,21 @@ on("insp-req-attend", async (el) => {
   const rec = await db.insert("inspection_records", { request_id: r.id, format_id: r.format_id, part_number: r.part_number, part_name: r.part_name, lot_number: r.lot_number, quantity: r.quantity, inspector_id: db.state.profile.id });
   await db.update("inspection_requests", r.id, { status: "atendida", record_id: rec.id });
   toast(`Solicitud atendida · registro ${rec.code} creado`, "ok");
-  navigate(`calidad/inspecciones/registro/${rec.id}`);
+  navigate(`inspecciones/registro/${rec.id}`);
 });
-on("insp-rec-open", (el) => navigate(`calidad/inspecciones/registro/${el.dataset.id}`));
-onInput("insr", (el) => { db.state.drafts[el.dataset.key] = el.value; });
+on("insp-rec-open", (el) => navigate(`inspecciones/registro/${el.dataset.id}`));
+/** Mientras se escribe, colorea la celda de una vez (antes de Guardar/Confirmar) — sin esperar nada */
+function paintLiveCell(el) {
+  const td = el.closest("td"); if (!td) return;
+  td.classList.remove("insp-cell-ok", "insp-cell-bad");
+  const [, itemId] = el.dataset.key.split(":"), v = el.value;
+  if (v === "") return;
+  const it = db.get("inspection_format_items", itemId); if (!it) return;
+  const lim = computeLimits(it.tolerance_type, it.nominal, it.tol_plus, it.tol_minus, it.usl, it.lsl);
+  const n = Number(v), ok = (lim.lsl == null || n >= lim.lsl) && (lim.usl == null || n <= lim.usl);
+  td.classList.add(ok ? "insp-cell-ok" : "insp-cell-bad");
+}
+onInput("insr", (el) => { db.state.drafts[el.dataset.key] = el.value; paintLiveCell(el); });
 onChange("insr-attr", (el) => { db.state.drafts[el.dataset.key] = el.value; rerender(); });
 /** Junta lo capturado en pantalla (meas:item:pieza) en measurements[item][pieza] = {value, result} */
 function collectMeasurements(r) {

@@ -14,8 +14,8 @@ import { WS_LABEL, WS_ICON, auditWs, findingWs } from "./scope.js";
 import { milestones, stageOf, levelLabel } from "./workflow.js";
 import { auditStatus } from "./modules/audits.js";
 
-export const INBOX_WS = ["auditorias", "internas", "issues", "riesgos", "oportunidades"];
-const KIND_ICON = { audit: "audit", accept: "check2", close: "action", verify: "check2", reject: "close", client: "bell", risk: "risk", opp: "opportunity", notice: "bell" };
+export const INBOX_WS = ["auditorias", "internas", "issues", "riesgos", "oportunidades", "inspecciones"];
+const KIND_ICON = { audit: "audit", accept: "check2", close: "action", verify: "check2", reject: "close", client: "bell", risk: "risk", opp: "opportunity", notice: "bell", inspection: "inspection" };
 
 /** Todos los pendientes y avisos del usuario actual */
 export function inboxItems() {
@@ -50,6 +50,13 @@ export function inboxItems() {
   for (const o of db.rows("opportunities")) {
     if (o.owner_id !== me || ["implementada", "descartada"].includes(o.status) || !o.due_date || o.due_date >= t) continue;
     mark({ ws: "oportunidades", kind: "opp", tone: "danger", title: `Oportunidad vencida · ${o.code}`, detail: `${o.title} · objetivo ${fmtDate(o.due_date)}`, href: "oportunidades", at: o.due_date, ref: o.id });
+  }
+  // Solicitudes de inspección pendientes: solo admin/manager las ven aquí (al supervisor le llega por correo)
+  if (db.can.admin || db.state.profile.role === "manager") {
+    for (const r of db.rows("inspection_requests")) {
+      if (r.status !== "pendiente") continue;
+      mark({ ws: "inspecciones", kind: "inspection", tone: "warn", title: `Solicitud pendiente · ${r.code}`, detail: `${r.part_number} · ${r.requester_name}`, href: "inspecciones/solicitudes", at: (r.created_at || t).slice(0, 10), ref: r.id });
+    }
   }
 
   // Avisos guardados sin leer: se fusionan con su pendiente (si existe) o se muestran solos

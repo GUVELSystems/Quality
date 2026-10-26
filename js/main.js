@@ -38,10 +38,8 @@ const auditTabs = () => [
 ];
 registerWs({ id: "dashboard", label: "Dashboard", hideTabs: true, tabs: [{ id: "inicio", render: dashboard.render }] });
 registerWs({ id: "soporte", label: "Soporte", hideTabs: true, tabs: [{ id: "inicio", render: soporte.render }] });
-registerWs({ id: "calidad", label: WS_LABEL.calidad, tabs: [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard", render: inspections.renderDashboard },
-  { id: "inspecciones", label: "Inspecciones", icon: "inspection", render: inspections.renderInspecciones, count: () => ({ n: db.rows("inspection_requests").filter((r) => r.status === "pendiente").length }) },
-] });
+registerWs({ id: "calidad", label: WS_LABEL.calidad, hideTabs: true, tabs: [{ id: "inicio", render: inspections.renderDashboard }] });
+registerWs({ id: "inspecciones", label: WS_LABEL.inspecciones, hideTabs: true, tabs: [{ id: "inicio", render: inspections.renderInspecciones, count: () => ({ n: db.rows("inspection_requests").filter((r) => r.status === "pendiente").length }) }] });
 registerWs({ id: "auditorias", label: WS_LABEL.auditorias, tabs: auditTabs() });
 registerWs({ id: "internas", label: WS_LABEL.internas, tabs: auditTabs() });
 registerWs({ id: "issues", label: WS_LABEL.issues, tabs: [
@@ -64,9 +62,10 @@ registerWs({ id: "config", label: WS_LABEL.config, tabs: [
 ] });
 
 const app = document.getElementById("app");
-const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades", "soporte", "calidad"];
+const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades", "soporte", "calidad", "inspecciones"];
 /** Quien no pertenece a ninguna empresa (personal puro de plataforma) no tiene nada que ver en estos módulos */
-const visibleMenu = () => { if (db.state.profile?.company_id) return MENU_COMPANY; return db.can.support ? ["soporte"] : db.can.superAdmin ? [] : MENU_COMPANY; };
+const menuForCompany = () => db.can.qualityControl ? MENU_COMPANY : MENU_COMPANY.filter((id) => id !== "calidad" && id !== "inspecciones");
+const visibleMenu = () => { if (db.state.profile?.company_id) return menuForCompany(); return db.can.support ? ["soporte"] : db.can.superAdmin ? [] : menuForCompany(); };
 const CONFIG_MENU_BASE = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas y Procesos", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"], ["historial", "Historial", "clock"]];
 /** "Portales" solo aparece para quien tenga permiso de Super Admin en el portal de casa de GUVEL */
 const configMenu = () => (isSuperAdmin() ? [...CONFIG_MENU_BASE, ["portales", "Empresas", "monitor"]] : CONFIG_MENU_BASE);

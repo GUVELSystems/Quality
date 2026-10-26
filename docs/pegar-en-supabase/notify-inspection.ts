@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
     const overallColor = rec.overall_result === "cumple" ? OK : rec.overall_result === "no_cumple" ? STOP : MUTED;
     const overallLabel = rec.overall_result === "cumple" ? "CUMPLE" : rec.overall_result === "no_cumple" ? "NO CUMPLE" : "SIN RESULTADO";
 
-    const recordUrl = siteUrl ? `${siteUrl}/#/calidad/inspecciones/registro/${recordId}` : null;
+    const recordUrl = siteUrl ? `${siteUrl}/#/inspecciones/registro/${recordId}` : null;
     const body2 = `<p style="margin:0 0 14px">Resultado de la inspección dimensional de la pieza <b>${esc(rec.part_number)}</b> (${esc(rec.part_name)}).</p>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${LINE};border-collapse:collapse;margin-bottom:16px">
         <tr><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:600 12.5px Arial,Helvetica,sans-serif;color:${MUTED};width:38%">Folio</td><td style="padding:9px 12px;border-bottom:1px solid ${LINE};font:700 14px Arial,Helvetica,sans-serif;color:#067A8E">${esc(rec.code)}</td></tr>

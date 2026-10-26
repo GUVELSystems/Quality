@@ -123,8 +123,9 @@ async function boot() {
     msg.className = "k-msg"; btn.disabled = true; btn.textContent = "Enviando…";
     const fd = new FormData(form);
     const opt = form.querySelector('[name="format_id"]').selectedOptions[0];
+    const newId = crypto.randomUUID();   // se genera aquí (y no con RETURNING) porque el Kiosk no tiene permiso de leer
     const payload = {
-      company_id: companyId, requester_name: fd.get("requester_name"), requester_email: fd.get("requester_email"),
+      id: newId, company_id: companyId, requester_name: fd.get("requester_name"), requester_email: fd.get("requester_email"),
       shift: fd.get("shift") || null, quantity: fd.get("quantity") ? Number(fd.get("quantity")) : null,
       lot_number: fd.get("lot_number") || null, purchase_order: fd.get("purchase_order") || null,
       format_id: fd.get("format_id"), part_number: opt.textContent.trim(), part_name: opt.dataset.name || "",
@@ -133,6 +134,8 @@ async function boot() {
     };
     const { error } = await sb.from("inspection_requests").insert(payload);
     if (error) { msg.textContent = "No se pudo enviar la solicitud. Verifica los datos e intenta de nuevo."; msg.className = "k-msg error show"; btn.disabled = false; btn.textContent = "Enviar solicitud"; return; }
+    // Aviso por correo a los Supervisores — si falla, la solicitud ya quedó guardada de todas formas
+    try { await sb.functions.invoke("notify-new-inspection-request", { body: { request_id: newId, site_url: location.origin } }); } catch {}
     card.innerHTML = `
       <div class="k-success">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>

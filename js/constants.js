@@ -78,6 +78,7 @@ export const EFFORT = { bajo: "Bajo", medio: "Medio", alto: "Alto" };
 export const ROLES = {
   admin: "Administrador",
   manager: "Manager",
+  supervisor: "Supervisor",
   auditor: "Auditor",
   viewer: "Consulta",
 };

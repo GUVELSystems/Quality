@@ -247,9 +247,11 @@ export const rows = (t) => state.data[t] || [];
 export const get = (t, id) => (id ? rows(t).find((r) => r.id === id) : undefined);
 export const profileName = (id) => get("profiles", id)?.full_name || "—";
 export const can = {
-  get write() { return ["admin", "manager", "auditor"].includes(state.profile?.role); },
-  get manage() { return ["admin", "manager"].includes(state.profile?.role); },
+  get write() { return ["admin", "manager", "supervisor", "auditor"].includes(state.profile?.role); },
+  get manage() { return ["admin", "manager", "supervisor"].includes(state.profile?.role); },
   get admin() { return state.profile?.role === "admin"; },
+  /** Solo estos roles ven Quality Control — igual que antes para todo lo demás */
+  get qualityControl() { return ["admin", "manager", "supervisor"].includes(state.profile?.role); },
   /** El auditor solo ve sus propias asignaciones: sin catálogos, áreas, normas, CAPA Files ni listas generales */
   get auditorOnly() { return state.profile?.role === "auditor" && !state.profile?.platform_role; },
   get superAdmin() { return state.profile?.platform_role === "super_admin"; },

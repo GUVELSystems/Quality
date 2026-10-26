@@ -17,7 +17,7 @@ async function lib() {
   return window.jspdf;
 }
 
-export async function exportInspectionResult(record, { formatCode, request, items, pieces, measAt, computeLimits }) {
+export async function exportInspectionResult(record, { formatCode, request, items, pieces, measAt, computeLimits, sentByName, download = true }) {
   const { jsPDF } = await lib();
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const ink = (c) => doc.setTextColor(...c); const fill = (c) => doc.setFillColor(...c);
@@ -38,6 +38,8 @@ export async function exportInspectionResult(record, { formatCode, request, item
     });
     y += 30;
   };
+  const reqDate = request?.created_at ? new Date(request.created_at) : null;
+  kv([["FECHA DE SOLICITUD", reqDate ? reqDate.toLocaleDateString("es-MX") : "—"], ["HORA DE SOLICITUD", reqDate ? reqDate.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }) : "—"], ["REALIZÓ", sentByName || "—"]]);
   kv([["FORMATO", formatCode], ["LOTE", record.lot_number], ["CANTIDAD", record.quantity]]);
   kv([["SOLICITANTE", request?.requester_name], ["CORREO", request?.requester_email], ["SERVICIO", request?.service_type]]);
   kv([["TURNO", request?.shift], ["ORDEN DE COMPRA", request?.purchase_order], ["NO. DE OPERACIÓN", request?.operation_no]]);
@@ -71,5 +73,6 @@ export async function exportInspectionResult(record, { formatCode, request, item
   doc.setFont("helvetica", "normal"); doc.setFontSize(8); ink(C.t2);
   doc.text(`Confirmado ${fmtDateTime(record.sent_at || new Date().toISOString())}`, M, y);
 
-  doc.save(`${record.code}_${record.part_number}.pdf`);
+  if (download) { doc.save(`${record.code}_${record.part_number}.pdf`); return null; }
+  return doc.output("datauristring").split(",")[1];   // base64 puro, sin el prefijo "data:application/pdf;..."
 }

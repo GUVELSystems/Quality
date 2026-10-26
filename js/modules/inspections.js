@@ -282,7 +282,42 @@ function renderRegistroDetail(root, id) {
 const DF = { tab: "inspecciones", from: addDays(today(), -21), to: today(), op: "", result: "", trendChar: "" };
 function addDays(d, n) { const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().slice(0, 10); }
 
-/** Cada fila es UNA medición ya capturada (una característica, de una pieza, de un registro) */
+/** Cada fila es UN registro completo (folio) — no una por característica, para no generar un historial
+ *  enorme con piezas de muchas características */
+function allFolioRows() {
+  const rows = [];
+  for (const rec of db.rows("inspection_records")) {
+    const req = rec.request_id ? db.get("inspection_requests", rec.request_id) : null;
+    const items = itemsOf(rec.format_id);
+    let ok = 0, nok = 0;
+    for (const it of items) for (let p = 0; p < pieceCount(rec); p++) { const m = measAt(rec, it.id, p); if (m.value == null) continue; m.result === "cumple" ? ok++ : nok++; }
+    rows.push({ rec, req, ok, nok, total: ok + nok });
+  }
+  return rows.sort((a, b) => (b.rec.sent_at || b.rec.created_at || "").localeCompare(a.rec.sent_at || a.rec.created_at || ""));
+}
+function filteredFolioRows() {
+  return allFolioRows().filter((x) => {
+    const d = (x.rec.sent_at || x.rec.created_at || "").slice(0, 10);
+    if (DF.from && d < DF.from) return false;
+    if (DF.to && d > DF.to) return false;
+    if (DF.op && (x.req?.operation_no || "") !== DF.op) return false;
+    if (DF.result && x.rec.overall_result !== DF.result) return false;
+    return true;
+  });
+}
+/** "2h 15m", "1d 4h"… — cuánto tardó entre que se solicitó y se cerró */
+function cycleTimeText(reqAt, closedAt) {
+  if (!reqAt || !closedAt) return "—";
+  const ms = new Date(closedAt) - new Date(reqAt); if (ms < 0) return "—";
+  const h = Math.floor(ms / 3.6e6), m = Math.round((ms % 3.6e6) / 60000);
+  if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+const dateTimeShort = (iso) => iso ? `${fmtDate(iso.slice(0, 10))} · ${new Date(iso).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}` : "—";
+
+/** Cada fila es UNA medición ya capturada (una característica, de una pieza, de un registro) — se usa
+ *  solo para Rechazadas y Tendencias, donde sí hace falta ver cada característica por separado */
 function allMeasurementRows() {
   const rows = [];
   for (const rec of db.rows("inspection_records")) {
@@ -327,7 +362,6 @@ function trendSVG(points, lsl, nominal, usl) {
 function renderCalidadDashboard(root) {
   setHead({ title: "Control de calidad", subtitle: "Registro y seguimiento de inspecciones en proceso, con trazabilidad completa.",
     actions: `<button class="btn primary" data-action="insp-req-new">${icon("plus")} Nueva inspección</button>` });
-  const rows = filteredRows();
   const pend = pendingRequests(), nokRows = allMeasurementRows().filter((x) => x.m.result === "no_cumple");
 
   root.innerHTML = `<div class="type-tabs" role="tablist">
@@ -366,20 +400,25 @@ function renderCalidadDashboard(root) {
     return;
   }
 
-  // Inspecciones (por defecto)
-  sec.innerHTML = `<div class="panel">
-    <div class="toolbar">
-      <input type="date" class="input" data-change="calidad-from" value="${DF.from}" style="width:150px">
-      <span class="muted">—</span>
-      <input type="date" class="input" data-change="calidad-to" value="${DF.to}" style="width:150px">
-      <select class="select" data-change="calidad-op"><option value="">Todas las operaciones</option>${allOperations().map((o) => `<option value="${esc(o)}" ${DF.op === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>
-      <select class="select" data-change="calidad-result"><option value="">Todos los resultados</option><option value="cumple" ${DF.result === "cumple" ? "selected" : ""}>OK</option><option value="no_cumple" ${DF.result === "no_cumple" ? "selected" : ""}>NOK</option></select>
-      <span class="count">${rows.length} medición(es)</span>
+  // Inspecciones (por defecto) — una fila por folio, no por característica
+  const folioRows = filteredFolioRows();
+  const closedCycle = folioRows.filter((x) => x.req?.created_at && x.rec.sent_at).map((x) => new Date(x.rec.sent_at) - new Date(x.req.created_at));
+  const avgCycle = closedCycle.length ? cycleTimeText(0, closedCycle.reduce((a, b) => a + b, 0) / closedCycle.length) : null;
+  sec.innerHTML = `<div class="stack">
+    ${avgCycle ? `<div class="kpi-strip"><div class="kpi" data-tone="info"><label>Tiempo promedio de cierre</label><strong>${avgCycle}</strong><small>De solicitud a cierre, en este rango</small></div></div>` : ""}
+    <div class="panel">
+      <div class="toolbar">
+        <input type="date" class="input" data-change="calidad-from" value="${DF.from}" style="width:150px">
+        <span class="muted">—</span>
+        <input type="date" class="input" data-change="calidad-to" value="${DF.to}" style="width:150px">
+        <select class="select" data-change="calidad-op"><option value="">Todas las operaciones</option>${allOperations().map((o) => `<option value="${esc(o)}" ${DF.op === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>
+        <select class="select" data-change="calidad-result"><option value="">Todos los resultados</option><option value="cumple" ${DF.result === "cumple" ? "selected" : ""}>OK</option><option value="no_cumple" ${DF.result === "no_cumple" ? "selected" : ""}>NOK</option></select>
+        <span class="count">${folioRows.length} inspección(es)</span>
+      </div>
+      ${folioRows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Pieza / Orden</th><th>Operación</th><th>Solicitada</th><th>Cerrada</th><th>Tiempo</th><th>Resultado</th><th>Responsable</th></tr></thead><tbody>
+        ${folioRows.slice(0, 200).map((x) => `<tr data-action="insp-rec-open" data-id="${x.rec.id}"><td class="code">${esc(x.rec.code)}</td><td class="mono">${esc(x.rec.part_number)}<span class="sub">${esc(x.req?.purchase_order || x.rec.lot_number || "")}</span></td><td>${esc(x.req?.operation_no || "—")}</td><td class="mono">${dateTimeShort(x.req?.created_at)}</td><td class="mono">${x.rec.sent_at ? dateTimeShort(x.rec.sent_at) : '<span class="muted">Sin cerrar</span>'}</td><td class="mono">${cycleTimeText(x.req?.created_at, x.rec.sent_at)}</td><td>${x.total ? `<span class="badge" data-tone="${x.rec.overall_result === "cumple" ? "ok" : "danger"}">${x.rec.overall_result === "cumple" ? "OK" : "NOK"}</span> <small class="muted">${x.ok}/${x.total}</small>` : '<span class="muted">Pendiente</span>'}</td><td>${userCell(db.get("profiles", x.rec.inspector_id))}</td></tr>`).join("")}
+        </tbody></table></div>` : empty("Sin inspecciones en este rango", "Ajusta los filtros o crea una nueva inspección.", "inspection")}
     </div>
-    ${rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Folio</th><th>Fecha</th><th>Pieza / Orden</th><th>Operación</th><th>Característica</th><th>Resultado</th><th>Responsable</th><th>Hora</th></tr></thead><tbody>
-      ${rows.slice(0, 200).map((x) => { const dt = x.rec.sent_at || x.rec.created_at;
-        return `<tr data-action="insp-rec-open" data-id="${x.rec.id}"><td class="code">${esc(x.rec.code)}</td><td>${fmtDate((dt || "").slice(0, 10))}</td><td class="mono">${esc(x.rec.part_number)}<span class="sub">${esc(x.req?.purchase_order || x.rec.lot_number || "")}</span></td><td>${esc(x.req?.operation_no || "—")}</td><td>${esc(x.it.description)}</td><td><span class="badge" data-tone="${x.m.result === "cumple" ? "ok" : "danger"}">${x.m.result === "cumple" ? "OK" : "NOK"}</span></td><td>${userCell(db.get("profiles", x.rec.inspector_id))}</td><td class="mono">${dt ? new Date(dt).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }) : "—"}</td></tr>`; }).join("")}
-      </tbody></table></div>` : empty("Sin inspecciones en este rango", "Ajusta los filtros o crea una nueva inspección.", "inspection")}
   </div>`;
 }
 on("calidad-tab", (el) => { DF.tab = el.dataset.tab; renderCalidadDashboard(document.getElementById("view") || document.body); });
@@ -518,7 +557,7 @@ on("insp-rec-save", async (el) => {
 });
 on("insp-rec-pdf", async (el) => {
   const r = db.get("inspection_records", el.dataset.id), fmt = db.get("inspection_formats", r.format_id), req = r.request_id ? db.get("inspection_requests", r.request_id) : null;
-  try { await exportInspectionResult(r, { formatCode: fmt?.code, request: req, items: itemsOf(r.format_id), pieces: pieceCount(r), measAt, computeLimits }); }
+  try { await exportInspectionResult(r, { formatCode: fmt?.code, request: req, items: itemsOf(r.format_id), pieces: pieceCount(r), measAt, computeLimits, sentByName: db.profileName(r.sent_by) }); }
   catch (e) { toast(e.message || "No se pudo generar el PDF.", "danger"); }
 });
 on("insp-rec-confirm", (el) => {
@@ -531,7 +570,13 @@ on("insp-rec-confirm", (el) => {
       const cc = (v.cc || "").split(",").map((s) => s.trim()).filter(Boolean);
       const { measurements, allOk, any } = collectMeasurements(r);
       await db.update("inspection_records", r.id, { measurements, overall_result: any ? (allOk ? "cumple" : "no_cumple") : r.overall_result, status: "enviado", sent_at: new Date().toISOString(), sent_by: db.state.profile.id, cc_emails: cc });
-      try { await db.sendInspectionResult(r.id, cc); } catch (e) { toast("El registro se cerró, pero el correo no se pudo enviar: " + e.message, "danger"); await rerender(); return; }
+      const sent = db.get("inspection_records", r.id);
+      let pdfBase64 = null;
+      try {
+        const fmt = db.get("inspection_formats", sent.format_id), req = sent.request_id ? db.get("inspection_requests", sent.request_id) : null;
+        pdfBase64 = await exportInspectionResult(sent, { formatCode: fmt?.code, request: req, items: itemsOf(sent.format_id), pieces: pieceCount(sent), measAt, computeLimits, sentByName: db.profileName(sent.sent_by), download: false });
+      } catch { /* si el PDF falla, igual se manda el correo sin adjunto */ }
+      try { await db.sendInspectionResult(r.id, cc, pdfBase64); } catch (e) { toast("El registro se cerró, pero el correo no se pudo enviar: " + e.message, "danger"); await rerender(); return; }
       toast("Registro confirmado y enviado", "ok"); await rerender();
     },
   });

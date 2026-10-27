@@ -248,12 +248,20 @@ export const get = (t, id) => (id ? rows(t).find((r) => r.id === id) : undefined
 export const profileName = (id) => get("profiles", id)?.full_name || "—";
 export const can = {
   get write() { return ["admin", "manager", "supervisor", "auditor"].includes(state.profile?.role); },
-  get manage() { return ["admin", "manager", "supervisor"].includes(state.profile?.role); },
+  /** Quality Assurance: editar auditorías, planes, catálogos, formatos, clasificación de hallazgos…
+   *  Supervisor NO entra aquí — hace su trabajo (auditorías/hallazgos asignados) igual que un auditor */
+  get manage() { return ["admin", "manager"].includes(state.profile?.role); },
   get admin() { return state.profile?.role === "admin"; },
-  /** Solo estos roles ven Quality Control — igual que antes para todo lo demás */
+  /** Solo estos roles ven Quality Control */
   get qualityControl() { return ["admin", "manager", "supervisor"].includes(state.profile?.role); },
+  /** Dentro de Quality Control: crear/editar Formatos y Solicitudes — el Supervisor SÍ puede, aunque no
+   *  tenga "manage" general (eso es aparte, y es solo del lado de Quality Assurance) */
+  get qcManage() { return ["admin", "manager", "supervisor"].includes(state.profile?.role); },
   /** El auditor solo ve sus propias asignaciones: sin catálogos, áreas, normas, CAPA Files ni listas generales */
-  get auditorOnly() { return state.profile?.role === "auditor" && !state.profile?.platform_role; },
+  /** Auditor y Supervisor no ven "Configurations" en el menú (mismo nivel en Quality Assurance) */
+  get auditorOnly() { return ["auditor", "supervisor"].includes(state.profile?.role) && !state.profile?.platform_role; },
+  /** Consulta solo ve el Dashboard, nada más */
+  get viewerOnly() { return state.profile?.role === "viewer"; },
   get superAdmin() { return state.profile?.platform_role === "super_admin"; },
   get support() { return state.profile?.platform_role === "support"; },
 };

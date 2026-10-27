@@ -64,7 +64,10 @@ registerWs({ id: "config", label: WS_LABEL.config, tabs: [
 const app = document.getElementById("app");
 const MENU_COMPANY = ["dashboard", "auditorias", "internas", "issues", "riesgos", "oportunidades", "soporte", "calidad", "inspecciones"];
 /** Quien no pertenece a ninguna empresa (personal puro de plataforma) no tiene nada que ver en estos módulos */
-const menuForCompany = () => db.can.qualityControl ? MENU_COMPANY : MENU_COMPANY.filter((id) => id !== "calidad" && id !== "inspecciones");
+const menuForCompany = () => {
+  if (db.can.viewerOnly) return ["dashboard"];   // Consulta: solo Dashboard, nada más
+  return db.can.qualityControl ? MENU_COMPANY : MENU_COMPANY.filter((id) => id !== "calidad" && id !== "inspecciones");
+};
 const visibleMenu = () => { if (db.state.profile?.company_id) return menuForCompany(); return db.can.support ? ["soporte"] : db.can.superAdmin ? [] : menuForCompany(); };
 const CONFIG_MENU_BASE = [["clientes", "Clientes", "client"], ["clasificaciones", "Clasificaciones y niveles", "tag"], ["areas", "Áreas y Procesos", "area"], ["normas", "Normas", "standard"], ["capa", "CAPA Files", "capa"], ["catalogos", "Catálogos", "list"], ["usuarios", "Usuarios", "users"], ["historial", "Historial", "clock"]];
 /** "Portales" solo aparece para quien tenga permiso de Super Admin en el portal de casa de GUVEL */
@@ -234,7 +237,7 @@ function renderNav() {
     const inSection = ids.filter((id) => visible.includes(id));
     return inSection.length ? `<div class="menu-sep">${esc(sectionLabel)}</div><div class="ws-grid">${inSection.map((id) => tile(`#/${id}`, getWs(id).label, MENU_ICON[id], id === c.ws)).join("")}</div>` : "";
   }).join("")
-    + (db.can.auditorOnly ? "" : `<div class="menu-sep">Configurations</div><div class="ws-grid">${configMenu().map(([id, l, ico]) => tile(`#/config/${id}`, l, ico, c.ws === "config" && c.tab === id)).join("")}</div>`);
+    + ((db.can.auditorOnly || db.can.viewerOnly) ? "" : `<div class="menu-sep">Configurations</div><div class="ws-grid">${configMenu().map(([id, l, ico]) => tile(`#/config/${id}`, l, ico, c.ws === "config" && c.tab === id)).join("")}</div>`);
   document.getElementById("wsMenu").classList.add("hidden");
   document.getElementById("navTabs").innerHTML = w.hideTabs ? "" : w.tabs.filter((t) => !t.hidden && (t.id !== "portales" || isSuperAdmin())).map((t) => {
     const k = t.count?.(w.id), active = t.id === c.tab || t.activeAs === c.tab;

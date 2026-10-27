@@ -79,6 +79,7 @@ export async function renderRoute(scroll = true) {
     if (parts.length) replaceHash(parts.join("/"));
   }
   if ((parts[0] === "calidad" || parts[0] === "inspecciones") && !db.can.qualityControl) { parts = ["dashboard"]; replaceHash(parts.join("/")); }
+  if (db.can.viewerOnly && parts[0] !== "dashboard" && db.state.profile?.company_id) { parts = ["dashboard"]; replaceHash(parts.join("/")); }
   const w = getWs(parts[0]) || getWs("dashboard");
   const tab = w.tabs.find((t) => t.id === parts[1]) || w.tabs[0];
   const canonical = w.hideTabs ? parts[0] === w.id : parts[0] === w.id && parts[1] === tab.id;

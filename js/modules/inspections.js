@@ -62,14 +62,14 @@ function editFormatMeta(f) {
     ],
     values: { ...f, active: String(f.active) },
     onSubmit: async (v) => { await db.update("inspection_formats", f.id, { ...v, active: v.active === "true" }); toast("Formato actualizado", "ok"); await rerender(); },
-    onDelete: db.can.manage ? async () => { await db.remove("inspection_formats", f.id); navigate("inspecciones/formatos"); } : null,
+    onDelete: db.can.qcManage ? async () => { await db.remove("inspection_formats", f.id); navigate("inspecciones/formatos"); } : null,
   });
 }
 
 function renderFormatosList(root) {
   const list = formatRows();
   root.innerHTML = `<div class="panel">
-    <div class="toolbar"><span class="count">${list.length} formato(s)</span>${db.can.manage ? `<button class="btn primary" data-action="insp-fmt-new">${icon("plus")} Nuevo formato</button>` : ""}</div>
+    <div class="toolbar"><span class="count">${list.length} formato(s)</span>${db.can.qcManage ? `<button class="btn primary" data-action="insp-fmt-new">${icon("plus")} Nuevo formato</button>` : ""}</div>
     ${list.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Código</th><th>Número de parte</th><th>Nombre</th><th>Revisión</th><th>Características</th><th>Estado</th></tr></thead><tbody>
       ${list.map((f) => `<tr data-action="insp-fmt-open" data-id="${f.id}"><td class="code">${esc(f.code)}</td><td class="mono">${esc(f.part_number)}</td><td>${esc(f.part_name)}</td><td>${esc(f.revision || "—")}</td><td>${itemsOf(f.id).length}</td><td><span class="badge" data-tone="${f.active ? "ok" : "neutral"}">${f.active ? "Activo" : "Inactivo"}</span></td></tr>`).join("")}
       </tbody></table></div>` : empty("Sin formatos", "Crea el primer Dimensional Inspection Report.", "form")}
@@ -112,7 +112,7 @@ function itemRow(f, it, i, editable) {
 function renderFormatoDetail(root, id) {
   const f = db.get("inspection_formats", id);
   if (!f) { root.innerHTML = empty("No encontrado", "Este formato no existe.", "form"); return; }
-  const editable = db.can.manage;
+  const editable = db.can.qcManage;
   const items = itemsOf(f.id);
   setHead({ eyebrow: `Formatos · ${esc(f.code)}`, title: f.part_number, subtitle: f.part_name,
     actions: `<a class="btn" href="#/inspecciones/formatos">${icon("chevL")} Formatos</a>${editable ? `<button class="btn" data-action="insp-fmt-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}` });

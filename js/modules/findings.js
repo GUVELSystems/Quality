@@ -240,7 +240,7 @@ function drawerHTML(f) {
     <div class="stage" id="f-stage-body">${stageHTML(f, view)}</div>
     <div class="section-title"><span>Historial</span></div>${timelineHTML(f)}
   </div>
-  ${db.can.write ? `<div class="dialog-foot"><button class="btn" data-action="f-edit" data-id="${f.id}">${icon("edit")} Editar</button></div>` : ""}`;
+  ${db.can.manage ? `<div class="dialog-foot"><button class="btn" data-action="f-edit" data-id="${f.id}">${icon("edit")} Editar</button></div>` : ""}`;
 }
 
 export function openFinding(id, stage) {

@@ -11,7 +11,7 @@ const esc = (v: unknown): string => String(v ?? "").replace(/[&<>"']/g, (c) => (
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STAFF = ["admin", "manager", "auditor"];
+const STAFF = ["admin", "manager", "supervisor"];   // Quality Control: auditor no entra aquí
 
 async function sendMail(key: string, payload: Record<string, unknown>): Promise<string> {
   const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(payload) });

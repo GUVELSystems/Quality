@@ -36,6 +36,18 @@ export const siteUrl = () => (location.origin + location.pathname).replace(/inde
 let sb = null;
 const LS_DATA = "guvel_quality_demo_v1";
 const LS_SESSION = "guvel_quality_demo_session";
+const LS_REMEMBER = "guvel-remember";
+
+/** "Recordarme": si está marcado (lo normal), la sesión vive en localStorage y sobrevive a cerrar el
+ *  navegador. Si se desmarca, vive solo en sessionStorage y se pierde al cerrar la pestaña/ventana.
+ *  Supabase necesita un storage fijo desde que se crea el cliente, así que este objeto decide en cada
+ *  lectura/escritura cuál de los dos usar, según lo que haya elegido la persona la última vez que inició
+ *  sesión (antes de iniciar sesión, por defecto se recuerda). */
+const rememberStorage = {
+  getItem: (k) => (localStorage.getItem(LS_REMEMBER) === "0" ? sessionStorage : localStorage).getItem(k),
+  setItem: (k, v) => (localStorage.getItem(LS_REMEMBER) === "0" ? sessionStorage : localStorage).setItem(k, v),
+  removeItem: (k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); },
+};
 let demo = null; // { tables, counters }
 
 /* ------------------------------ Arranque ----------------------------- */
@@ -57,7 +69,7 @@ export async function init() {
   if (!window.supabase) await new Promise((res, rej) => { const el = document.createElement("script"); el.src = "js/vendor/supabase.umd.js"; el.onload = res; el.onerror = () => rej(new Error("No se pudo cargar supabase-js")); document.head.append(el); });
   const { createClient } = window.supabase;
   sb = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: rememberStorage },
   });
   const { data } = await sb.auth.getSession();
   state.session = data.session;
@@ -181,16 +193,18 @@ export async function sendInspectionResult(recordId, ccEmails = [], pdfBase64 = 
   return invokeFn("notify-inspection", { record_id: recordId, cc_emails: ccEmails, pdf_base64: pdfBase64, site_url: siteUrl() });
 }
 
-export async function signIn(email, password) {
+export async function signIn(email, password, remember = true) {
   if (state.demo) { localStorage.setItem(LS_SESSION, "1"); return; }
+  localStorage.setItem(LS_REMEMBER, remember ? "1" : "0");   // decide ANTES de iniciar sesión dónde guardarla
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) throw new Error(/invalid/i.test(error.message) ? "Correo o contraseña incorrectos." : error.message);
+  if (error) { localStorage.removeItem(LS_REMEMBER); throw new Error(/invalid/i.test(error.message) ? "Correo o contraseña incorrectos." : error.message); }
   state.session = data.session;
 }
 export async function signOut() {
   if (state.demo) { localStorage.removeItem(LS_SESSION); return; }
   await sb.auth.signOut();
   state.session = null;
+  localStorage.removeItem(LS_REMEMBER);
 }
 export function resetDemo() { localStorage.removeItem(LS_DATA); }
 

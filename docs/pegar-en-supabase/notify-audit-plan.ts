@@ -100,7 +100,7 @@ const CORS = {
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STAFF = ["admin", "quality_manager", "auditor"];
+const STAFF = ["admin", "manager", "supervisor", "auditor"];
 
 interface Attachment { filename: string; content: string }
 async function sendMail(key: string, payload: Record<string, unknown>): Promise<string> {

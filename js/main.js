@@ -102,6 +102,7 @@ function showLogin(error = "", info = "") {
         ? `<div class="auth-msg"><b>${i18n.t("demoMode")}</b> ${i18n.t("demoModeDesc")}</div><button class="btn primary" type="submit">${i18n.t("enterDemo")}</button>`
         : `<label>${i18n.t("email")}<input class="input" type="email" name="email" autocomplete="username" required></label>
            <label>${i18n.t("password")}<input class="input" type="password" name="password" autocomplete="current-password" required></label>
+           <label class="auth-remember"><input type="checkbox" name="remember" checked> Recordarme en este dispositivo</label>
            <button class="btn primary" type="submit">${i18n.t("enter")}</button>
            <button class="auth-link" type="button" id="forgot">${i18n.t("forgotPassword")}</button>`}
     </form><div class="auth-foot">Acceso solo por invitación · GUVEL Quality</div></div></div>`;
@@ -110,7 +111,7 @@ function showLogin(error = "", info = "") {
     e.preventDefault();
     const f = e.target, btn = f.querySelector("button[type=submit]");
     btn.disabled = true;
-    try { await db.signIn(f.email?.value.trim(), f.password?.value); await start(); }
+    try { await db.signIn(f.email?.value.trim(), f.password?.value, f.remember ? f.remember.checked : true); await start(); }
     catch (ex) { showLogin(ex.message); }
   });
   document.getElementById("forgot")?.addEventListener("click", () => showForgot(document.querySelector("[name=email]")?.value));
@@ -298,6 +299,26 @@ async function checkPortalMatchesAccount() {
   return true;
 }
 
+/** Cierra la sesión sola tras 2 horas SIN actividad real (mouse, teclado, toque, scroll) — nunca si la
+ *  persona sigue trabajando, por lento que sea el ritmo, porque cualquier interacción reinicia el conteo.
+ *  Esto evita que una pestaña olvidada por días termine con una sesión tan vieja que ni el refresco
+ *  automático del token pueda salvarla (el problema que ya vimos con "No autenticado"). */
+const IDLE_LIMIT_MS = 2 * 60 * 60 * 1000;
+let idleTimer = null, idleWired = false;
+function resetIdleTimer() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(async () => {
+    if (db.state.demo) return;   // en modo demo no hay sesión real que cerrar
+    await db.signOut().catch(() => {});
+    showLogin("Tu sesión se cerró por inactividad. Vuelve a iniciar sesión.");
+  }, IDLE_LIMIT_MS);
+}
+function wireIdleLogout() {
+  if (idleWired) return; idleWired = true;
+  ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "wheel"].forEach((ev) => window.addEventListener(ev, resetIdleTimer, { passive: true }));
+  resetIdleTimer();
+}
+
 async function start() {
   try {
     await db.loadAll();
@@ -306,6 +327,7 @@ async function start() {
     if (!hashListener) { window.addEventListener("hashchange", () => appShown && renderRoute()); hashListener = true; }
     await renderRoute();
     updateBell(); showReminder();
+    wireIdleLogout();
     if (!db.state.demo) setInterval(async () => { if (document.hidden) return; try { await db.reload("notifications"); updateBell(); } catch { /* sin conexión */ } }, 60000);
   } catch (e) {
     console.error(e);

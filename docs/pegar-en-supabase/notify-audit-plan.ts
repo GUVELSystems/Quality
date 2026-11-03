@@ -153,8 +153,8 @@ Deno.serve(async (req) => {
     const { data: forms } = formIds.length ? await admin.from("forms").select("id, code, name").in("id", formIds) : { data: [] };
     const formName = (id: string | null) => { const f = (forms ?? []).find((x) => x.id === id); return f ? `${f.code} · ${f.name}` : null; };
     const processIds = [...new Set(pending.map((a) => a.process_id).filter(Boolean))] as string[];
-    const { data: processesData } = processIds.length ? await admin.from("processes").select("id, code").in("id", processIds) : { data: [] };
-    const processCode = (id: string | null) => (processesData ?? []).find((x) => x.id === id)?.code || null;
+    const { data: processesData } = processIds.length ? await admin.from("processes").select("id, code, name").in("id", processIds) : { data: [] };
+    const processCode = (id: string | null) => { const p = (processesData ?? []).find((x) => x.id === id); return p ? (p.name ? `${p.code} / ${p.name}` : p.code) : null; };
 
     /* 4. Envío (plan + una notificación por auditoría) */
     const result = { ok: true, sent_plan: 0, sent_audits: 0, failed: [] as { email: string; kind: string; error: string }[], skipped: [] as { name: string; reason: string }[] };

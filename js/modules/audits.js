@@ -256,6 +256,10 @@ async function sendPlan(plan) {
     const btn = e.target.closest("button"), err = dlg.el.querySelector("#s-err");
     btn.disabled = true; btn.textContent = "Enviando…"; err.classList.add("hidden");
     try {
+      // Antes de armar el PDF, refresca lo que ya esté en caché del navegador: si alguien agregó un
+      // proceso o lo asignó a una auditoría hace poco (en esta sesión o en otra), el PDF debe llevarlo
+      // completo — a quien sea que le llegue, no solo a quien lo generó.
+      await db.reload("processes", "audits", "forms");
       const { buildPlanPDF } = await import("../pdf.js");
       const { doc, filename } = await buildPlanPDF(plan.id);
       const res = await db.notifyPlan(plan.id, { pdfBase64: db.state.demo ? null : doc.output("datauristring").split(",")[1], all });

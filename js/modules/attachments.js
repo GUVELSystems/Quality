@@ -21,7 +21,7 @@ export function attachmentsSection(entity, id, { ref = null, canEdit = true, tit
   const editable = canEdit && db.can.write;
   const data = `data-change="att-upload" data-entity="${entity}" data-id="${id}" data-ref="${esc(ref || "")}"`;
   const uploadBtn = editable
-    ? `<span class="att-btns"><label class="btn sm att-upload">${icon("plus")} ${esc(uploadLabel)}<input type="file" multiple hidden accept="${db.ATTACH_ACCEPT}" ${data}></label>${showCamera ? `<button type="button" class="btn sm" data-action="att-camera" data-entity="${entity}" data-id="${id}" data-ref="${esc(ref || "")}">${icon("camera")} Tomar foto</button>` : ""}</span>`
+    ? `<span class="att-btns"><label class="btn sm att-upload">${icon("plus")} ${esc(uploadLabel)}<input type="file" multiple class="sr-file-input" accept="${db.ATTACH_ACCEPT}" ${data}></label>${showCamera ? `<button type="button" class="btn sm" data-action="att-camera" data-entity="${entity}" data-id="${id}" data-ref="${esc(ref || "")}">${icon("camera")} Tomar foto</button>` : ""}</span>`
     : "";
   if (compact && !list.length && !editable) return "";
   const items = list.map((a) => {

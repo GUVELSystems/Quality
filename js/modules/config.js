@@ -224,7 +224,7 @@ export const capaFiles = {
     const url = db.setting("capa_logo", null);
     root.innerHTML = `<div class="panel"><div class="panel-body logo-card">
       <div class="logo-preview">${url ? `<img src="${url}" alt="Logo actual">` : '<span class="muted">Sin logo propio: se usa el de GUVEL</span>'}</div>
-      ${db.can.manage ? `<div class="logo-actions"><label class="btn primary">${icon("plus")} Subir logo<input type="file" accept="image/*" hidden id="logo-file"></label>${url ? `<button class="btn danger" data-action="logo-remove">Quitar</button>` : ""}</div><p class="muted" style="font-size:13px;margin-top:6px">Imagen cuadrada recomendada (PNG con fondo transparente).</p>` : ""}
+      ${db.can.manage ? `<div class="logo-actions"><label class="btn primary">${icon("plus")} Subir logo<input type="file" accept="image/*" class="sr-file-input" id="logo-file"></label>${url ? `<button class="btn danger" data-action="logo-remove">Quitar</button>` : ""}</div><p class="muted" style="font-size:13px;margin-top:6px">Imagen cuadrada recomendada (PNG con fondo transparente).</p>` : ""}
     </div></div>
     <div class="panel"><div class="panel-head"><h2>Vista previa de los formatos</h2><small>En blanco, tal como se imprimen</small></div><div class="panel-body">
       <div class="format-grid">${BLANK_FORMATS.map((fmt, i) => `<div class="format-card">

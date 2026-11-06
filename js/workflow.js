@@ -234,7 +234,7 @@ export function dLabel(stage, f) {
   const d4D = f?.strategy_ps === "4D";
   if (stage === "d3") return d4D ? "Causa raíz" : "Acciones de contención";
   if (stage === "d4") return d4D ? "Acciones inmediatas y cierre" : `Causa raíz (${RCA_TYPES[f?.strategy_rca] || "—"})`;
-  return { d5: "Plan de acciones correctivas", d6: "Correctivas implementadas y preventivas", d8: "Reconocimiento y cierre" }[stage] || stage;
+  return { d5: "Plan de acciones correctivas", d6: "Acciones Implementadas", d8: "Reconocimiento y cierre" }[stage] || stage;
 }
 export const canRegister = (f) => db.can.admin && f.status === "registro";
 export const canSetStrategy = (f) => db.can.admin && f.status === "detalles";
@@ -257,6 +257,21 @@ export async function saveRcaMethod(f, rca) {
 export async function acceptD(f) {
   const r = await db.update("findings", f.id, { status: "d1", accepted_at: nowISO(), accepted_by: db.state.profile.id });
   logEvent(f, "accepted"); return r;
+}
+/** El responsable rechaza el hallazgo en Solicitud, con un motivo — solo se puede una vez */
+export async function rejectSolicitud(f, reason) {
+  const r = await db.update("findings", f.id, { status: "solicitud_rechazada", solicitud_reject_reason: reason, solicitud_rejected_at: nowISO(), solicitud_rejected_by: db.state.profile.id });
+  logEvent(f, "solicitud_rechazada", reason); return r;
+}
+/** Un administrador acepta el rechazo: el hallazgo vuelve a Registro para reasignar responsable */
+export async function acceptSolicitudRejection(f) {
+  const r = await db.update("findings", f.id, { status: "registro" });
+  logEvent(f, "rechazo_aceptado"); return r;
+}
+/** Un administrador reabre: vuelve a Solicitud con el MISMO responsable, que ya no podrá rechazarlo de nuevo */
+export async function reopenSolicitud(f) {
+  const r = await db.update("findings", f.id, { status: "solicitud" });
+  logEvent(f, "solicitud_reabierta"); return r;
 }
 export const saveD = (f, patch) => db.update("findings", f.id, { d_data: { ...f.d_data, ...patch } });
 export async function advanceD(f, stage, patch) {

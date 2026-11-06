@@ -51,9 +51,10 @@ const COPY: Record<Kind, { subject1: (c: string) => string; subjectN: (n: number
   transferred: { subject1: (c) => `Te trasladaron el hallazgo ${c}`, subjectN: (n) => `Te trasladaron ${n} hallazgos`, title: "Te trasladaron un hallazgo", intro: (n) => `Te ${n === 1 ? "trasladaron 1 hallazgo" : `trasladaron ${n} hallazgos`}. Acéptalo y registra la acción para cerrarlo a tiempo. Ya no se puede volver a trasladar.`, preheader: "Un hallazgo fue trasladado a ti" },
   rejected: { subject1: (c) => `Verificación rechazada: ${c}`, subjectN: (n) => `${n} verificaciones rechazadas`, title: "Verificación rechazada", intro: () => "Un administrador rechazó la verificación y el hallazgo se reabrió. Corrige y vuelve a cerrar las acciones: el milestone continúa con el tiempo que te quedaba.", preheader: "Un hallazgo se reabrió" },
   verify: { subject1: (c) => `Hallazgo ${c} listo para verificar`, subjectN: (n) => `${n} hallazgos listos para verificar`, title: "Hallazgo listo para verificar", intro: (n) => `${n === 1 ? "Se cerraron las acciones de 1 hallazgo" : `Se cerraron las acciones de ${n} hallazgos`}. Acepta o rechaza la verificación dentro del plazo.`, preheader: "Hay verificaciones pendientes" },
-  review_requested: { subject1: (c) => `Te asignaron revisar el 4D ${c}`, subjectN: (n) => `Te asignaron revisar ${n} reportes 4D`, title: "Te asignaron revisar un 4D", intro: (n) => `${n === 1 ? "Te eligieron como revisor de 1 reporte 4D" : `Te eligieron como revisor de ${n} reportes 4D`}. Entra al portal y da tu aprobación o rechazo.`, preheader: "Tienes un 4D por revisar" },
-  review_approved: { subject1: (c) => `Tu 4D ${c} fue revisado y aprobado`, subjectN: (n) => `${n} de tus reportes 4D fueron aprobados`, title: "Tu 4D fue revisado y aprobado", intro: (n) => `${n === 1 ? "Tu reporte 4D fue revisado y aprobado" : `${n} de tus reportes 4D fueron revisados y aprobados`}. Ahora un administrador hará la verificación final.`, preheader: "Tu 4D fue aprobado en revisión" },
-  review_rejected: { subject1: (c) => `Tu 4D ${c} fue revisado y rechazado`, subjectN: (n) => `${n} de tus reportes 4D fueron rechazados`, title: "Tu 4D fue revisado y rechazado", intro: (n) => `${n === 1 ? "Tu reporte 4D fue revisado y rechazado" : `${n} de tus reportes 4D fueron revisados y rechazados`}. Corrige las acciones en D4 y vuelve a enviarlo a revisar.`, preheader: "Tu 4D necesita correcciones" },
+  // "8D/4D" en vez de "4D" fijo: esta misma revisión existe en ambos formatos, no solo en 4D.
+  review_requested: { subject1: (c) => `Te asignaron revisar el reporte ${c}`, subjectN: (n) => `Te asignaron revisar ${n} reportes`, title: "Te asignaron revisar un reporte 8D/4D", intro: (n) => `${n === 1 ? "Te eligieron como revisor de 1 reporte 8D/4D" : `Te eligieron como revisor de ${n} reportes 8D/4D`}. Entra al portal y da tu aprobación o rechazo.`, preheader: "Tienes un reporte por revisar" },
+  review_approved: { subject1: (c) => `Tu reporte ${c} fue revisado y aprobado`, subjectN: (n) => `${n} de tus reportes fueron aprobados`, title: "Tu reporte fue revisado y aprobado", intro: (n) => `${n === 1 ? "Tu reporte fue revisado y aprobado" : `${n} de tus reportes fueron revisados y aprobados`}. Ahora un administrador hará la verificación final.`, preheader: "Tu reporte fue aprobado en revisión" },
+  review_rejected: { subject1: (c) => `Tu reporte ${c} fue revisado y rechazado`, subjectN: (n) => `${n} de tus reportes fueron rechazados`, title: "Tu reporte fue revisado y rechazado", intro: (n) => `${n === 1 ? "Tu reporte fue revisado y rechazado" : `${n} de tus reportes fueron revisados y rechazados`}. Corrige las acciones y vuelve a enviarlo a revisar.`, preheader: "Tu reporte necesita correcciones" },
 };
 
 async function sendMail(key: string, payload: Record<string, unknown>): Promise<string> {
@@ -98,9 +99,12 @@ Deno.serve(async (req) => {
     const valid = (found ?? []).filter((f) => f.updated_at >= since && (
       (kind === "assigned" && f.owner_id) || (kind === "transferred" && f.owner_id && f.transfer_count > 0) ||
       (kind === "rejected" && f.owner_id && f.reject_count > 0 && f.status === "abierto") || (kind === "verify" && f.status === "verificacion") ||
-      (kind === "review_requested" && f.reviewer_id && f.status === "d4_revision") ||
-      (kind === "review_approved" && f.strategy_ps === "4D" && f.status === "verificacion" && (f.d_data as any)?.closure4d?.decision === "aprobado") ||
-      (kind === "review_rejected" && f.strategy_ps === "4D" && f.status === "d4" && (f.d_data as any)?.closure4d?.decision === "rechazado")));
+      // La revisión existe tanto en 4D (status d4_revision, vuelve a d4 si se rechaza) como en 8D
+      // (status d8_revision, vuelve a d8) — antes esto solo contemplaba el caso de 4D, así que un 8D
+      // enviado a revisar nunca disparaba el correo.
+      (kind === "review_requested" && f.reviewer_id && (f.status === "d4_revision" || f.status === "d8_revision")) ||
+      (kind === "review_approved" && f.status === "verificacion" && (f.d_data as any)?.closure4d?.decision === "aprobado") ||
+      (kind === "review_rejected" && (f.status === "d4" || f.status === "d8") && (f.d_data as any)?.closure4d?.decision === "rechazado")));
     if (!valid.length) return json({ ok: true, sent: 0, skipped: [], failed: [], message: "Nada que avisar." });
 
     /* Destinatarios */

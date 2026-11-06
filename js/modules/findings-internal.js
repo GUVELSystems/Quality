@@ -21,6 +21,7 @@ import {
   saveRca, advanceRca, savePlan, closeActions, acceptVerification, rejectVerification,
   isEightD, dStages, eightdStages, dLabel, PS_TYPES, RCA_TYPES, canRegister, canSetStrategy, canActD, canVerify8D,
   registerFinding, saveStrategy, saveRcaMethod, acceptD, saveD, advanceD, closeVerification8D, rejectVerification8D, deadlineFields,
+  rejectSolicitud, acceptSolicitudRejection, reopenSolicitud,
   canReview4D, closure4DStatus, sendToReview4D, approveReview4D, rejectReview4D, sendToReview, approveReview, rejectReview,
 } from "../workflow.js";
 import { exportFinding8D4D } from "../pdf8d.js";
@@ -108,6 +109,9 @@ const EV_TEXT = {
   sent_review: (e) => `Enviado a revisar · revisor: <b>${esc(e.detail || "")}</b>`,
   review_approved: (e) => `Revisado y <b>aprobado</b> por ${esc(db.profileName(e.actor))} · «${esc(e.detail || "")}»`,
   review_rejected: (e) => `Revisado y <b>rechazado</b> por ${esc(db.profileName(e.actor))} · «${esc(e.detail || "")}»`,
+  solicitud_rechazada: (e) => `Hallazgo <b>rechazado</b> por ${esc(db.profileName(e.actor))} · «${esc(e.detail || "")}»`,
+  rechazo_aceptado: (e) => `Rechazo aceptado por <b>${esc(db.profileName(e.actor))}</b> · vuelve a Registro`,
+  solicitud_reabierta: (e) => `Hallazgo reabierto por <b>${esc(db.profileName(e.actor))}</b> en Solicitud`,
 };
 function historyCard(f) {
   const ev = [{ at: f.created_at, text: "Hallazgo registrado" }, ...eventsOf(f).map((e) => ({ at: e.created_at, text: (EV_TEXT[e.kind] || (() => esc(e.kind)))(e) }))];
@@ -204,7 +208,7 @@ function legacyPageHTML(f) {
       <button class="btn ghost icon" data-action="if-back" aria-label="Volver a la lista">${icon("chevL")}</button>
       <div class="if-head-t"><span class="eyebrow mono">${esc(f.code)}</span><h1>${esc(f.title)}</h1></div>
       <div class="if-head-badges">${badge(FINDING_STATUS, f.status)}${f.reject_count > 0 ? `<span class="badge" data-tone="danger">Rechazado ${f.reject_count}×</span>` : ""}</div>
-      ${db.can.write ? `<button class="btn" data-action="lif-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}
+      ${db.can.manage ? `<button class="btn" data-action="lif-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}
     </div>
     <div class="if-grid">
       <aside class="if-side">${milestoneCard(f)}${filesCard(f)}${historyCard(f)}</aside>
@@ -463,13 +467,19 @@ function stageDetalles(f) {
 }
 function stageSolicitud(f) {
   const idx = eightdStages(f).indexOf("solicitud"), cur = eightdStages(f).indexOf(f.status), ownerName = esc(db.profileName(f.owner_id));
+  if (f.status === "solicitud_rechazada") {
+    const note = `<div class="reject-note"><b>Rechazado por ${esc(db.profileName(f.solicitud_rejected_by))}</b> · ${fmtDateTime(f.solicitud_rejected_at)}<br>${esc(f.solicitud_reject_reason || "")}</div>`;
+    const controls = db.can.admin
+      ? `<div class="stage-actions"><button class="btn primary" data-action="e8-reject-accept" data-id="${f.id}">${icon("check2")} Aceptar el rechazo</button><button class="btn" data-action="e8-reject-reopen" data-id="${f.id}">${icon("swap")} Reabrir</button></div>`
+      : lock("Un administrador debe aceptar el rechazo (y reasignar responsable) o reabrir el hallazgo.");
+    return `<p class="muted" style="margin-bottom:10px">${esc(f.title)}</p>${note}${controls}`;
+  }
   if (idx > cur) return lock("Disponible cuando se defina la estrategia.");
   let controls;
   if (idx < cur) controls = `<div class="done-text">Aceptado por <b>${esc(db.profileName(f.accepted_by))}</b> · ${fmtDateTime(f.accepted_at)}</div>`;
-  else if (canActD(f)) controls = `<div class="stage-actions"><button class="btn primary" data-action="e8-accept" data-id="${f.id}">${icon("check2")} Aceptar hallazgo</button>${canTransfer(f) ? `<button class="btn" data-action="e8-transfer" data-id="${f.id}">${icon("swap")} Trasladar</button>` : ""}</div>${f.transfer_count > 0 ? lock("Este hallazgo ya fue trasladado una vez; no puede trasladarse de nuevo.") : ""}`;
+  else if (canActD(f)) controls = `<div class="stage-actions"><button class="btn primary" data-action="e8-accept" data-id="${f.id}">${icon("check2")} Aceptar hallazgo</button>${!f.solicitud_rejected_at ? `<button class="btn danger ghost" data-action="e8-reject" data-id="${f.id}">${icon("close")} Rechazar hallazgo</button>` : ""}${canTransfer(f) ? `<button class="btn" data-action="e8-transfer" data-id="${f.id}">${icon("swap")} Trasladar</button>` : ""}</div>${f.transfer_count > 0 ? lock("Este hallazgo ya fue trasladado una vez; no puede trasladarse de nuevo.") : ""}${f.solicitud_rejected_at ? lock("Este hallazgo ya fue rechazado una vez en esta etapa; no puede rechazarse de nuevo.") : ""}`;
   else controls = lock(`Solo <b>${ownerName}</b> (o un administrador) puede aceptar o trasladar este hallazgo.`);
-  const rejected = f.reject_count > 0 && f.status === "registro" ? "" : "";
-  return `<p class="muted" style="margin-bottom:10px">${esc(f.title)}</p>${rejected}${controls}`;
+  return `<p class="muted" style="margin-bottom:10px">${esc(f.title)}</p>${controls}`;
 }
 
 /* ------------------------------- D1…D8 ------------------------------ */
@@ -613,9 +623,19 @@ function stageD6(f, editable) {
 function rollAcrossPicker(f, editable) {
   const dk = `${f.id}:dd.additional.rollacross.targets`, v = drafts[dk] ?? f.d_data?.additional?.rollacross?.targets ?? [];
   const options = [...db.rows("areas").map((a2) => ({ id: `area:${a2.id}`, label: a2.name })), ...db.rows("processes").filter((p) => p.active).map((p) => ({ id: `process:${p.id}`, label: `${p.code} · ${p.name}` }))];
+  const byId = Object.fromEntries(options.map((o) => [o.id, o.label]));
+  const chosenLabels = v.map((id) => byId[id]).filter(Boolean);
+  const open = rcOpen[dk];
   return `<label class="field span-2" style="margin-top:10px"><span>Procesos/Áreas que comparten esta condición <i>*</i></span>
-    <div class="rc-check-list">${options.map((o) => `<label class="rc-check"><input type="checkbox" data-change="e8-rc-check" data-group="${dk}" value="${o.id}" ${v.includes(o.id) ? "checked" : ""}> ${esc(o.label)}</label>`).join("")}</div></label>`;
+    <div class="rc-dropdown">
+      <button type="button" class="btn sm rc-trigger" data-action="e8-rc-toggle" data-key="${dk}" ${editable ? "" : "disabled"}>${chosenLabels.length ? esc(chosenLabels.length === 1 ? chosenLabels[0] : `${chosenLabels.length} seleccionados`) : "— Elegir procesos/áreas —"} <span class="rc-care">▾</span></button>
+      <div class="rc-dropdown-panel ${open ? "" : "hidden"}">
+        <input type="text" class="input sm" placeholder="Buscar proceso o área…" data-input="e8-rc-search" data-key="${dk}" value="${esc(rcSearch[dk] || "")}">
+        <div class="rc-check-list">${options.filter((o) => !rcSearch[dk] || o.label.toLowerCase().includes(rcSearch[dk].toLowerCase())).map((o) => `<label class="rc-check"><input type="checkbox" data-change="e8-rc-check" data-group="${dk}" value="${o.id}" ${v.includes(o.id) ? "checked" : ""} ${editable ? "" : "disabled"}> ${esc(o.label)}</label>`).join("") || `<p class="muted" style="padding:8px">Sin resultados.</p>`}</div>
+      </div>
+    </div></label>`;
 }
+const rcOpen = {}, rcSearch = {};   // estado (por hallazgo) del desplegable de Roll-Across: abierto/cerrado y texto buscado
 function stageD8(f, editable) {
   const c = f.d_data?.closure4d || {};
   const reviewerKey = `${f.id}:dd.closure4d.__reviewer`, reviewerVal = drafts[reviewerKey] ?? f.reviewer_id ?? "";
@@ -690,7 +710,7 @@ function stageRevision(f, revStage) {
 function e8dStepBody(f, st) {
   if (st === "registro") return stageRegistro(f);
   if (st === "detalles") return stageDetalles(f);
-  if (st === "solicitud") return stageSolicitud(f);
+  if (st === "solicitud" || st === "solicitud_rechazada") return stageSolicitud(f);
   if (st === "d4_revision" || st === "d8_revision") return stageRevision(f, st);
   if (st === "verificacion") return stageVerificacion8D(f);
   if (st === "cerrado") return stageCerrado8D(f);
@@ -704,7 +724,7 @@ function e8dPageHTML(f) {
       <button class="btn ghost icon" data-action="if-back" aria-label="Volver a la lista">${icon("chevL")}</button>
       <div class="if-head-t"><span class="eyebrow mono">${esc(f.code)}</span><h1>${esc(f.title)}</h1></div>
       <div class="if-head-badges">${badge(FINDING_STATUS, f.status === "cerrado" ? "cerrado" : f.status === "verificacion" ? "verificacion" : "abierto")}${f.strategy_ps ? `<span class="badge" data-tone="info">${esc(f.strategy_ps)}</span>` : ""}${f.reject_count > 0 ? `<span class="badge" data-tone="danger">Rechazado ${f.reject_count}×</span>` : ""}</div>
-      ${db.can.write && f.status !== "registro" ? `<button class="btn" data-action="lif-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}
+      ${db.can.manage && f.status !== "registro" ? `<button class="btn" data-action="lif-edit" data-id="${f.id}">${icon("edit")} Editar</button>` : ""}
     </div>
     <div class="if-grid">
       <aside class="if-side">${milestoneCard(f)}${filesCard(f)}${historyCard(f)}</aside>
@@ -738,6 +758,15 @@ function e8dRejectForm(f) {
   });
 }
 
+function e8dSolicitudRejectForm(f) {
+  openForm({
+    eyebrow: f.code, title: "Rechazar hallazgo", submitLabel: "Rechazar",
+    intro: `<div class="note warn" style="margin-bottom:14px">Un administrador deberá aceptar el rechazo (y reasignar responsable) o reabrirlo. Solo se puede rechazar una vez.</div>`,
+    fields: [{ name: "reason", label: "Motivo del rechazo", type: "textarea", required: true, span2: true }],
+    onSubmit: async (v) => { await rejectSolicitud(f, v.reason.trim()); toast("Hallazgo rechazado · esperando a un administrador", "ok"); paint(); },
+  });
+}
+
 /* ------------------------------------- Eventos del 8D/4D ------------------------------------ */
 const setPath = (obj, path, val) => { const keys = path.split("."); let o = obj; for (let i = 0; i < keys.length - 1; i++) o = (o[keys[i]] ??= {}); o[keys[keys.length - 1]] = val; };
 onInput("e8-dd", (el) => { drafts[el.dataset.key] = el.value; });
@@ -766,6 +795,9 @@ on("e8-strategy-save", (el) => {
 });
 on("e8-accept", (el) => run(async () => { await acceptD(fnd(el.dataset.id)); viewStage = null; toast("Hallazgo aceptado · D1 Equipo", "ok"); }));
 on("e8-transfer", (el) => e8dTransferForm(fnd(el.dataset.id)));
+on("e8-reject", (el) => e8dSolicitudRejectForm(fnd(el.dataset.id)));
+on("e8-reject-accept", (el) => run(async () => { await acceptSolicitudRejection(fnd(el.dataset.id)); toast("Rechazo aceptado · vuelve a Registro para reasignar", "ok"); }));
+on("e8-reject-reopen", (el) => run(async () => { await reopenSolicitud(fnd(el.dataset.id)); toast("Hallazgo reabierto en Solicitud", "ok"); }));
 const ACTION_KEYS = ["containment", "immediate"];   // "corrective_plan" ya no pide evidencia (solo es el plan); "corrective_done"/"preventive" ahora se validan aparte (ver gateD6)
 const RC_REQUIRED_KEYS = new Set(["corrective_done", "preventive"]);   // las que sí piden causa raíz vinculada
 function clearActionDrafts(findingId) { for (const k of Object.keys(drafts)) if (k.startsWith(`${findingId}:act.`)) delete drafts[k]; }
@@ -830,6 +862,8 @@ onChange("e8-rc-check", (el) => {
   const group = el.dataset.group, checked = [...document.querySelectorAll(`[data-group="${CSS.escape(group)}"]:checked`)].map((c) => c.value);
   drafts[group] = checked;
 });
+on("e8-rc-toggle", (el) => { const k = el.dataset.key; rcOpen[k] = !rcOpen[k]; paint(); });
+onInput("e8-rc-search", (el) => { rcSearch[el.dataset.key] = el.value; rcOpen[el.dataset.key] = true; paint(); });
 on("rc-add", (el) => {
   const f = fnd(el.dataset.id), input = document.getElementById(`rc-new-${f.id}`), text = (input?.value || "").trim();
   if (!text) { toast("Describe la causa raíz antes de agregarla.", "danger"); return; }

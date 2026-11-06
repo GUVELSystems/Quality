@@ -45,7 +45,6 @@ registerWs({ id: "internas", label: WS_LABEL.internas, tabs: auditTabs() });
 registerWs({ id: "issues", label: WS_LABEL.issues, tabs: [
   { id: "notificaciones", label: "Notificaciones", icon: "bell", render: notifications.render, count: () => ({ n: db.rows("customer_notifications").filter((n) => db.get("findings", n.finding_id)?.status !== "cerrado").length }) },
   { id: "hallazgos", label: "Hallazgos", icon: "finding", render: findings.render, count: openF },
-  { id: "acciones", label: "Acciones", icon: "action", render: actions.render, count: lateA },
 ] });
 registerWs({ id: "riesgos", label: WS_LABEL.riesgos, hideTabs: true, tabs: [{ id: "riesgos", render: risks.render }] });
 registerWs({ id: "oportunidades", label: WS_LABEL.oportunidades, hideTabs: true, tabs: [{ id: "oportunidades", render: opportunities.render }] });

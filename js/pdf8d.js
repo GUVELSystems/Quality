@@ -180,7 +180,7 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
       }
       para("Problem:", ish.problem);
     } else {
-      const chain = (key, label) => { const r = d[key] || {}; table([label, "Why?", "Why?", "Why?", "Why? - Root Cause"], [["", r.why1, r.why2, r.why3, r.root_cause]]); };
+      const chain = (key, label) => { const r = d[key] || {}; table([label, "Why?", "Why?", "Why?", "Why?", "Why? - Root Cause"], [["", r.why1, r.why2, r.why3, r.why4, r.root_cause]]); };
       para(null, "Why did the defect occur?"); chain("why_occur", "");
       para(null, "Why was it not detected?"); chain("why_detect", "");
       para(null, "Why was it not prevented?"); chain("why_prevent", "");
@@ -202,9 +202,14 @@ export async function exportFinding8D4D(f, { preview = false } = {}) {
     ]);
     dBar("D8", "Congrats & 8D's Approved");
     para(null, "The team is recognized for their effort & collaboration in solving the problem.");
-    const c8 = d.closure8d || {};
-    kv([["Prepared By", c8.prepared_by], ["Reviewed By", c8.reviewed_by], ["Approved By", c8.approved_by]]);
-    kv([["Closing Date", fmtDate(c8.closing_date)], ["8D Report Status", c8.status || "Open"], ["Report No", f.code]]);
+    // El cierre del 8D (quién preparó, quién revisó/aprobó, fechas) vive en d_data.closure4d — el mismo
+    // cajón que usa el 4D — nunca en "closure8d" (esa clave nunca se llena desde el portal; por eso
+    // estos datos salían siempre vacíos aunque el hallazgo ya estuviera revisado y aprobado).
+    const c8 = d.closure4d || {};
+    kv([["Prepared By", db.profileName(c8.preparer_id || f.owner_id)], ["Date", fmtDate(c8.prepared_date)]]);
+    kv([["Reviewed By", c8.reviewed_by_id ? db.profileName(c8.reviewed_by_id) : "—"], ["Date", fmtDate(c8.reviewed_date)]]);
+    kv([["Approved By", c8.decision === "aprobado" && c8.reviewed_by_id ? db.profileName(c8.reviewed_by_id) : "—"], ["Closing Date", fmtDate(f.closed_at || f.verified_at)]]);
+    kv([["8D Report Status", closure4DStatus(f)], ["Report No", f.code]]);
   }
 
   // Verification

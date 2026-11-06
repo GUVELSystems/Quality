@@ -9,9 +9,9 @@ const TEXT = {
   transferred: (f) => [`Te trasladaron el hallazgo ${f.code}`, "Acéptalo y registra la acción para cerrarlo a tiempo."],
   rejected: (f) => [`Verificación rechazada: ${f.code}`, f.rejection_reason ? `Motivo: ${f.rejection_reason}` : "Corrige y vuelve a cerrar las acciones."],
   verify: (f) => [`Hallazgo ${f.code} listo para verificar`, "El responsable cerró las acciones; acepta o rechaza la verificación."],
-  review_requested: (f) => [`Te asignaron revisar el 4D ${f.code}`, "Entra a revisarlo y da tu aprobación o rechazo."],
-  review_approved: (f) => [`Tu 4D ${f.code} fue revisado y aprobado`, "Pasa a verificación."],
-  review_rejected: (f) => [`Tu 4D ${f.code} fue revisado y rechazado`, f.d_data?.closure4d?.review_notes ? `Motivo: ${f.d_data.closure4d.review_notes}` : "Corrige las acciones y vuelve a enviarlo a revisar."],
+  review_requested: (f) => [`Te asignaron revisar el reporte ${f.code}`, "Entra a revisarlo y da tu aprobación o rechazo."],
+  review_approved: (f) => [`Tu reporte ${f.code} fue revisado y aprobado`, "Pasa a verificación."],
+  review_rejected: (f) => [`Tu reporte ${f.code} fue revisado y rechazado`, f.d_data?.closure4d?.review_notes ? `Motivo: ${f.d_data.closure4d.review_notes}` : "Corrige las acciones y vuelve a enviarlo a revisar."],
 };
 
 /** Quién recibe el aviso: el responsable (asignado, trasladado, rechazado), los administradores (verificar),

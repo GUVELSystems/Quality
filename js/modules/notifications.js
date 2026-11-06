@@ -14,13 +14,18 @@ import { on, onChange, onInput, badge, empty, openDrawer, openForm, toast } from
 import { SEVERITY, FINDING_STATUS } from "../constants.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts, clientOpts, mapOpts, clientName, catNameOpts } from "./shared.js";
+import { areaOptions } from "../workflow.js";
 
 const F = { q: "", client: "", type: "" };
 let drawer = null, drawerId = null;
 /** El tipo (Queja, Devolución…) vive en el catálogo "Origen de Issues" (Config → Catálogos) */
 const typesOf = () => catNameOpts("origen_issues");
-const statusTone = (f) => (!f ? "neutral" : f.status === "cerrado" ? "ok" : "info");
-const statusLabel = (f) => (!f ? "—" : f.status === "cerrado" ? "Cerrado" : "En proceso");
+/** El estado de la notificación refleja la etapa real del hallazgo — no solo "cerrado o no" — para que
+ *  se vea, por ejemplo, "En revisión" en cuanto se envía a revisar (antes se quedaba en "En proceso"). */
+const FINDING_STAGE_TONE = { cerrado: "ok", verificacion: "info", d4_revision: "info", d8_revision: "info" };
+const FINDING_STAGE_TEXT = { cerrado: "Cerrado", verificacion: "En verificación", d4_revision: "En revisión", d8_revision: "En revisión" };
+const statusTone = (f) => (!f ? "neutral" : FINDING_STAGE_TONE[f.status] || "info");
+const statusLabel = (f) => (!f ? "—" : FINDING_STAGE_TEXT[f.status] || "En proceso");
 
 const fields = () => [
   { name: "client_id", label: "Cliente", type: "select", required: true, options: clientOpts() },
@@ -29,6 +34,7 @@ const fields = () => [
   { name: "description", label: "Descripción / detalle del cliente", type: "textarea", span2: true },
   { name: "part_number", label: "Número de parte" },
   { name: "quantity", label: "Cantidad afectada", type: "number", min: 0 },
+  { name: "area_id", label: "Proceso/Área", type: "select", options: areaOptions() },
   { name: "severity", label: "Severidad", type: "select", required: true, options: mapOpts(SEVERITY) },
   { name: "owner_id", label: "Responsable", type: "select", options: userOpts() },
   { name: "received_at", label: "Fecha de recepción", type: "date", required: true },
@@ -42,18 +48,25 @@ function newNotifForm(defaultType) {
     submitLabel: "Registrar",
     intro: `<div class="note" style="margin-bottom:14px">Al registrarla se genera de una vez su Hallazgo; ahí se elige la estrategia (8D o 4D) y se da seguimiento.</div>`,
     onSubmit: async (v) => {
+      const { area_id, ...notif } = v;   // area_id es del Hallazgo, no de la notificación — no vive en esa tabla
       const typeLabel = typesOf().find(([k]) => k === v.notification_type)?.[1] || v.notification_type;
-      const f = await db.insert("findings", { module: "issues", title: `[${typeLabel}] ${v.subject}`, description: v.description || null, client_id: v.client_id, source: v.notification_type, owner_id: v.owner_id || null, status: "registro" });
-      const r = await db.insert("customer_notifications", { ...v, finding_id: f.id });
+      const f = await db.insert("findings", { module: "issues", title: `[${typeLabel}] ${v.subject}`, description: v.description || null, client_id: v.client_id, source: v.notification_type, area_id: area_id || null, owner_id: v.owner_id || null, status: "registro" });
+      const r = await db.insert("customer_notifications", { ...notif, finding_id: f.id });
       toast(`Notificación ${r.code} registrada · Hallazgo ${f.code} creado`, "ok");
       await refresh();
     },
   });
 }
 function editNotifForm(n) {
+  const finding = db.get("findings", n.finding_id);
   openForm({
-    eyebrow: n.code, title: "Editar notificación", size: "wide", fields: fields(), values: n, submitLabel: "Guardar",
-    onSubmit: async (v) => { await db.update("customer_notifications", n.id, v); toast("Notificación actualizada", "ok"); await refresh(); },
+    eyebrow: n.code, title: "Editar notificación", size: "wide", fields: fields(), values: { ...n, area_id: finding?.area_id || "" }, submitLabel: "Guardar",
+    onSubmit: async (v) => {
+      const { area_id, ...notif } = v;
+      await db.update("customer_notifications", n.id, notif);
+      if (finding && (finding.area_id || null) !== (area_id || null)) await db.update("findings", finding.id, { area_id: area_id || null });
+      toast("Notificación actualizada", "ok"); await refresh();
+    },
     onDelete: db.can.manage ? async () => { await db.remove("customer_notifications", n.id); drawer?.close(); await refresh(); } : null,
   });
 }
@@ -76,9 +89,9 @@ function drawerHTML(n) {
     </dl>
     ${finding ? `<a class="btn primary" style="margin-top:18px" href="#/issues/hallazgos/${finding.id}">${icon("finding")} Ir al Hallazgo (${esc(finding.code)})</a>`
       : `<div class="note" style="margin-top:18px">Esta notificación no tiene un Hallazgo vinculado.</div>`}
-    ${attachmentsSection("notification", n.id, { title: "Evidencias y documentos del cliente" })}
+    ${attachmentsSection("notification", n.id, { title: "Evidencias y documentos del cliente", canEdit: db.can.manage })}
   </div>
-  ${db.can.write ? `<div class="dialog-foot"><button class="btn" data-action="n-edit" data-id="${n.id}">${icon("edit")} Editar</button></div>` : ""}`;
+  ${db.can.manage ? `<div class="dialog-foot"><button class="btn" data-action="n-edit" data-id="${n.id}">${icon("edit")} Editar</button></div>` : ""}`;
 }
 
 function openNotif(id) {

@@ -646,9 +646,15 @@ table.tpl-grid input:focus { outline: 2px solid var(--flow); outline-offset: -2p
 .seg-mini-opt { padding: 5px 14px; font-size: 12.5px; font-weight: 600; background: var(--surface-2); color: var(--text-2); border: 0; cursor: pointer; }
 .seg-mini-opt.active { background: var(--flow-soft); color: var(--flow-ink); }
 .seg-mini-opt:not(.active):hover { background: var(--surface-3); }
-.rc-check-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-.rc-check { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 400; cursor: pointer; }
+.rc-check-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; max-height: 220px; overflow-y: auto; }
+.rc-check { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 400; cursor: pointer; padding: 5px 6px; border-radius: var(--r); }
+.rc-check:hover { background: var(--surface-2); }
 .rc-check input { margin: 0; }
+.rc-dropdown { position: relative; margin-top: 4px; }
+.rc-trigger { width: 100%; justify-content: space-between; display: flex; align-items: center; font-weight: 400; text-align: left; }
+.rc-trigger .rc-care { color: var(--text-2); font-size: 11px; }
+.rc-dropdown-panel { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-float); padding: 10px; }
+.rc-dropdown-panel.hidden { display: none; }
 .impl-row { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
 .impl-row:last-child { border-bottom: 0; }
 .impl-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 8px; }
@@ -691,3 +697,8 @@ table.tpl-grid input:focus { outline: 2px solid var(--flow); outline-offset: -2p
 td.insp-cell-ok { background: var(--ok-soft); }
 td.insp-cell-bad { background: var(--stop-soft); }
 @media (max-width: 1100px) { .insp-rec-grid { grid-template-columns: 1fr; } .insp-dl { grid-template-columns: 1fr; } }
+
+/* Input de archivo oculto visualmente (no con el atributo "hidden", que en algunos navegadores se
+   comporta de forma inconsistente al activarse desde una <label>) — sigue en el documento y es
+   completamente interactivo, solo invisible. */
+.sr-file-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

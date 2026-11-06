@@ -25,7 +25,14 @@ const isIssues = () => wsId() === "issues";
 /** Auditorías Internas e Issues comparten el flujo Registro → Detalles → Solicitud → 8D/4D */
 const usesEightD = () => ["internas", "issues"].includes(wsId());
 /** Orígenes activos del catálogo (Reclamación de cliente, Auditoría externa…): cada uno es su propia sección */
-const issuesOrigins = () => catNameOpts("origen_issues").map(([v]) => v);
+/** Las pestañas de origen son el catálogo "Origen de Issues" + cualquier otro valor que ya exista
+ *  realmente en los hallazgos (p. ej. un tipo de notificación nuevo que alguien haya agregado al
+ *  catálogo de Configuración después) — así ningún hallazgo se queda sin pestaña donde aparecer. */
+const issuesOrigins = () => {
+  const fromCatalog = catNameOpts("origen_issues").map(([v]) => v);
+  const fromData = findingsOf("issues").map((f) => f.source).filter(Boolean);
+  return [...new Set([...fromCatalog, ...fromData])];
+};
 /** Origen seleccionado (sección activa); si cambió el catálogo, cae al primero disponible */
 function currentOrigin() {
   const origins = issuesOrigins();

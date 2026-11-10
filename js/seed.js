@@ -78,10 +78,12 @@ export function buildSeed() {
     ["Producción", "¿El área cumple con el estándar 5S?", false],
   ]);
   const D = (nominal, tol_plus, tol_minus, unit, decimals) => ({ kind: "dimension", nominal, tol_plus, tol_minus, unit, decimals });
+  const A = { kind: "dimension_atributo" };   // Dimensión Atributo: pasa/no pasa (roscas, go/no-go…), sin nominal ni tolerancia
   const fPRO = addForm("FOR-PRO-001", "Auditoría de producto terminado", "Producto", [
     ["Calidad", "Diámetro exterior", true, D(12, 0.021, null, "mm", 3)],
     ["Calidad", "Longitud total", true, D(45, 0.1, 0.05, "mm", 2)],
     ["Calidad", "Espesor de pared", false, D(2.5, 0.05, null, "mm", 2)],
+    ["Calidad", "Rosca M8 x 1.25 (calibre go/no-go)", true, A],
     ["Calidad", "¿El aspecto visual cumple con el criterio de aceptación?", false],
     ["Logística", "¿El empaque e identificación cumplen con el requisito del cliente?", true],
     ["Calidad", "¿Los registros de inspección están completos y firmados?", false],

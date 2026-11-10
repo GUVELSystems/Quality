@@ -191,6 +191,11 @@ const originLink = (f) => {
   const audit = db.get("audits", f.audit_id), notif = db.rows("customer_notifications").find((n) => n.finding_id === f.id);
   return audit ? `<a href="#/${auditWs(audit)}/audit/${audit.id}">${esc(audit.code)}</a>` : notif ? `<a href="#/issues/notificaciones/${notif.id}">${esc(notif.code)}</a>` : "—";
 };
+/** Proceso auditado, tomado de la auditoría de origen (si la hay y tiene proceso asignado) */
+const processOf = (f) => {
+  const audit = db.get("audits", f.audit_id), proc = audit?.process_id ? db.get("processes", audit.process_id) : null;
+  return proc ? `${esc(proc.code)} · ${esc(proc.name)}` : "—";
+};
 
 function stageHTML(f, st) {
   const cur = STAGES.indexOf(stageOf(f)), idx = STAGES.indexOf(st), act = canAct(f);
@@ -206,6 +211,7 @@ function stageHTML(f, st) {
     } else if (f.accepted_at) controls = `<div class="done-text">Aceptado por <b>${esc(db.profileName(f.accepted_by))}</b> · ${fmtDateTime(f.accepted_at)}</div>`;
     const rejected = f.reject_count > 0 && f.status === "abierto" ? `<div class="reject-note"><b>Verificación rechazada${f.rejected_at ? " el " + fmtDateTime(f.rejected_at) : ""}</b><br>${esc(f.rejection_reason || "")}<br><span class="muted">El hallazgo se reabrió y el milestone de cierre continúa con el tiempo que le quedaba.</span></div>` : "";
     return `${rejected}<dl class="detail-grid">
+      <div><dt>ID</dt><dd class="mono">${esc(f.code)}</dd></div><div><dt>Proceso</dt><dd>${processOf(f)}</dd></div>
       <div class="span-2"><dt>Descripción</dt><dd>${f.description ? esc(f.description) : '<span class="muted">Sin descripción</span>'}</dd></div>
       <div><dt>Responsable</dt><dd>${userCell(db.get("profiles", f.owner_id))}${f.status === "abierto" && f.owner_id ? ' <span class="badge" data-tone="warn">Por aceptar</span>' : ""}</dd></div>
       <div><dt>Clasificación</dt><dd>${classBadge(f)} <span class="muted">${esc(classOf(f)?.name || "")}</span></dd></div>

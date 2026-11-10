@@ -1,13 +1,21 @@
 /* =====================================================================
-   Dimensiones (solo auditorías de Producto)
-   Un punto de tipo "Dimensión" no se responde con Cumple / No cumple: se captura el valor
-   medido y el portal lo compara con la especificación  nominal ± tolerancia.
-   Ej.: Diámetro 12.000 ± 0.021 mm  →  rango 11.979 – 12.021 (los límites SÍ cumplen).
+   Secciones de un formato de Producto: Dimensión Variable, Dimensión Atributo, Inspección
+   · Dimensión Variable: no se responde Cumple / No cumple; se captura el valor medido y el
+     portal lo compara con la especificación nominal ± tolerancia.
+     Ej.: Diámetro 12.000 ± 0.021 mm  →  rango 11.979 – 12.021 (los límites SÍ cumplen).
+   · Dimensión Atributo: para características de pasa/no pasa (roscas, go/no-go, etc.):
+     se responde como una inspección normal, pero el veredicto se etiqueta OK / NO OK.
+   · Inspección: se responde Cumple / No cumple, como siempre.
    ===================================================================== */
 
-export const KINDS = { dimension: "Dimensión", inspeccion: "Inspección" };
-export const SECTION_ORDER = ["dimension", "inspeccion"];
+export const KINDS = { dimension: "Dimensión Variable", dimension_atributo: "Dimensión Atributo", inspeccion: "Inspección" };
+export const SECTION_ORDER = ["dimension", "dimension_atributo", "inspeccion"];
+/** Punto de Dimensión Variable: requiere valor medido + nominal/tolerancia */
 export const isDimension = (it) => it?.kind === "dimension";
+/** Punto de Dimensión Atributo: se responde OK/NO OK, sin nominal ni tolerancia */
+export const isDimAtributo = (it) => it?.kind === "dimension_atributo";
+/** Cualquiera de las dos secciones de Dimensión (comparten el campo "Descripción") */
+export const isDimLike = (it) => isDimension(it) || isDimAtributo(it);
 
 const blank = (v) => v === null || v === undefined || String(v).trim() === "";
 /** Número a partir de texto del usuario (acepta coma decimal); null si no es un número válido */

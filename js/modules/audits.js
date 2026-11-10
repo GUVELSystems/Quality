@@ -7,7 +7,7 @@ import { on, onChange, onInput, badge, pill, empty, openForm, openDialog, confir
 import { AUDIT_STATUS } from "../constants.js";
 import { classOptions, dueFor, deadlineFields, resolveOwner, levelOptions, levelLabel, classBadge, overdueKind, areaOptions } from "../workflow.js";
 import { notifyFindings } from "../notify.js";
-import { isDimension, parseValue, dimEval, dimSpec, specText, rangeText as dimRange, fmtNum, KINDS, SECTION_ORDER } from "../dimension.js";
+import { isDimension, isDimAtributo, parseValue, dimEval, dimSpec, specText, rangeText as dimRange, fmtNum, KINDS, SECTION_ORDER } from "../dimension.js";
 import { attachmentsSection, hooks } from "./attachments.js";
 import { userOpts } from "./shared.js";
 import { t as tr } from "../i18n.js";
@@ -371,8 +371,11 @@ function initDraft(audit) {
   db.rows("audit_answers").filter((a) => a.audit_id === audit.id).forEach((a) => (draft.answers[a.item_id] = { result: a.result, comment: a.comment || "", class_id: a.class_id || "", finding_id: a.finding_id, value: a.value ?? "" }));
 }
 const RES = { ok: "Cumple", nok: "No cumple", na: "N/A" };
+const RES_ATRIB = { ok: "OK", nok: "NO OK", na: "N/A" };
+/** Dimensión Atributo se etiqueta OK/NO OK; el resto (Inspección) sigue como Cumple/No cumple */
+const resLabels = (it) => (isDimAtributo(it) ? RES_ATRIB : RES);
 const areaName = (it) => db.get("areas", it.area_id)?.name || it.section || "General";
-const isProductForm = (items) => items.some(isDimension);          // Dimensión solo existe en formatos de Producto
+const isProductForm = (form) => form?.audit_type === "Producto";   // Dimensión/Inspección solo existen en formatos de Producto
 const sectionName = (it, product) => (product ? KINDS[it.kind] || KINDS.inspeccion : areaName(it));
 
 /** Evalúa un punto de dimensión con el texto capturado: actualiza resultado y devuelve el veredicto */
@@ -424,10 +427,11 @@ function questionHTML(it, readonly, audit) {
   const a = draft.answers[it.id] || {}, f = db.get("findings", a.finding_id), nok = a.result === "nok";
   const ptype = db.get("audit_plans", audit.plan_id)?.audit_type, copts = classOptions([ptype]);
   if (isDimension(it)) return dimensionHTML(it, readonly, audit, a, f, nok, copts, ptype);
+  const RL = resLabels(it);
   return `<div class="q" id="q_${it.id}" data-result="${a.result || ""}">
     <div class="q-text"><span>${esc(it.question)}</span>${it.clause ? `<span class="q-clause mono">${esc(it.clause)}</span>` : ""}${it.critical ? '<span class="badge" data-tone="danger">Crítica</span>' : ""}</div>
-    ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RES[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${nok && f ? ` ${classBadge(f)}` : ""}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado · responsable ${esc(db.profileName(f.owner_id))}</span></div>` : ""}</div>`
-    : `<div class="seg" role="group">${Object.entries(RES).map(([v, l]) => `<button type="button" data-action="au-ans" data-item="${it.id}" data-v="${v}" aria-pressed="${a.result === v}">${l}</button>`).join("")}</div>
+    ${readonly ? `<div style="margin-top:10px">${a.result ? `<span class="badge" data-tone="${a.result === "ok" ? "ok" : a.result === "nok" ? "danger" : "neutral"}">${RL[a.result]}</span>` : '<span class="muted">Sin responder</span>'}${nok && f ? ` ${classBadge(f)}` : ""}${a.comment ? `<div class="muted" style="margin-top:8px">${esc(a.comment)}</div>` : ""}${f ? `<div style="margin-top:8px"><a class="mono" href="${H("hallazgos/" + f.id)}">${esc(f.code)}</a> <span class="muted">hallazgo generado · responsable ${esc(db.profileName(f.owner_id))}</span></div>` : ""}</div>`
+    : `<div class="seg" role="group">${Object.entries(RL).map(([v, l]) => `<button type="button" data-action="au-ans" data-item="${it.id}" data-v="${v}" aria-pressed="${a.result === v}">${l}</button>`).join("")}</div>
        <div class="q-nok ${nok ? "" : "hidden"}">
          <label class="field" style="margin-top:12px;max-width:340px"><span>Clasificación <i>*</i></span>
            <select class="select" data-change="au-class" data-item="${it.id}"><option value="">Seleccionar clasificación</option>${copts.map(([v, l]) => `<option value="${v}" ${v === a.class_id ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
@@ -458,7 +462,7 @@ function auditView(root, id) {
     eyebrow: `${plan?.code || "Auditoría"} · ${plan?.audit_type || ""}`, title: audit.code, subtitle: form ? `${form.code} · ${form.name}` : "Sin formato asignado",
     actions: `<a class="btn" href="${H(plan ? "plan/" + plan.id : "lista")}">${icon("chevL")} ${plan ? "Calendario" : "Auditorías"}</a>${db.can.manage ? `<button class="btn" data-action="au-edit" data-id="${audit.id}">${icon("edit")} Programación</button>` : ""}${audit.status === "completada" && db.can.manage ? `<button class="btn" data-action="au-reopen" data-id="${audit.id}">Reabrir</button>` : ""}`,
   });
-  const product = isProductForm(items);
+  const product = isProductForm(form);
   const sections = product ? SECTION_ORDER.map((k) => KINDS[k]).filter((n) => items.some((i) => sectionName(i, true) === n)) : [...new Set(items.map(areaName))];
   const linked = db.rows("findings").filter((f) => f.audit_id === audit.id);
   root.innerHTML = `<div class="grid cols-main" style="align-items:start">
@@ -584,7 +588,7 @@ on("au-finish", async (el) => {
     for (const it of noks) {
       const ans = draft.answers[it.id];
       const base = {
-        title: isDimension(it) ? `${audit.code} · ${it.question} fuera de tolerancia`.slice(0, 160) : `${audit.code} · ${it.question.replace(/[¿?]/g, "").trim()}`.slice(0, 160) + " (No cumple)",
+        title: isDimension(it) ? `${audit.code} · ${it.question} fuera de tolerancia`.slice(0, 160) : `${audit.code} · ${it.question.replace(/[¿?]/g, "").trim()}`.slice(0, 160) + (isDimAtributo(it) ? " (NO OK)" : " (No cumple)"),
         description: isDimension(it) ? `${ans.comment}\nValor medido: ${ans.value} ${dimSpec(it).unit} · especificación ${specText(it)} (rango ${dimRange(it)})` : ans.comment,
         source: "auditoria", module: ws, area_id: it.area_id || null, area: db.get("areas", it.area_id)?.name || null, audit_id: audit.id,
       };
